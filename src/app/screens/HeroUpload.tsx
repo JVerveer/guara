@@ -37,9 +37,7 @@ export function HeroUpload() {
               className="h-1.5 w-1.5 animate-pulse rounded-full"
               style={{ backgroundColor: theme.brand.primary }}
             />
-            <span
-              style={{ fontSize: '12px', fontWeight: 600, color: theme.brand.primary }}
-            >
+            <span style={{ fontSize: '12px', fontWeight: 600, color: theme.brand.primary }}>
               AI-powered vendor risk analysis
             </span>
           </div>
@@ -69,17 +67,22 @@ export function HeroUpload() {
           Drop vendor documents below or start with a sample package.
         </p>
 
-        <div className="relative">
-          <div className="pointer-events-none absolute -left-8 top-8 hidden flex-col gap-2 xl:flex">
-            {FLOAT_DOCS.slice(0, 3).map((doc) => (
+        <div className="relative isolate">
+          {/* Floating docs — deliberately above and overlapping the dropzone */}
+          <div className="pointer-events-none absolute -left-6 top-8 z-50 hidden flex-col gap-2 xl:flex">
+            {FLOAT_DOCS.slice(0, 3).map((doc, index) => (
               <div
                 key={doc.label}
-                style={{ background: doc.color, borderColor: doc.border }}
-                className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-75 shadow-sm"
+                style={{
+                  background: doc.color,
+                  borderColor: doc.border,
+                  transform: `translateX(${index === 1 ? '-10px' : index === 2 ? '8px' : '0px'})`,
+                }}
+                className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-95 shadow-lg backdrop-blur-sm"
               >
                 <span style={{ fontSize: '13px' }}>{doc.icon}</span>
                 <span
-                  style={{ fontSize: '11px', fontWeight: 500, color: theme.neutral.textSecondary }}
+                  style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.textSecondary }}
                   className="whitespace-nowrap"
                 >
                   {doc.label}
@@ -88,16 +91,20 @@ export function HeroUpload() {
             ))}
           </div>
 
-          <div className="pointer-events-none absolute -right-8 top-10 hidden flex-col gap-2 xl:flex">
-            {FLOAT_DOCS.slice(3).map((doc) => (
+          <div className="pointer-events-none absolute -right-6 top-12 z-50 hidden flex-col gap-2 xl:flex">
+            {FLOAT_DOCS.slice(3).map((doc, index) => (
               <div
                 key={doc.label}
-                style={{ background: doc.color, borderColor: doc.border }}
-                className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-75 shadow-sm"
+                style={{
+                  background: doc.color,
+                  borderColor: doc.border,
+                  transform: `translateX(${index === 0 ? '8px' : '-8px'})`,
+                }}
+                className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-95 shadow-lg backdrop-blur-sm"
               >
                 <span style={{ fontSize: '13px' }}>{doc.icon}</span>
                 <span
-                  style={{ fontSize: '11px', fontWeight: 500, color: theme.neutral.textSecondary }}
+                  style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.textSecondary }}
                   className="whitespace-nowrap"
                 >
                   {doc.label}
@@ -125,7 +132,7 @@ export function HeroUpload() {
               setDragOver(false);
               addFiles(Array.from(event.dataTransfer.files));
             }}
-            className="flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-9 shadow-sm transition-all duration-200 sm:p-12"
+            className="relative z-10 flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-9 shadow-sm transition-all duration-200 sm:p-12"
             style={{
               backgroundColor: dragOver ? theme.brand.primaryLight : theme.neutral.surface,
               borderColor: dragOver ? theme.brand.primary : theme.neutral.border,
@@ -197,7 +204,7 @@ export function HeroUpload() {
           </div>
 
           {files.length > 0 && (
-            <div className="mt-3 space-y-1.5">
+            <div className="relative z-20 mt-3 space-y-1.5">
               {files.map((file) => (
                 <div
                   key={file}
@@ -234,7 +241,7 @@ export function HeroUpload() {
             </div>
           )}
 
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <div className="relative z-20 mt-4 flex flex-col gap-3 sm:flex-row">
             <button
               type="button"
               onClick={startSample}
@@ -290,7 +297,7 @@ export function HeroUpload() {
 
           <p
             style={{ fontSize: '12px', color: theme.neutral.textMuted }}
-            className="mt-3 text-center"
+            className="relative z-20 mt-3 text-center"
           >
             No signup required to try the sample package.
           </p>
