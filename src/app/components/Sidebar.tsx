@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useApp, type Page } from '../contexts/AppContext';
 import { GuaraLogo } from '../components/ui/GuaraLogo';
+import { theme } from '../../styles/theme';
 
 interface NavItem {
   id: Page;
@@ -41,8 +42,26 @@ const RESULTS_PAGES: Page[] = ['overview', 'vendors', 'gaps', 'evidence', 'conce
 
 export function Sidebar() {
   const { page, navigate, hasResults, reset, sidebarOpen, setSidebarOpen } = useApp();
-  const inResults = RESULTS_PAGES.includes(page);
-  const navItems = (inResults || hasResults) && RESULTS_PAGES.includes(page) ? RESULTS_ITEMS : LANDING_ITEMS;
+
+  const getLandingItemStyle = (id: Page): React.CSSProperties => {
+    const active = page === id;
+
+    return {
+      fontSize: '14px',
+      color: active ? '#FFFFFF' : theme.sidebar.textMuted,
+      backgroundColor: active ? 'rgba(255,255,255,0.10)' : 'transparent',
+    };
+  };
+
+  const getResultsItemStyle = (id: Page): React.CSSProperties => {
+    const active = page === id;
+
+    return {
+      fontSize: '14px',
+      color: active ? theme.sidebar.activeText : theme.sidebar.textMuted,
+      backgroundColor: active ? theme.sidebar.activeBackground : 'transparent',
+    };
+  };
 
   return (
     <>
@@ -55,20 +74,25 @@ export function Sidebar() {
 
       <aside
         className={`
-          fixed left-0 top-0 z-50 flex h-full w-[240px] flex-col bg-[#0F172A]
+          fixed left-0 top-0 z-50 flex h-full w-[240px] flex-col
           transition-transform duration-300
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           md:static md:z-auto md:translate-x-0
         `}
+        style={{ backgroundColor: theme.sidebar.background }}
       >
-        <div className="flex h-16 flex-shrink-0 items-center justify-between border-b border-white/10 px-5">
+        <div
+          className="flex h-16 flex-shrink-0 items-center justify-between px-5"
+          style={{ borderBottom: `1px solid ${theme.sidebar.border}` }}
+        >
           <button onClick={() => navigate('home')} className="flex items-center">
             <GuaraLogo />
           </button>
 
           <button
             onClick={() => setSidebarOpen(false)}
-            className="text-slate-400 transition-colors hover:text-white md:hidden"
+            className="transition-colors hover:text-white md:hidden"
+            style={{ color: theme.sidebar.textMuted }}
           >
             <X className="h-5 w-5" />
           </button>
@@ -77,8 +101,13 @@ export function Sidebar() {
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-6">
             <p
-              style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.08em' }}
-              className="mb-2 px-3 uppercase text-slate-500"
+              style={{
+                fontSize: '10px',
+                fontWeight: 600,
+                letterSpacing: '0.08em',
+                color: theme.sidebar.textMuted,
+              }}
+              className="mb-2 px-3 uppercase"
             >
               Menu
             </p>
@@ -87,12 +116,8 @@ export function Sidebar() {
               <button
                 key={id}
                 onClick={() => navigate(id)}
-                className={`mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                  page === id
-                    ? 'bg-white/10 text-white'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-                }`}
-                style={{ fontSize: '14px' }}
+                className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/5 hover:text-slate-200"
+                style={getLandingItemStyle(id)}
               >
                 <Icon className="h-4 w-4 flex-shrink-0" />
                 {label}
@@ -103,8 +128,13 @@ export function Sidebar() {
           {hasResults && (
             <div>
               <p
-                style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.08em' }}
-                className="mb-2 px-3 uppercase text-slate-500"
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 600,
+                  letterSpacing: '0.08em',
+                  color: theme.sidebar.textMuted,
+                }}
+                className="mb-2 px-3 uppercase"
               >
                 Sample Analysis
               </p>
@@ -113,12 +143,8 @@ export function Sidebar() {
                 <button
                   key={id}
                   onClick={() => navigate(id)}
-                  className={`mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                    page === id
-                      ? 'bg-[#2563EB]/20 text-[#60A5FA]'
-                      : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-                  }`}
-                  style={{ fontSize: '14px' }}
+                  className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/5 hover:text-slate-200"
+                  style={getResultsItemStyle(id)}
                 >
                   <Icon className="h-4 w-4 flex-shrink-0" />
                   {label}
@@ -128,12 +154,15 @@ export function Sidebar() {
           )}
         </nav>
 
-        <div className="flex-shrink-0 space-y-2 border-t border-white/10 px-3 py-4">
+        <div
+          className="flex-shrink-0 space-y-2 px-3 py-4"
+          style={{ borderTop: `1px solid ${theme.sidebar.border}` }}
+        >
           {hasResults && (
             <button
               onClick={reset}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-200"
-              style={{ fontSize: '13px' }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-white/5 hover:text-slate-200"
+              style={{ fontSize: '13px', color: theme.sidebar.textMuted }}
             >
               <RotateCcw className="h-4 w-4" />
               Start over
@@ -141,7 +170,7 @@ export function Sidebar() {
           )}
 
           <div className="px-3 py-2">
-            <p style={{ fontSize: '11px' }} className="text-slate-600">
+            <p style={{ fontSize: '11px', color: theme.sidebar.textMuted }}>
               © 2026 Guara
             </p>
           </div>
