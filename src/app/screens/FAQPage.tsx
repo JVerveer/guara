@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { FAQS } from '../data/constants';
+import { theme } from '../../styles/theme';
 
 export function FAQPage() {
   const [open, setOpen] = useState<number | null>(0);
@@ -8,34 +9,150 @@ export function FAQPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+        {/* Header */}
         <div className="mb-8">
-          <p style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.08em' }} className="text-[#2563EB] uppercase mb-2">Help</p>
-          <h1 style={{ fontSize: 'clamp(22px, 3vw, 30px)', fontWeight: 700, letterSpacing: '-0.02em' }} className="text-[#0F172A] mb-2">Frequently asked questions</h1>
-          <p style={{ fontSize: '15px', lineHeight: 1.6 }} className="text-[#64748B]">Everything you need to know about Guara.</p>
+          <p
+            style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              color: theme.brand.primary,
+            }}
+            className="uppercase mb-2"
+          >
+            FAQ
+          </p>
+
+          <h1
+            style={{
+              fontSize: 'clamp(22px, 3vw, 30px)',
+              fontWeight: 700,
+              letterSpacing: '-0.02em',
+              color: theme.neutral.text,
+            }}
+            className="mb-2"
+          >
+            Frequently asked questions
+          </h1>
+
+          <p
+            style={{
+              fontSize: '15px',
+              lineHeight: 1.6,
+              color: theme.neutral.textSecondary,
+            }}
+          >
+            Everything you need to know about Guara.
+          </p>
         </div>
 
+        {/* FAQ Items */}
         <div className="space-y-2">
           {FAQS.map(({ q, a }, i) => (
-            <div key={q} className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-sm">
+            <div
+              key={q}
+              className="rounded-xl overflow-hidden shadow-sm"
+              style={{
+                backgroundColor: theme.neutral.surface,
+                border: `1px solid ${theme.neutral.border}`,
+              }}
+            >
               <button
                 onClick={() => setOpen(open === i ? null : i)}
-                className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-[#F8FAFC] transition-colors"
+                className="w-full flex items-center justify-between px-5 py-4 text-left transition-colors"
+                style={{
+                  backgroundColor:
+                    open === i ? theme.brand.primaryLight : theme.neutral.surface,
+                }}
               >
-                <span style={{ fontSize: '14px', fontWeight: 500 }} className="text-[#0F172A] pr-4">{q}</span>
-                <ChevronDown className={`w-4 h-4 text-[#94A3B8] flex-shrink-0 transition-transform duration-200 ${open === i ? 'rotate-180' : ''}`} />
+                <span
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: theme.neutral.text,
+                  }}
+                  className="pr-4"
+                >
+                  {q}
+                </span>
+
+                <ChevronDown
+                  className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${
+                    open === i ? 'rotate-180' : ''
+                  }`}
+                  style={{
+                    color:
+                      open === i
+                        ? theme.brand.primary
+                        : theme.neutral.textMuted,
+                  }}
+                />
               </button>
+
               {open === i && (
-                <div className="px-5 pb-4 border-t border-[#F1F5F9]">
-                  <p style={{ fontSize: '13px', lineHeight: 1.7 }} className="text-[#64748B] pt-3">{a}</p>
+                <div
+                  className="px-5 pb-4"
+                  style={{
+                    borderTop: `1px solid ${theme.neutral.border}`,
+                  }}
+                >
+                  <p
+                    style={{
+                      fontSize: '13px',
+                      lineHeight: 1.7,
+                      color: theme.neutral.textSecondary,
+                    }}
+                    className="pt-3"
+                  >
+                    {a}
+                  </p>
                 </div>
               )}
             </div>
           ))}
         </div>
 
-        <div className="mt-6 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-4 text-center">
-          <p style={{ fontSize: '13px' }} className="text-[#64748B]">Still have questions?</p>
-          <p style={{ fontSize: '13px', fontWeight: 500 }} className="text-[#2563EB] mt-0.5 cursor-pointer hover:underline">hello@guara.io</p>
+        {/* CTA */}
+        <div
+          className="mt-6 rounded-xl p-5 text-center"
+          style={{
+            backgroundColor: theme.brand.primaryLight,
+            border: `1px solid ${theme.brand.primaryBorder}`,
+          }}
+        >
+          <p
+            style={{
+              fontSize: '14px',
+              fontWeight: 600,
+              color: theme.neutral.text,
+            }}
+          >
+            Building your DORA programme?
+          </p>
+
+          <p
+            style={{
+              fontSize: '13px',
+              lineHeight: 1.6,
+              color: theme.neutral.textSecondary,
+            }}
+            className="mt-2"
+          >
+            Upload a sample package and see how Guara identifies technology
+            dependencies, concentration risk, digital sovereignty concerns,
+            AI Act exposure, and regulatory gaps.
+          </p>
+
+          <p
+            style={{
+              fontSize: '13px',
+              fontWeight: 700,
+              color: theme.brand.primary,
+            }}
+            className="mt-3 cursor-pointer hover:underline"
+          >
+            hello@guara.io
+          </p>
         </div>
       </div>
     </div>
