@@ -21,7 +21,7 @@ export function HeroUpload() {
 
   return (
     <div className="flex flex-col items-center justify-center h-full px-4 py-6 overflow-y-auto">
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-3xl">
         <div className="flex justify-center mb-5">
           <div className="inline-flex items-center gap-2 bg-[#EFF6FF] border border-[#BFDBFE] rounded-full px-3 py-1">
             <div className="w-1.5 h-1.5 rounded-full bg-[#2563EB] animate-pulse" />
@@ -33,7 +33,7 @@ export function HeroUpload() {
 
         <h1
           style={{
-            fontSize: 'clamp(24px, 4vw, 40px)',
+            fontSize: 'clamp(24px, 4vw, 42px)',
             fontWeight: 700,
             lineHeight: 1.15,
             letterSpacing: '-0.025em',
@@ -47,37 +47,43 @@ export function HeroUpload() {
 
         <p
           style={{ fontSize: '15px', lineHeight: 1.6 }}
-          className="text-[#64748B] text-center mb-6 max-w-lg mx-auto"
+          className="text-[#64748B] text-center mb-7 max-w-xl mx-auto"
         >
           Start with a sample package or upload contracts, SOC reports, certificates, and vendor lists.
           Guara identifies gaps, risks, and audit readiness automatically.
         </p>
 
         <div className="relative">
-          <div className="absolute -left-2 top-4 hidden xl:flex flex-col gap-1.5 pointer-events-none">
+          <div className="absolute -left-8 top-8 hidden xl:flex flex-col gap-2 pointer-events-none">
             {FLOAT_DOCS.slice(0, 3).map((doc) => (
               <div
                 key={doc.label}
                 style={{ background: doc.color, borderColor: doc.border }}
-                className="border rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 shadow-sm opacity-75"
+                className="border rounded-xl px-3 py-2 flex items-center gap-2 shadow-sm opacity-75"
               >
-                <span style={{ fontSize: '12px' }}>{doc.icon}</span>
-                <span style={{ fontSize: '10px', fontWeight: 500 }} className="text-[#334155] whitespace-nowrap">
+                <span style={{ fontSize: '13px' }}>{doc.icon}</span>
+                <span
+                  style={{ fontSize: '11px', fontWeight: 500 }}
+                  className="text-[#334155] whitespace-nowrap"
+                >
                   {doc.label}
                 </span>
               </div>
             ))}
           </div>
 
-          <div className="absolute -right-2 top-6 hidden xl:flex flex-col gap-1.5 pointer-events-none">
+          <div className="absolute -right-8 top-10 hidden xl:flex flex-col gap-2 pointer-events-none">
             {FLOAT_DOCS.slice(3).map((doc) => (
               <div
                 key={doc.label}
                 style={{ background: doc.color, borderColor: doc.border }}
-                className="border rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 shadow-sm opacity-75"
+                className="border rounded-xl px-3 py-2 flex items-center gap-2 shadow-sm opacity-75"
               >
-                <span style={{ fontSize: '12px' }}>{doc.icon}</span>
-                <span style={{ fontSize: '10px', fontWeight: 500 }} className="text-[#334155] whitespace-nowrap">
+                <span style={{ fontSize: '13px' }}>{doc.icon}</span>
+                <span
+                  style={{ fontSize: '11px', fontWeight: 500 }}
+                  className="text-[#334155] whitespace-nowrap"
+                >
                   {doc.label}
                 </span>
               </div>
@@ -96,7 +102,7 @@ export function HeroUpload() {
               addFiles(Array.from(e.dataTransfer.files));
             }}
             onClick={openFilePicker}
-            className={`bg-white border-2 border-dashed rounded-2xl p-6 sm:p-8 cursor-pointer transition-all duration-200 shadow-sm ${
+            className={`bg-white border-2 border-dashed rounded-3xl p-9 sm:p-12 min-h-[300px] cursor-pointer transition-all duration-200 shadow-sm flex flex-col items-center justify-center ${
               dragOver
                 ? 'border-[#2563EB] bg-[#EFF6FF] scale-[1.01]'
                 : 'border-[#E2E8F0] hover:border-[#93C5FD]'
@@ -111,25 +117,25 @@ export function HeroUpload() {
               onChange={(e) => e.target.files && addFiles(Array.from(e.target.files))}
             />
 
-            <div className="w-10 h-10 bg-[#EFF6FF] rounded-xl flex items-center justify-center mx-auto mb-3">
-              <Upload className="w-5 h-5 text-[#2563EB]" />
+            <div className="w-14 h-14 bg-[#EFF6FF] rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Upload className="w-7 h-7 text-[#2563EB]" />
             </div>
 
-            <p style={{ fontSize: '16px', fontWeight: 600 }} className="text-[#0F172A] text-center mb-1">
+            <p style={{ fontSize: '20px', fontWeight: 700 }} className="text-[#0F172A] text-center mb-2">
               Drop compliance documents here
             </p>
 
-            <p style={{ fontSize: '13px' }} className="text-[#94A3B8] text-center mb-3">
+            <p style={{ fontSize: '14px' }} className="text-[#94A3B8] text-center mb-5">
               PDF · DOCX · XLSX · CSV · ZIP
             </p>
 
-            <div className="flex flex-wrap gap-1.5 justify-center">
+            <div className="flex flex-wrap gap-2 justify-center max-w-xl">
               {['Contracts', 'Vendor Lists', 'Questionnaires', 'SOC Reports', 'ISO Certificates', 'DORA Registers'].map(
                 (t) => (
                   <span
                     key={t}
-                    style={{ fontSize: '11px', fontWeight: 500 }}
-                    className="bg-[#F1F5F9] text-[#64748B] px-2 py-0.5 rounded-full"
+                    style={{ fontSize: '12px', fontWeight: 500 }}
+                    className="bg-[#F1F5F9] text-[#64748B] px-3 py-1 rounded-full"
                   >
                     {t}
                   </span>
@@ -139,7 +145,7 @@ export function HeroUpload() {
           </div>
 
           {files.length > 0 && (
-            <div className="mt-2 space-y-1.5">
+            <div className="mt-3 space-y-1.5">
               {files.map((f) => (
                 <div
                   key={f}
@@ -203,21 +209,26 @@ export function HeroUpload() {
             Not ready to upload sensitive files? Start with the sample DORA package first.
           </p>
 
-          <div className="mt-6 grid grid-cols-3 gap-3">
-            {[
-              ['43', 'Vendors found'],
-              ['12', 'Critical vendors'],
-              ['8', 'DORA gaps'],
-            ].map(([value, label]) => (
-              <div key={label} className="bg-white border border-[#E2E8F0] rounded-xl p-3 text-center shadow-sm">
-                <div style={{ fontSize: '20px', fontWeight: 700 }} className="text-[#0F172A]">
-                  {value}
+          <div className="mt-6 bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm">
+            <p
+              style={{ fontSize: '13px', fontWeight: 600 }}
+              className="text-[#0F172A] text-center mb-3"
+            >
+              Try the sample package to see what Guara generates
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {['Vendor inventory', 'Missing evidence report', 'DORA gap analysis'].map((label) => (
+                <div
+                  key={label}
+                  className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2 text-center"
+                >
+                  <span style={{ fontSize: '12px', fontWeight: 500 }} className="text-[#64748B]">
+                    {label}
+                  </span>
                 </div>
-                <div style={{ fontSize: '11px', fontWeight: 500 }} className="text-[#64748B]">
-                  {label}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </div>
