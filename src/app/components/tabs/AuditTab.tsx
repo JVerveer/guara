@@ -1,14 +1,17 @@
+import { useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
   Download,
-  FileText,
   Package,
   ShieldCheck,
 } from 'lucide-react';
 import { Badge } from '../Badge';
 import { useApp } from '../../contexts/AppContext';
+import { ConversionModal } from '../ui/ConversionModal';
+
+type ConversionIntent = 'save' | 'export' | 'upload';
 
 const AUDIT_ITEMS = [
   { label: 'Technology Dependency Map', pages: 8, type: 'Board Pack' },
@@ -52,6 +55,7 @@ const BOARD_RECOMMENDATIONS: Record<string, string[]> = {
 
 export function AuditTab() {
   const { activeScenario } = useApp();
+  const [modalIntent, setModalIntent] = useState<ConversionIntent | null>(null);
 
   const totalPages = AUDIT_ITEMS.reduce((sum, item) => sum + item.pages, 0);
   const recommendations = BOARD_RECOMMENDATIONS[activeScenario.id] ?? BOARD_RECOMMENDATIONS.default;
@@ -77,6 +81,7 @@ export function AuditTab() {
 
         <button
           type="button"
+          onClick={() => setModalIntent('export')}
           className="flex items-center gap-1.5 rounded-xl bg-[#2563EB] px-4 py-2 text-white shadow-sm transition-colors hover:bg-[#1D4ED8]"
           style={{ fontSize: '12px', fontWeight: 700 }}
         >
@@ -265,7 +270,11 @@ export function AuditTab() {
 
               <Badge level="Ready" />
 
-              <button type="button" className="ml-1 p-1 text-[#64748B] transition-colors hover:text-[#2563EB]">
+              <button
+                type="button"
+                onClick={() => setModalIntent('export')}
+                className="ml-1 p-1 text-[#64748B] transition-colors hover:text-[#2563EB]"
+              >
                 <Download className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -290,6 +299,12 @@ export function AuditTab() {
           </div>
         </div>
       </div>
+
+      <ConversionModal
+        open={modalIntent !== null}
+        intent={modalIntent ?? 'export'}
+        onClose={() => setModalIntent(null)}
+      />
     </div>
   );
 }
