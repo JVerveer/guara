@@ -5,7 +5,6 @@ import {
   Network,
   ShieldCheck,
   Sparkles,
-  Zap,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { PROCESSING_STEPS, SAMPLE_DOCS } from '../data/constants';
@@ -16,37 +15,36 @@ export function ProcessingScreen() {
   const totalMs = PROCESSING_STEPS.reduce((a, s) => a + s.duration, 0);
   const doneSoFar = PROCESSING_STEPS.slice(0, stepsDone).reduce((a, s) => a + s.duration, 0);
   const progress = Math.min(100, Math.round((doneSoFar / totalMs) * 100));
-
   const activeStep = PROCESSING_STEPS[stepsDone]?.label ?? 'Finalising analysis';
 
   return (
-    <div className="h-full overflow-y-auto bg-[#F8FAFC]">
-      <div className="flex min-h-full flex-col items-center justify-start px-4 py-6 sm:justify-center">
+    <div className="h-full overflow-hidden bg-[#F8FAFC]">
+      <div className="flex h-full flex-col items-center justify-center px-4 py-4">
         <div className="w-full max-w-3xl">
-          <div className="mb-6 text-center">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1">
+          <div className="mb-4 text-center">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1">
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#2563EB]" />
-              <span style={{ fontSize: '12px', fontWeight: 500 }} className="text-[#2563EB]">
+              <span style={{ fontSize: '11px', fontWeight: 600 }} className="text-[#2563EB]">
                 Sample risk package · live analysis
               </span>
             </div>
 
             <h2
-              style={{ fontSize: 'clamp(22px, 3vw, 32px)', fontWeight: 700, letterSpacing: '-0.03em' }}
-              className="mb-2 text-[#0F172A]"
+              style={{ fontSize: 'clamp(20px, 3vw, 28px)', fontWeight: 700, letterSpacing: '-0.03em' }}
+              className="mb-1 text-[#0F172A]"
             >
               Building your technology risk picture
             </h2>
 
-            <p style={{ fontSize: '14px', lineHeight: 1.6 }} className="mx-auto max-w-xl text-[#64748B]">
-              Guara is reading the package, identifying vendors, mapping dependencies, and checking for
-              concentration, data residency, and regulatory gaps.
+            <p style={{ fontSize: '12px', lineHeight: 1.5 }} className="mx-auto max-w-xl text-[#64748B]">
+              Guara is identifying vendors, mapping dependencies, and checking concentration, data residency,
+              and regulatory gaps.
             </p>
           </div>
 
-          <div className="mb-4 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="mb-3 grid gap-3 lg:grid-cols-[0.95fr_1.05fr]">
             <div className="overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-[#F1F5F9] px-4 py-3">
+              <div className="flex items-center justify-between border-b border-[#F1F5F9] px-4 py-2.5">
                 <div className="flex items-center gap-2">
                   <FileSearch className="h-4 w-4 text-[#2563EB]" />
                   <span style={{ fontSize: '12px', fontWeight: 700 }} className="text-[#0F172A]">
@@ -67,17 +65,17 @@ export function ProcessingScreen() {
                   return (
                     <div
                       key={doc.name}
-                      className={`flex items-center gap-2 px-4 py-2.5 transition-all duration-300 ${
+                      className={`flex items-center gap-2 px-4 py-2 transition-all duration-300 ${
                         done || active ? 'opacity-100' : 'opacity-35'
                       }`}
                     >
-                      <span style={{ fontSize: '15px' }}>{doc.icon}</span>
+                      <span style={{ fontSize: '14px' }}>{doc.icon}</span>
 
                       <div className="min-w-0 flex-1">
-                        <p style={{ fontSize: '11px', fontWeight: 600 }} className="truncate text-[#0F172A]">
+                        <p style={{ fontSize: '10.5px', fontWeight: 600 }} className="truncate text-[#0F172A]">
                           {doc.name}
                         </p>
-                        <p style={{ fontSize: '10px' }} className="text-[#94A3B8]">
+                        <p style={{ fontSize: '9.5px' }} className="text-[#94A3B8]">
                           {doc.type}
                         </p>
                       </div>
@@ -99,7 +97,7 @@ export function ProcessingScreen() {
               <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#2563EB]/20 blur-3xl" />
               <div className="pointer-events-none absolute -bottom-16 -left-16 h-40 w-40 rounded-full bg-[#7C3AED]/20 blur-3xl" />
 
-              <div className="relative mb-4 flex items-center gap-2">
+              <div className="relative mb-3 flex items-center gap-2">
                 <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-[#2563EB]">
                   <Sparkles className="h-4 w-4 text-white" />
                 </div>
@@ -124,7 +122,7 @@ export function ProcessingScreen() {
                 </div>
               </div>
 
-              <div className="relative space-y-2.5">
+              <div className="relative space-y-1.5">
                 {PROCESSING_STEPS.map((step, index) => {
                   const done = index < stepsDone;
                   const active = index === stepsDone;
@@ -132,7 +130,7 @@ export function ProcessingScreen() {
                   return (
                     <div
                       key={step.label}
-                      className={`flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-all duration-300 ${
+                      className={`flex items-center gap-2.5 rounded-xl px-2 py-1 transition-all duration-300 ${
                         active ? 'bg-white/5' : ''
                       } ${done || active ? 'opacity-100' : 'opacity-25'}`}
                     >
@@ -150,7 +148,7 @@ export function ProcessingScreen() {
                       </div>
 
                       <span
-                        style={{ fontSize: '12px' }}
+                        style={{ fontSize: '11.5px' }}
                         className={
                           done
                             ? 'text-slate-500 line-through'
@@ -161,47 +159,37 @@ export function ProcessingScreen() {
                       >
                         {step.label}
                       </span>
-
-                      {done && (
-                        <span style={{ fontSize: '10px' }} className="ml-auto text-green-400">
-                          done
-                        </span>
-                      )}
                     </div>
                   );
                 })}
               </div>
+
+              <div className="relative mt-4 grid grid-cols-2 gap-2">
+                {[
+                  { icon: Network, label: 'Dependencies', value: stepsDone > 2 ? 'Active' : 'Queued' },
+                  { icon: ShieldCheck, label: 'Readiness', value: stepsDone > 4 ? 'Active' : 'Queued' },
+                ].map(({ icon: Icon, label, value }) => (
+                  <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-2">
+                    <div className="mb-1 flex items-center gap-1.5">
+                      <Icon className="h-3.5 w-3.5 text-[#93C5FD]" />
+                      <span style={{ fontSize: '10.5px', fontWeight: 700 }} className="text-white">
+                        {label}
+                      </span>
+                    </div>
+
+                    <span
+                      style={{ fontSize: '10px', fontWeight: 600 }}
+                      className={value === 'Active' ? 'text-[#93C5FD]' : 'text-slate-500'}
+                    >
+                      {value}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {[
-              { icon: Network, label: 'Mapping dependencies', value: stepsDone > 2 ? 'Active' : 'Queued' },
-              { icon: ShieldCheck, label: 'Checking readiness', value: stepsDone > 4 ? 'Active' : 'Queued' },
-              { icon: Zap, label: 'Generating insights', value: stepsDone > 5 ? 'Active' : 'Queued' },
-            ].map(({ icon: Icon, label, value }) => (
-              <div key={label} className="rounded-2xl border border-[#E2E8F0] bg-white p-3 shadow-sm">
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#EFF6FF]">
-                    <Icon className="h-3.5 w-3.5 text-[#2563EB]" />
-                  </div>
-
-                  <span style={{ fontSize: '11px', fontWeight: 700 }} className="text-[#0F172A]">
-                    {label}
-                  </span>
-                </div>
-
-                <span
-                  style={{ fontSize: '11px', fontWeight: 600 }}
-                  className={value === 'Active' ? 'text-[#2563EB]' : 'text-[#94A3B8]'}
-                >
-                  {value}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div className="rounded-2xl border border-[#E2E8F0] bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-[#E2E8F0] bg-white p-3 shadow-sm">
             <div className="mb-2 flex justify-between">
               <span style={{ fontSize: '12px', fontWeight: 600 }} className="text-[#64748B]">
                 Analysis progress
@@ -218,8 +206,8 @@ export function ProcessingScreen() {
               />
             </div>
 
-            <p style={{ fontSize: '11px' }} className="mt-2 text-[#94A3B8]">
-              This is a sample analysis. No sensitive company documents are required.
+            <p style={{ fontSize: '10.5px' }} className="mt-1.5 text-[#94A3B8]">
+              Sample analysis. No sensitive company documents required.
             </p>
           </div>
         </div>
