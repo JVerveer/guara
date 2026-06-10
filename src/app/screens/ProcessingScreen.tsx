@@ -10,12 +10,14 @@ import { useApp } from '../contexts/AppContext';
 import { PROCESSING_STEPS, SAMPLE_DOCS } from '../data/constants';
 
 export function ProcessingScreen() {
-  const { stepsDone } = useApp();
+  const { stepsDone, activeScenario } = useApp();
 
-  const totalMs = PROCESSING_STEPS.reduce((a, s) => a + s.duration, 0);
-  const doneSoFar = PROCESSING_STEPS.slice(0, stepsDone).reduce((a, s) => a + s.duration, 0);
+  const totalMs = PROCESSING_STEPS.reduce((a, step) => a + step.duration, 0);
+  const doneSoFar = PROCESSING_STEPS.slice(0, stepsDone).reduce((a, step) => a + step.duration, 0);
   const progress = Math.min(100, Math.round((doneSoFar / totalMs) * 100));
   const activeStep = PROCESSING_STEPS[stepsDone]?.label ?? 'Finalising analysis';
+
+  const visibleDocs = SAMPLE_DOCS.slice(0, Math.min(SAMPLE_DOCS.length, activeScenario.documents));
 
   return (
     <div className="h-full overflow-hidden bg-[#F8FAFC]">
@@ -25,7 +27,7 @@ export function ProcessingScreen() {
             <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1">
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#2563EB]" />
               <span style={{ fontSize: '11px', fontWeight: 600 }} className="text-[#2563EB]">
-                Sample risk package · live analysis
+                {activeScenario.name} · {activeScenario.documents} documents · {activeScenario.vendors} vendors
               </span>
             </div>
 
@@ -37,8 +39,8 @@ export function ProcessingScreen() {
             </h2>
 
             <p style={{ fontSize: '12px', lineHeight: 1.5 }} className="mx-auto max-w-xl text-[#64748B]">
-              Guara is identifying vendors, mapping dependencies, and checking concentration, data residency,
-              and regulatory gaps.
+              Guara is analysing a sample {activeScenario.industry.toLowerCase()} risk package and checking for
+              vendor dependency, concentration, data residency, and regulatory gaps.
             </p>
           </div>
 
@@ -53,12 +55,12 @@ export function ProcessingScreen() {
                 </div>
 
                 <span style={{ fontSize: '11px' }} className="text-[#94A3B8]">
-                  {SAMPLE_DOCS.length} files
+                  {activeScenario.documents} files
                 </span>
               </div>
 
               <div className="divide-y divide-[#F8FAFC]">
-                {SAMPLE_DOCS.map((doc, index) => {
+                {visibleDocs.map((doc, index) => {
                   const done = index < stepsDone;
                   const active = index === stepsDone;
 
@@ -166,8 +168,16 @@ export function ProcessingScreen() {
 
               <div className="relative mt-4 grid grid-cols-2 gap-2">
                 {[
-                  { icon: Network, label: 'Dependencies', value: stepsDone > 2 ? 'Active' : 'Queued' },
-                  { icon: ShieldCheck, label: 'Readiness', value: stepsDone > 4 ? 'Active' : 'Queued' },
+                  {
+                    icon: Network,
+                    label: 'Dependencies',
+                    value: stepsDone > 2 ? `${activeScenario.criticalVendors} critical` : 'Queued',
+                  },
+                  {
+                    icon: ShieldCheck,
+                    label: 'Readiness',
+                    value: stepsDone > 4 ? `${activeScenario.readinessScore}/100` : 'Queued',
+                  },
                 ].map(({ icon: Icon, label, value }) => (
                   <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-2">
                     <div className="mb-1 flex items-center gap-1.5">
@@ -179,7 +189,7 @@ export function ProcessingScreen() {
 
                     <span
                       style={{ fontSize: '10px', fontWeight: 600 }}
-                      className={value === 'Active' ? 'text-[#93C5FD]' : 'text-slate-500'}
+                      className={value === 'Queued' ? 'text-slate-500' : 'text-[#93C5FD]'}
                     >
                       {value}
                     </span>
@@ -207,7 +217,7 @@ export function ProcessingScreen() {
             </div>
 
             <p style={{ fontSize: '10.5px' }} className="mt-1.5 text-[#94A3B8]">
-              Sample analysis. No sensitive company documents required.
+              Sample analysis: {activeScenario.headlineFinding}
             </p>
           </div>
         </div>
