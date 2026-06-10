@@ -1,33 +1,38 @@
 import { AppProvider, useApp } from './contexts/AppContext';
-import { Nav } from './components/Nav';
-import { Footer } from './components/Footer';
+import { Sidebar } from './components/Sidebar';
+import { TopBar } from './components/TopBar';
 import { HeroUpload } from './screens/HeroUpload';
+import { HowItWorksPage } from './screens/HowItWorksPage';
+import { SecurityPage } from './screens/SecurityPage';
+import { FAQPage } from './screens/FAQPage';
 import { ProcessingScreen } from './screens/ProcessingScreen';
 import { ResultsDashboard } from './screens/ResultsDashboard';
-import { HowItWorks } from './sections/HowItWorks';
-import { Security } from './sections/Security';
-import { FAQ } from './sections/FAQ';
+
+const RESULT_PAGES = ['overview', 'vendors', 'gaps', 'evidence', 'concentration', 'audit'];
 
 function AppShell() {
-  const { appState } = useApp();
+  const { page } = useApp();
+
+  const isResultPage = RESULT_PAGES.includes(page);
 
   return (
-    <div className="min-h-screen" style={{ background: '#F8FAFC' }}>
-      <Nav />
+    <div className="flex h-screen overflow-hidden bg-[#F8FAFC]">
+      <Sidebar />
 
-      {appState === 'idle' && (
-        <>
-          <HeroUpload />
-          <HowItWorks />
-          <Security />
-          <FAQ />
-          <Footer />
-        </>
-      )}
+      {/* Main area */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <TopBar />
 
-      {appState === 'processing' && <ProcessingScreen />}
-
-      {appState === 'results' && <ResultsDashboard />}
+        {/* Content panel — fills remaining height, no outer scroll */}
+        <main className="flex-1 overflow-hidden relative">
+          {page === 'home' && <HeroUpload />}
+          {page === 'how-it-works' && <HowItWorksPage />}
+          {page === 'security' && <SecurityPage />}
+          {page === 'faq' && <FAQPage />}
+          {page === 'processing' && <ProcessingScreen />}
+          {isResultPage && <ResultsDashboard />}
+        </main>
+      </div>
     </div>
   );
 }

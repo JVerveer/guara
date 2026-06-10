@@ -1,27 +1,50 @@
 import { createContext, useContext, useState, useRef, type ReactNode } from 'react';
-import { type AppState, PROCESSING_STEPS } from '../data/constants';
+import { PROCESSING_STEPS } from '../data/constants';
+
+export type Page =
+  | 'home'
+  | 'how-it-works'
+  | 'security'
+  | 'faq'
+  | 'processing'
+  | 'overview'
+  | 'vendors'
+  | 'gaps'
+  | 'evidence'
+  | 'concentration'
+  | 'audit';
 
 interface AppContextValue {
-  appState: AppState;
+  page: Page;
+  navigate: (p: Page) => void;
   stepsDone: number;
+  sidebarOpen: boolean;
+  setSidebarOpen: (v: boolean) => void;
   startSample: () => void;
   reset: () => void;
+  hasResults: boolean;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [appState, setAppState] = useState<AppState>('idle');
+  const [page, setPage] = useState<Page>('home');
   const [stepsDone, setStepsDone] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [hasResults, setHasResults] = useState(false);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const navigate = (p: Page) => {
+    setPage(p);
+    setSidebarOpen(false);
+  };
 
   const startSample = () => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
-
-    setAppState('processing');
     setStepsDone(0);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setPage('processing');
+    setSidebarOpen(false);
 
     let cumulative = 0;
     PROCESSING_STEPS.forEach((step, i) => {
@@ -30,24 +53,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       timersRef.current.push(t);
     });
 
-    const total = cumulative + 600;
     const finalTimer = setTimeout(() => {
-      setAppState('results');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, total);
+      setHasResults(true);
+      setPage('overview');
+    }, cumulative + 600);
     timersRef.current.push(finalTimer);
   };
 
   const reset = () => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
-    setAppState('idle');
+    setPage('home');
     setStepsDone(0);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setHasResults(false);
+    setSidebarOpen(false);
   };
 
   return (
-    <AppContext.Provider value={{ appState, stepsDone, startSample, reset }}>
+    <AppContext.Provider value={{ page, navigate, stepsDone, sidebarOpen, setSidebarOpen, startSample, reset, hasResults }}>
       {children}
     </AppContext.Provider>
   );
