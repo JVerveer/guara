@@ -76,12 +76,27 @@ export function HeroUpload() {
       return;
     }
 
-    const unsupported = incoming.find((file) => !isSupportedFile(file));
+    const supportedFiles = incoming.filter(isSupportedFile);
+    const unsupportedFiles = incoming.filter((file) => !isSupportedFile(file));
 
-    if (unsupported) {
+    if (unsupportedFiles.length > 0) {
+      const fileNames = unsupportedFiles
+        .slice(0, 3)
+        .map((file) => `"${file.webkitRelativePath || file.name}"`)
+        .join(', ');
+
+      const remainingCount = unsupportedFiles.length - 3;
+
       setUploadError(
-        `"${unsupported.name}" is not supported. Please upload PDF, DOCX, XLSX, CSV, ZIP, TXT, MD, or JSON files.`
+        `${fileNames}${remainingCount > 0 ? ` and ${remainingCount} more` : ''} ${
+          unsupportedFiles.length === 1 ? 'is' : 'are'
+        } not supported and ${
+          unsupportedFiles.length === 1 ? 'was' : 'were'
+        } skipped. Supported files were still added. Please upload PDF, DOCX, XLSX, CSV, ZIP, TXT, MD, or JSON files.`
       );
+    }
+
+    if (supportedFiles.length === 0) {
       return;
     }
 
@@ -90,7 +105,7 @@ export function HeroUpload() {
         prev.map((file) => `${file.name}-${file.size}-${file.lastModified}`)
       );
 
-      const nextFiles = incoming.filter((file) => {
+      const nextFiles = supportedFiles.filter((file) => {
         const key = `${file.name}-${file.size}-${file.lastModified}`;
 
         if (existingKeys.has(key)) {
