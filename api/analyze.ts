@@ -29,11 +29,11 @@ export default async function handler(
     console.log('[api/analyze] Started');
 
     const { extractUploadedDocuments } = await import(
-      '../src/analysis/server/extractUploadedDocuments'
+      '../src/analysis/server/extractUploadedDocuments.ts'
     );
 
     const { buildServerAnalysisResult } = await import(
-      '../src/analysis/server/buildServerAnalysisResult'
+      '../src/analysis/server/buildServerAnalysisResult.ts'
     );
 
     const parsedDocuments = await extractUploadedDocuments(request);
