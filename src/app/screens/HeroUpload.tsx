@@ -2,12 +2,14 @@ import { useRef, useState } from 'react';
 import { ArrowRight, BarChart3, FileText, Upload, X } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { FLOAT_DOCS } from '../data/constants';
+import { SAMPLE_SCENARIOS } from '../../analysis/sampleAnalysis';
 import { theme } from '../../styles/theme';
 
 export function HeroUpload() {
   const { startSample } = useApp();
   const [dragOver, setDragOver] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
+  const [showSamples, setShowSamples] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasFiles = files.length > 0;
@@ -285,7 +287,7 @@ export function HeroUpload() {
           <div className="relative z-20 mt-4 flex flex-col gap-3 sm:flex-row">
             <button
               type="button"
-              onClick={startSample}
+              onClick={() => setShowSamples((open) => !open)}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors"
               style={{
                 fontSize: '14px',
@@ -302,7 +304,7 @@ export function HeroUpload() {
               }}
             >
               <BarChart3 className="h-4 w-4" />
-              Try Sample Package
+              {showSamples ? 'Hide Sample Packages' : 'Try Sample Package'}
             </button>
 
             <button
@@ -338,6 +340,107 @@ export function HeroUpload() {
               )}
             </button>
           </div>
+
+          {showSamples && (
+            <div
+              className="relative z-20 mt-4 rounded-2xl border p-3"
+              style={{
+                backgroundColor: theme.neutral.surface,
+                borderColor: theme.neutral.border,
+                boxShadow: theme.shadow.card,
+              }}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      color: theme.neutral.text,
+                    }}
+                  >
+                    Choose a sample package
+                  </p>
+                  <p
+                    style={{
+                      fontSize: '11px',
+                      color: theme.neutral.textMuted,
+                    }}
+                  >
+                    Run one of 10 demo companies with different risk profiles.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                {SAMPLE_SCENARIOS.map((scenario) => (
+                  <button
+                    key={scenario.id}
+                    type="button"
+                    onClick={() => startSample(scenario.id)}
+                    className="rounded-xl border p-3 text-left transition-colors"
+                    style={{
+                      backgroundColor: theme.neutral.background,
+                      borderColor: theme.neutral.border,
+                    }}
+                    onMouseEnter={(event) => {
+                      event.currentTarget.style.borderColor = theme.brand.primaryBorder;
+                      event.currentTarget.style.backgroundColor = theme.brand.primaryLight;
+                    }}
+                    onMouseLeave={(event) => {
+                      event.currentTarget.style.borderColor = theme.neutral.border;
+                      event.currentTarget.style.backgroundColor = theme.neutral.background;
+                    }}
+                  >
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 800,
+                          color: theme.neutral.text,
+                        }}
+                      >
+                        {scenario.name}
+                      </span>
+
+                      <span
+                        className="rounded-full px-2 py-0.5"
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          backgroundColor: theme.brand.primaryLight,
+                          color: theme.brand.primary,
+                        }}
+                      >
+                        {scenario.readinessScore}/100
+                      </span>
+                    </div>
+
+                    <p
+                      style={{
+                        fontSize: '11px',
+                        lineHeight: 1.45,
+                        color: theme.neutral.textSecondary,
+                      }}
+                    >
+                      {scenario.industry} · {scenario.documents} docs · {scenario.vendors} vendors ·{' '}
+                      {scenario.criticalVendors} critical
+                    </p>
+
+                    <p
+                      className="mt-1 truncate"
+                      style={{
+                        fontSize: '10.5px',
+                        color: theme.neutral.textMuted,
+                      }}
+                    >
+                      {scenario.headlineFinding}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <p
             style={{ fontSize: '12px', color: theme.neutral.textMuted }}
