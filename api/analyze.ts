@@ -6,8 +6,8 @@ import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 
-import { buildAnalysisResultFromDocuments } from '../../src/analysis/builders/buildAnalysisResult';
-import type { ParsedDocument } from '../../src/analysis/ingestion/types';
+import { buildAnalysisResultFromDocuments } from '../src/analysis/builders/buildAnalysisResult';
+import type { ParsedDocument } from '../src/analysis/ingestion/types';
 
 export const config = {
   api: {

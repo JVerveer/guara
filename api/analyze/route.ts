@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { analyzeServerPackage } from '../../analysis/server/analyzeServerPackage';
+import { analyzeServerPackage } from '../../src/analysis/server/analyzeServerPackage';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
