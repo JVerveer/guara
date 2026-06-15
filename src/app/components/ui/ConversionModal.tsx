@@ -8,8 +8,10 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { useState } from 'react';
 import { useApp } from '../../contexts/AppContext';
 import { theme } from '../../../styles/theme';
+import { downloadRiskReportPdf } from '../../../reports/downloadRiskReportPdf';
 
 type ConversionIntent = 'save' | 'export' | 'upload';
 
@@ -61,6 +63,7 @@ export function ConversionModal({
   onClose,
 }: ConversionModalProps) {
   const { activeScenario } = useApp();
+  const [downloading, setDownloading] = useState(false);
 
   if (!open) {
     return null;
@@ -68,6 +71,20 @@ export function ConversionModal({
 
   const copy = INTENT_COPY[intent];
   const Icon = copy.icon;
+
+  const handlePrimaryClick = async () => {
+    if (intent !== 'export') {
+      return;
+    }
+
+    try {
+      setDownloading(true);
+      await downloadRiskReportPdf(activeScenario);
+      onClose();
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div
@@ -264,55 +281,59 @@ export function ConversionModal({
             ))}
           </div>
 
-          <div className="mb-3">
-            <label
-              htmlFor="conversion-email"
-              style={{
-                fontSize: '11px',
-                fontWeight: 700,
-                color: theme.neutral.textSecondary,
-              }}
-              className="mb-1.5 block"
-            >
-              Work email
-            </label>
-
-            <div
-              className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
-              style={{
-                backgroundColor: theme.neutral.surface,
-                borderColor: theme.neutral.border,
-              }}
-              onFocusCapture={(event) => {
-                event.currentTarget.style.borderColor = theme.brand.primary;
-                event.currentTarget.style.boxShadow = `0 0 0 2px ${theme.brand.primaryBorder}`;
-              }}
-              onBlurCapture={(event) => {
-                event.currentTarget.style.borderColor = theme.neutral.border;
-                event.currentTarget.style.boxShadow = 'none';
-              }}
-            >
-              <Mail
-                className="h-4 w-4 flex-shrink-0"
-                style={{ color: theme.neutral.textMuted }}
-              />
-
-              <input
-                id="conversion-email"
-                type="email"
-                placeholder="you@company.com"
-                className="w-full bg-transparent outline-none"
+          {intent !== 'export' && (
+            <div className="mb-3">
+              <label
+                htmlFor="conversion-email"
                 style={{
-                  fontSize: '14px',
-                  color: theme.neutral.text,
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: theme.neutral.textSecondary,
                 }}
-              />
+                className="mb-1.5 block"
+              >
+                Work email
+              </label>
+
+              <div
+                className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
+                style={{
+                  backgroundColor: theme.neutral.surface,
+                  borderColor: theme.neutral.border,
+                }}
+                onFocusCapture={(event) => {
+                  event.currentTarget.style.borderColor = theme.brand.primary;
+                  event.currentTarget.style.boxShadow = `0 0 0 2px ${theme.brand.primaryBorder}`;
+                }}
+                onBlurCapture={(event) => {
+                  event.currentTarget.style.borderColor = theme.neutral.border;
+                  event.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <Mail
+                  className="h-4 w-4 flex-shrink-0"
+                  style={{ color: theme.neutral.textMuted }}
+                />
+
+                <input
+                  id="conversion-email"
+                  type="email"
+                  placeholder="you@company.com"
+                  className="w-full bg-transparent outline-none"
+                  style={{
+                    fontSize: '14px',
+                    color: theme.neutral.text,
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           <button
             type="button"
-            className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 transition-colors"
+            onClick={handlePrimaryClick}
+            disabled={downloading}
+            className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
             style={{
               fontSize: '14px',
               fontWeight: 800,
@@ -321,13 +342,15 @@ export function ConversionModal({
               boxShadow: theme.shadow.brand,
             }}
             onMouseEnter={(event) => {
-              event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
+              if (!downloading) {
+                event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
+              }
             }}
             onMouseLeave={(event) => {
               event.currentTarget.style.backgroundColor = theme.brand.primary;
             }}
           >
-            {copy.primaryCta}
+            {downloading ? 'Preparing PDF…' : copy.primaryCta}
             <ArrowRight className="h-4 w-4" />
           </button>
 
