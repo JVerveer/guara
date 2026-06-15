@@ -164,6 +164,45 @@ export function HeroUpload() {
 
   return (
     <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-6">
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".pdf,.docx,.xlsx,.csv,.zip,.txt,.md,.json"
+        className="hidden"
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+        onChange={(event) => {
+          if (event.target.files) {
+            addFiles(Array.from(event.target.files));
+          }
+
+          event.currentTarget.value = '';
+        }}
+      />
+
+      <input
+        ref={folderInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+        onChange={(event) => {
+          if (event.target.files) {
+            addFiles(Array.from(event.target.files));
+          }
+
+          event.currentTarget.value = '';
+        }}
+        {...({
+          webkitdirectory: '',
+          directory: '',
+        } as DirectoryInputProps)}
+      />
+
       <section className="w-full max-w-3xl">
         <div className="mb-5 flex justify-center">
           <div
@@ -285,9 +324,13 @@ export function HeroUpload() {
           <div
             role="button"
             tabIndex={0}
-            onClick={openFilePicker}
+            onClick={(event) => {
+              event.stopPropagation();
+              openFilePicker();
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
+                event.stopPropagation();
                 openFilePicker();
               }
             }}
@@ -324,39 +367,6 @@ export function HeroUpload() {
               transform: dragOver ? 'scale(1.01)' : 'scale(1)',
             }}
           >
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept=".pdf,.docx,.xlsx,.csv,.zip,.txt,.md,.json"
-              className="hidden"
-              onChange={(event) => {
-                if (event.target.files) {
-                  addFiles(Array.from(event.target.files));
-                }
-
-                event.currentTarget.value = '';
-              }}
-            />
-
-            <input
-              ref={folderInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(event) => {
-                if (event.target.files) {
-                  addFiles(Array.from(event.target.files));
-                }
-
-                event.currentTarget.value = '';
-              }}
-              {...({
-                webkitdirectory: '',
-                directory: '',
-              } as DirectoryInputProps)}
-            />
-
             <div
               className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl"
               style={{ backgroundColor: theme.brand.primaryLight }}
