@@ -7,11 +7,13 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
-import { PROCESSING_STEPS, SAMPLE_DOCS } from '../data/constants';
+import { PROCESSING_STEPS } from '../data/constants';
 import { theme } from '../../styles/theme';
 
 export function ProcessingScreen() {
-  const { stepsDone, activeScenario } = useApp();
+  const { stepsDone, analysisResult } = useApp();
+
+  const { scenario } = analysisResult;
 
   const totalMs = PROCESSING_STEPS.reduce((a, step) => a + step.duration, 0);
   const doneSoFar = PROCESSING_STEPS.slice(0, stepsDone).reduce(
@@ -21,10 +23,12 @@ export function ProcessingScreen() {
   const progress = Math.min(100, Math.round((doneSoFar / totalMs) * 100));
   const activeStep = PROCESSING_STEPS[stepsDone]?.label ?? 'Finalising analysis';
 
-  const visibleDocs = SAMPLE_DOCS.slice(
+  const visibleDocs = analysisResult.documents.slice(
     0,
-    Math.min(SAMPLE_DOCS.length, activeScenario.documents)
+    Math.min(analysisResult.documents.length, scenario.documents)
   );
+
+  const packageType = analysisResult.source === 'sample' ? 'sample' : 'uploaded';
 
   return (
     <div
@@ -52,8 +56,8 @@ export function ProcessingScreen() {
                   color: theme.brand.primary,
                 }}
               >
-                {activeScenario.name} · {activeScenario.documents} documents ·{' '}
-                {activeScenario.vendors} vendors
+                {scenario.name} · {scenario.documents} documents ·{' '}
+                {scenario.vendors} vendors
               </span>
             </div>
 
@@ -77,7 +81,7 @@ export function ProcessingScreen() {
               }}
               className="mx-auto max-w-xl"
             >
-              Guara is analysing a sample {activeScenario.industry.toLowerCase()} risk package and
+              Guara is analysing a {packageType} {scenario.industry.toLowerCase()} risk package and
               checking for vendor dependency, concentration, data residency, and regulatory gaps.
             </p>
           </div>
@@ -116,7 +120,7 @@ export function ProcessingScreen() {
                     color: theme.neutral.textMuted,
                   }}
                 >
-                  {activeScenario.documents} files
+                  {scenario.documents} files
                 </span>
               </div>
 
@@ -311,7 +315,7 @@ export function ProcessingScreen() {
                     label: 'Dependencies',
                     value:
                       stepsDone > 2
-                        ? `${activeScenario.criticalVendors} critical`
+                        ? `${scenario.criticalVendors} critical`
                         : 'Queued',
                   },
                   {
@@ -319,7 +323,7 @@ export function ProcessingScreen() {
                     label: 'Readiness',
                     value:
                       stepsDone > 4
-                        ? `${activeScenario.readinessScore}/100`
+                        ? `${scenario.readinessScore}/100`
                         : 'Queued',
                   },
                 ].map(({ icon: Icon, label, value }) => (
@@ -413,7 +417,8 @@ export function ProcessingScreen() {
               }}
               className="mt-1.5"
             >
-              Sample analysis: {activeScenario.headlineFinding}
+              {analysisResult.source === 'sample' ? 'Sample analysis' : 'Uploaded analysis'}:{' '}
+              {scenario.headlineFinding}
             </p>
           </div>
         </div>
