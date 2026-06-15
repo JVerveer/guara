@@ -1,5 +1,13 @@
 import { useRef, useState, type InputHTMLAttributes } from 'react';
-import { ArrowRight, BarChart3, FileText, FolderOpen, Upload, X } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  BarChart3,
+  FileText,
+  FolderOpen,
+  Upload,
+  X,
+} from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { FLOAT_DOCS } from '../data/constants';
 import { SAMPLE_SCENARIOS } from '../../analysis/sampleAnalysis';
@@ -11,12 +19,47 @@ type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
   directory?: string;
 };
 
+type DataTransferItemWithEntry = DataTransferItem & {
+  webkitGetAsEntry?: () => {
+    isDirectory?: boolean;
+    isFile?: boolean;
+  } | null;
+};
+
+const SUPPORTED_EXTENSIONS = [
+  'pdf',
+  'docx',
+  'xlsx',
+  'csv',
+  'zip',
+  'txt',
+  'md',
+  'json',
+];
+
+function getExtension(fileName: string) {
+  return fileName.split('.').pop()?.toLowerCase() ?? '';
+}
+
+function isSupportedFile(file: File) {
+  return SUPPORTED_EXTENSIONS.includes(getExtension(file.name));
+}
+
+function droppedContainsFolder(items: DataTransferItemList) {
+  return Array.from(items).some((item) => {
+    const entry = (item as DataTransferItemWithEntry).webkitGetAsEntry?.();
+
+    return Boolean(entry?.isDirectory);
+  });
+}
+
 export function HeroUpload() {
   const { startSample, startUploadedAnalysis } = useApp();
 
   const [dragOver, setDragOver] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -27,6 +70,21 @@ export function HeroUpload() {
   const openFolderPicker = () => folderInputRef.current?.click();
 
   const addFiles = (incoming: File[]) => {
+    setUploadError(null);
+
+    if (incoming.length === 0) {
+      return;
+    }
+
+    const unsupported = incoming.find((file) => !isSupportedFile(file));
+
+    if (unsupported) {
+      setUploadError(
+        `"${unsupported.name}" is not supported. Please upload PDF, DOCX, XLSX, CSV, ZIP, TXT, MD, or JSON files.`
+      );
+      return;
+    }
+
     setFiles((prev) => {
       const existingKeys = new Set(
         prev.map((file) => `${file.name}-${file.size}-${file.lastModified}`)
@@ -59,12 +117,23 @@ export function HeroUpload() {
   };
 
   const handleAnalyzeDocuments = async () => {
-    if (!hasFiles || analyzing) return;
+    if (!hasFiles || analyzing) {
+      return;
+    }
 
     try {
       setAnalyzing(true);
+      setUploadError(null);
+
       const result = await analyzeUploadedDocuments(files);
+
       startUploadedAnalysis(result);
+    } catch (error) {
+      setUploadError(
+        error instanceof Error
+          ? error.message
+          : 'Something went wrong while preparing the analysis.'
+      );
     } finally {
       setAnalyzing(false);
     }
@@ -230,6 +299,15 @@ export function HeroUpload() {
             onDrop={(event) => {
               event.preventDefault();
               setDragOver(false);
+              setUploadError(null);
+
+              if (droppedContainsFolder(event.dataTransfer.items)) {
+                setUploadError(
+                  'Folders cannot be dropped directly. Please zip the folder first and upload the ZIP file.'
+                );
+                return;
+              }
+
               addFiles(Array.from(event.dataTransfer.files));
             }}
             className="relative z-10 flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-9 transition-all duration-200 sm:p-12"
@@ -237,7 +315,11 @@ export function HeroUpload() {
               backgroundColor: dragOver
                 ? theme.brand.primaryLight
                 : theme.neutral.surface,
-              borderColor: dragOver ? theme.brand.primary : theme.neutral.border,
+              borderColor: uploadError
+                ? theme.status.error
+                : dragOver
+                  ? theme.brand.primary
+                  : theme.neutral.border,
               boxShadow: theme.shadow.card,
               transform: dragOver ? 'scale(1.01)' : 'scale(1)',
             }}
@@ -297,7 +379,7 @@ export function HeroUpload() {
               style={{ fontSize: '14px', color: theme.neutral.textMuted }}
               className="mb-5 text-center"
             >
-              PDF · DOCX · XLSX · CSV · ZIP · Folder
+              PDF · DOCX · XLSX · CSV · ZIP · Folder picker
             </p>
 
             <div className="flex max-w-xl flex-wrap justify-center gap-2">
@@ -326,6 +408,29 @@ export function HeroUpload() {
               ))}
             </div>
           </div>
+
+          {uploadError && (
+            <div
+              className="relative z-20 mt-3 flex items-start gap-2 rounded-xl border px-4 py-3"
+              style={{
+                backgroundColor: theme.status.errorLight,
+                borderColor: theme.status.error,
+                color: theme.status.error,
+              }}
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+
+              <p
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  lineHeight: 1.45,
+                }}
+              >
+                {uploadError}
+              </p>
+            </div>
+          )}
 
           {files.length > 0 && (
             <div className="relative z-20 mt-3 space-y-1.5">
