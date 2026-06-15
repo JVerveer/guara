@@ -1,10 +1,15 @@
 import { useRef, useState } from 'react';
-import { ArrowRight, BarChart3, FileText, Upload, X } from 'lucide-react';
+import { ArrowRight, BarChart3, FileText, FolderOpen, Upload, X } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { FLOAT_DOCS } from '../data/constants';
 import { SAMPLE_SCENARIOS } from '../../analysis/sampleAnalysis';
 import { analyzeUploadedDocuments } from '../../analysis/analysisService';
 import { theme } from '../../styles/theme';
+
+type DirectoryInputProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  webkitdirectory?: string;
+  directory?: string;
+};
 
 export function HeroUpload() {
   const { startSample, startUploadedAnalysis } = useApp();
@@ -13,14 +18,33 @@ export function HeroUpload() {
   const [files, setFiles] = useState<File[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const hasFiles = files.length > 0;
 
-  const openFilePicker = () => inputRef.current?.click();
+  const openFilePicker = () => fileInputRef.current?.click();
+  const openFolderPicker = () => folderInputRef.current?.click();
 
   const addFiles = (incoming: File[]) => {
-    setFiles((prev) => [...prev, ...incoming].slice(0, 5));
+    setFiles((prev) => {
+      const existingKeys = new Set(
+        prev.map((file) => `${file.name}-${file.size}-${file.lastModified}`)
+      );
+
+      const nextFiles = incoming.filter((file) => {
+        const key = `${file.name}-${file.size}-${file.lastModified}`;
+
+        if (existingKeys.has(key)) {
+          return false;
+        }
+
+        existingKeys.add(key);
+        return true;
+      });
+
+      return [...prev, ...nextFiles].slice(0, 25);
+    });
   };
 
   const removeFile = (name: string) => {
@@ -220,10 +244,10 @@ export function HeroUpload() {
             }}
           >
             <input
-              ref={inputRef}
+              ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,.docx,.xlsx,.csv,.zip"
+              accept=".pdf,.docx,.xlsx,.csv,.zip,.txt,.md,.json"
               className="hidden"
               onChange={(event) => {
                 if (event.target.files) {
@@ -232,6 +256,24 @@ export function HeroUpload() {
 
                 event.currentTarget.value = '';
               }}
+            />
+
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                if (event.target.files) {
+                  addFiles(Array.from(event.target.files));
+                }
+
+                event.currentTarget.value = '';
+              }}
+              {...({
+                webkitdirectory: '',
+                directory: '',
+              } as DirectoryInputProps)}
             />
 
             <div
@@ -256,7 +298,7 @@ export function HeroUpload() {
               style={{ fontSize: '14px', color: theme.neutral.textMuted }}
               className="mb-5 text-center"
             >
-              PDF · DOCX · XLSX · CSV · ZIP
+              PDF · DOCX · XLSX · CSV · ZIP · Folder
             </p>
 
             <div className="flex max-w-xl flex-wrap justify-center gap-2">
@@ -290,7 +332,7 @@ export function HeroUpload() {
             <div className="relative z-20 mt-3 space-y-1.5">
               {files.map((file) => (
                 <div
-                  key={`${file.name}-${file.lastModified}`}
+                  key={`${file.name}-${file.size}-${file.lastModified}`}
                   className="flex items-center justify-between rounded-xl border px-4 py-2.5"
                   style={{
                     backgroundColor: theme.neutral.surface,
@@ -312,7 +354,7 @@ export function HeroUpload() {
                         }}
                         className="block truncate"
                       >
-                        {file.name}
+                        {file.webkitRelativePath || file.name}
                       </span>
 
                       <span
@@ -349,74 +391,131 @@ export function HeroUpload() {
             </div>
           )}
 
-          <div className="relative z-20 mt-4 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={runRandomSample}
-              disabled={analyzing}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
-              style={{
-                fontSize: '14px',
-                fontWeight: 700,
-                backgroundColor: theme.brand.primary,
-                boxShadow: theme.shadow.brand,
-                color: theme.neutral.surface,
-              }}
-              onMouseEnter={(event) => {
-                if (!analyzing) {
-                  event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
-                }
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.backgroundColor = theme.brand.primary;
-              }}
-            >
-              <BarChart3 className="h-4 w-4" />
-              Try Sample Package
-            </button>
+          <div
+            className={`relative z-20 mt-4 grid gap-3 ${
+              hasFiles ? 'grid-cols-1' : 'sm:grid-cols-3'
+            }`}
+          >
+            {!hasFiles && (
+              <button
+                type="button"
+                onClick={runRandomSample}
+                disabled={analyzing}
+                className="flex items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  backgroundColor: theme.brand.primary,
+                  boxShadow: theme.shadow.brand,
+                  color: theme.neutral.surface,
+                }}
+                onMouseEnter={(event) => {
+                  if (!analyzing) {
+                    event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
+                  }
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.backgroundColor = theme.brand.primary;
+                }}
+              >
+                <BarChart3 className="h-4 w-4" />
+                Try Sample Package
+              </button>
+            )}
 
-            <button
-              type="button"
-              onClick={hasFiles ? handleAnalyzeDocuments : openFilePicker}
-              disabled={analyzing}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all disabled:cursor-not-allowed disabled:opacity-70"
-              style={{
-                fontSize: '14px',
-                fontWeight: 500,
-                backgroundColor: theme.neutral.surface,
-                borderColor: theme.neutral.border,
-                color: theme.neutral.textSecondary,
-              }}
-              onMouseEnter={(event) => {
-                if (!analyzing) {
-                  event.currentTarget.style.backgroundColor = theme.neutral.background;
-                  event.currentTarget.style.borderColor = theme.neutral.borderStrong;
-                }
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.backgroundColor = theme.neutral.surface;
-                event.currentTarget.style.borderColor = theme.neutral.border;
-              }}
-            >
-              {hasFiles ? (
-                <>
-                  <ArrowRight className="h-4 w-4" style={{ color: theme.brand.primary }} />
-                  {analyzing ? 'Preparing Analysis…' : 'Analyze Documents'}
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4" style={{ color: theme.brand.primary }} />
-                  Upload Your Documents
-                </>
-              )}
-            </button>
+            {!hasFiles && (
+              <button
+                type="button"
+                onClick={openFilePicker}
+                disabled={analyzing}
+                className="flex items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all disabled:cursor-not-allowed disabled:opacity-70"
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  backgroundColor: theme.neutral.surface,
+                  borderColor: theme.neutral.border,
+                  color: theme.neutral.textSecondary,
+                }}
+                onMouseEnter={(event) => {
+                  if (!analyzing) {
+                    event.currentTarget.style.backgroundColor = theme.neutral.background;
+                    event.currentTarget.style.borderColor = theme.neutral.borderStrong;
+                  }
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.backgroundColor = theme.neutral.surface;
+                  event.currentTarget.style.borderColor = theme.neutral.border;
+                }}
+              >
+                <Upload className="h-4 w-4" style={{ color: theme.brand.primary }} />
+                Upload Files
+              </button>
+            )}
+
+            {!hasFiles && (
+              <button
+                type="button"
+                onClick={openFolderPicker}
+                disabled={analyzing}
+                className="flex items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all disabled:cursor-not-allowed disabled:opacity-70"
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  backgroundColor: theme.neutral.surface,
+                  borderColor: theme.neutral.border,
+                  color: theme.neutral.textSecondary,
+                }}
+                onMouseEnter={(event) => {
+                  if (!analyzing) {
+                    event.currentTarget.style.backgroundColor = theme.neutral.background;
+                    event.currentTarget.style.borderColor = theme.neutral.borderStrong;
+                  }
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.backgroundColor = theme.neutral.surface;
+                  event.currentTarget.style.borderColor = theme.neutral.border;
+                }}
+              >
+                <FolderOpen className="h-4 w-4" style={{ color: theme.brand.primary }} />
+                Upload Folder
+              </button>
+            )}
+
+            {hasFiles && (
+              <button
+                type="button"
+                onClick={handleAnalyzeDocuments}
+                disabled={analyzing}
+                className="flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  backgroundColor: theme.brand.primary,
+                  boxShadow: theme.shadow.brand,
+                  color: theme.neutral.surface,
+                }}
+                onMouseEnter={(event) => {
+                  if (!analyzing) {
+                    event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
+                  }
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.backgroundColor = theme.brand.primary;
+                }}
+              >
+                <ArrowRight className="h-4 w-4" />
+                {analyzing ? 'Preparing Analysis…' : `Analyze ${files.length} Document${files.length === 1 ? '' : 's'}`}
+              </button>
+            )}
           </div>
 
           <p
             style={{ fontSize: '12px', color: theme.neutral.textMuted }}
             className="relative z-20 mt-3 text-center"
           >
-            No signup required to try the sample package.
+            {hasFiles
+              ? 'Uploaded documents are analysed locally in this demo flow.'
+              : 'No signup required to try the sample package.'}
           </p>
         </div>
       </section>
