@@ -3,7 +3,7 @@ import {
   CLOUD_RISK,
   DORA_GAPS,
   EVIDENCE_ITEMS,
-} from '../data/constants';
+} from '../app/data/constants';
 
 export type Severity = 'High' | 'Medium' | 'Low';
 
