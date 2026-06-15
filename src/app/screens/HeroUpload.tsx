@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type InputHTMLAttributes } from 'react';
 import { ArrowRight, BarChart3, FileText, FolderOpen, Upload, X } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { FLOAT_DOCS } from '../data/constants';
@@ -6,7 +6,7 @@ import { SAMPLE_SCENARIOS } from '../../analysis/sampleAnalysis';
 import { analyzeUploadedDocuments } from '../../analysis/analysisService';
 import { theme } from '../../styles/theme';
 
-type DirectoryInputProps = React.InputHTMLAttributes<HTMLInputElement> & {
+type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
   webkitdirectory?: string;
   directory?: string;
 };
@@ -59,15 +59,11 @@ export function HeroUpload() {
   };
 
   const handleAnalyzeDocuments = async () => {
-    if (!hasFiles || analyzing) {
-      return;
-    }
+    if (!hasFiles || analyzing) return;
 
     try {
       setAnalyzing(true);
-
       const result = await analyzeUploadedDocuments(files);
-
       startUploadedAnalysis(result);
     } finally {
       setAnalyzing(false);
@@ -186,7 +182,8 @@ export function HeroUpload() {
 
           <div className="pointer-events-none absolute -right-6 top-12 z-50 hidden flex-col gap-2 xl:flex">
             {FLOAT_DOCS.slice(3).map((doc, index) => {
-              const docStyle = floatingDocStyles[(index + 3) % floatingDocStyles.length];
+              const docStyle =
+                floatingDocStyles[(index + 3) % floatingDocStyles.length];
 
               return (
                 <div
@@ -237,7 +234,9 @@ export function HeroUpload() {
             }}
             className="relative z-10 flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-9 transition-all duration-200 sm:p-12"
             style={{
-              backgroundColor: dragOver ? theme.brand.primaryLight : theme.neutral.surface,
+              backgroundColor: dragOver
+                ? theme.brand.primaryLight
+                : theme.neutral.surface,
               borderColor: dragOver ? theme.brand.primary : theme.neutral.border,
               boxShadow: theme.shadow.card,
               transform: dragOver ? 'scale(1.01)' : 'scale(1)',
@@ -399,7 +398,10 @@ export function HeroUpload() {
             {!hasFiles && (
               <button
                 type="button"
-                onClick={runRandomSample}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  runRandomSample();
+                }}
                 disabled={analyzing}
                 className="flex items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
                 style={{
@@ -411,7 +413,8 @@ export function HeroUpload() {
                 }}
                 onMouseEnter={(event) => {
                   if (!analyzing) {
-                    event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
+                    event.currentTarget.style.backgroundColor =
+                      theme.brand.primaryHover;
                   }
                 }}
                 onMouseLeave={(event) => {
@@ -426,7 +429,10 @@ export function HeroUpload() {
             {!hasFiles && (
               <button
                 type="button"
-                onClick={openFilePicker}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openFilePicker();
+                }}
                 disabled={analyzing}
                 className="flex items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all disabled:cursor-not-allowed disabled:opacity-70"
                 style={{
@@ -438,12 +444,15 @@ export function HeroUpload() {
                 }}
                 onMouseEnter={(event) => {
                   if (!analyzing) {
-                    event.currentTarget.style.backgroundColor = theme.neutral.background;
-                    event.currentTarget.style.borderColor = theme.neutral.borderStrong;
+                    event.currentTarget.style.backgroundColor =
+                      theme.neutral.background;
+                    event.currentTarget.style.borderColor =
+                      theme.neutral.borderStrong;
                   }
                 }}
                 onMouseLeave={(event) => {
-                  event.currentTarget.style.backgroundColor = theme.neutral.surface;
+                  event.currentTarget.style.backgroundColor =
+                    theme.neutral.surface;
                   event.currentTarget.style.borderColor = theme.neutral.border;
                 }}
               >
@@ -455,7 +464,10 @@ export function HeroUpload() {
             {!hasFiles && (
               <button
                 type="button"
-                onClick={openFolderPicker}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openFolderPicker();
+                }}
                 disabled={analyzing}
                 className="flex items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all disabled:cursor-not-allowed disabled:opacity-70"
                 style={{
@@ -467,16 +479,22 @@ export function HeroUpload() {
                 }}
                 onMouseEnter={(event) => {
                   if (!analyzing) {
-                    event.currentTarget.style.backgroundColor = theme.neutral.background;
-                    event.currentTarget.style.borderColor = theme.neutral.borderStrong;
+                    event.currentTarget.style.backgroundColor =
+                      theme.neutral.background;
+                    event.currentTarget.style.borderColor =
+                      theme.neutral.borderStrong;
                   }
                 }}
                 onMouseLeave={(event) => {
-                  event.currentTarget.style.backgroundColor = theme.neutral.surface;
+                  event.currentTarget.style.backgroundColor =
+                    theme.neutral.surface;
                   event.currentTarget.style.borderColor = theme.neutral.border;
                 }}
               >
-                <FolderOpen className="h-4 w-4" style={{ color: theme.brand.primary }} />
+                <FolderOpen
+                  className="h-4 w-4"
+                  style={{ color: theme.brand.primary }}
+                />
                 Upload Folder
               </button>
             )}
@@ -484,7 +502,10 @@ export function HeroUpload() {
             {hasFiles && (
               <button
                 type="button"
-                onClick={handleAnalyzeDocuments}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleAnalyzeDocuments();
+                }}
                 disabled={analyzing}
                 className="flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
                 style={{
@@ -496,7 +517,8 @@ export function HeroUpload() {
                 }}
                 onMouseEnter={(event) => {
                   if (!analyzing) {
-                    event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
+                    event.currentTarget.style.backgroundColor =
+                      theme.brand.primaryHover;
                   }
                 }}
                 onMouseLeave={(event) => {
@@ -504,7 +526,9 @@ export function HeroUpload() {
                 }}
               >
                 <ArrowRight className="h-4 w-4" />
-                {analyzing ? 'Preparing Analysis…' : `Analyze ${files.length} Document${files.length === 1 ? '' : 's'}`}
+                {analyzing
+                  ? 'Preparing Analysis…'
+                  : `Analyze ${files.length} Document${files.length === 1 ? '' : 's'}`}
               </button>
             )}
           </div>
