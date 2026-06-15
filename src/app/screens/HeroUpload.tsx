@@ -3,12 +3,16 @@ import { ArrowRight, BarChart3, FileText, Upload, X } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { FLOAT_DOCS } from '../data/constants';
 import { SAMPLE_SCENARIOS } from '../../analysis/sampleAnalysis';
+import { analyzeUploadedDocuments } from '../../analysis/analysisService';
 import { theme } from '../../styles/theme';
 
 export function HeroUpload() {
-  const { startSample } = useApp();
+  const { startSample, startUploadedAnalysis } = useApp();
+
   const [dragOver, setDragOver] = useState(false);
-  const [files, setFiles] = useState<string[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
+  const [analyzing, setAnalyzing] = useState(false);
+
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasFiles = files.length > 0;
@@ -16,11 +20,34 @@ export function HeroUpload() {
   const openFilePicker = () => inputRef.current?.click();
 
   const addFiles = (incoming: File[]) => {
-    setFiles((prev) => [...prev, ...incoming.map((file) => file.name)].slice(0, 5));
+    setFiles((prev) => [...prev, ...incoming].slice(0, 5));
   };
 
   const removeFile = (name: string) => {
-    setFiles((prev) => prev.filter((file) => file !== name));
+    setFiles((prev) => prev.filter((file) => file.name !== name));
+  };
+
+  const runRandomSample = () => {
+    const randomScenario =
+      SAMPLE_SCENARIOS[Math.floor(Math.random() * SAMPLE_SCENARIOS.length)];
+
+    startSample(randomScenario.id);
+  };
+
+  const handleAnalyzeDocuments = async () => {
+    if (!hasFiles || analyzing) {
+      return;
+    }
+
+    try {
+      setAnalyzing(true);
+
+      const result = await analyzeUploadedDocuments(files);
+
+      startUploadedAnalysis(result);
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const floatingDocStyles = [
@@ -61,7 +88,14 @@ export function HeroUpload() {
               className="h-1.5 w-1.5 animate-pulse rounded-full"
               style={{ backgroundColor: theme.brand.primary }}
             />
-            <span style={{ fontSize: '12px', fontWeight: 600, color: theme.brand.primary }}>
+
+            <span
+              style={{
+                fontSize: '12px',
+                fontWeight: 600,
+                color: theme.brand.primary,
+              }}
+            >
               AI-powered vendor risk analysis
             </span>
           </div>
@@ -103,13 +137,20 @@ export function HeroUpload() {
                     backgroundColor: docStyle.backgroundColor,
                     borderColor: docStyle.borderColor,
                     boxShadow: theme.shadow.card,
-                    transform: `translateX(${index === 1 ? '-10px' : index === 2 ? '8px' : '0px'})`,
+                    transform: `translateX(${
+                      index === 1 ? '-10px' : index === 2 ? '8px' : '0px'
+                    })`,
                   }}
                   className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-95 backdrop-blur-sm"
                 >
                   <span style={{ fontSize: '13px' }}>{doc.icon}</span>
+
                   <span
-                    style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.textSecondary }}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: theme.neutral.textSecondary,
+                    }}
                     className="whitespace-nowrap"
                   >
                     {doc.label}
@@ -135,8 +176,13 @@ export function HeroUpload() {
                   className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-95 backdrop-blur-sm"
                 >
                   <span style={{ fontSize: '13px' }}>{doc.icon}</span>
+
                   <span
-                    style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.textSecondary }}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: theme.neutral.textSecondary,
+                    }}
                     className="whitespace-nowrap"
                   >
                     {doc.label}
@@ -183,6 +229,8 @@ export function HeroUpload() {
                 if (event.target.files) {
                   addFiles(Array.from(event.target.files));
                 }
+
+                event.currentTarget.value = '';
               }}
             />
 
@@ -242,7 +290,7 @@ export function HeroUpload() {
             <div className="relative z-20 mt-3 space-y-1.5">
               {files.map((file) => (
                 <div
-                  key={file}
+                  key={`${file.name}-${file.lastModified}`}
                   className="flex items-center justify-between rounded-xl border px-4 py-2.5"
                   style={{
                     backgroundColor: theme.neutral.surface,
@@ -251,20 +299,38 @@ export function HeroUpload() {
                   }}
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <FileText className="h-4 w-4 shrink-0" style={{ color: theme.brand.primary }} />
-                    <span
-                      style={{ fontSize: '13px', color: theme.neutral.textSecondary }}
-                      className="truncate"
-                    >
-                      {file}
-                    </span>
+                    <FileText
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: theme.brand.primary }}
+                    />
+
+                    <div className="min-w-0">
+                      <span
+                        style={{
+                          fontSize: '13px',
+                          color: theme.neutral.textSecondary,
+                        }}
+                        className="block truncate"
+                      >
+                        {file.name}
+                      </span>
+
+                      <span
+                        style={{
+                          fontSize: '10.5px',
+                          color: theme.neutral.textMuted,
+                        }}
+                      >
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </span>
+                    </div>
                   </div>
 
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      removeFile(file);
+                      removeFile(file.name);
                     }}
                     className="transition-colors"
                     style={{ color: theme.neutral.textMuted }}
@@ -274,7 +340,7 @@ export function HeroUpload() {
                     onMouseLeave={(event) => {
                       event.currentTarget.style.color = theme.neutral.textMuted;
                     }}
-                    aria-label={`Remove ${file}`}
+                    aria-label={`Remove ${file.name}`}
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -286,15 +352,9 @@ export function HeroUpload() {
           <div className="relative z-20 mt-4 flex flex-col gap-3 sm:flex-row">
             <button
               type="button"
-              onClick={() => {
-                const randomScenario =
-                  SAMPLE_SCENARIOS[
-                    Math.floor(Math.random() * SAMPLE_SCENARIOS.length)
-                  ];
-
-                startSample(randomScenario.id);
-              }}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors"
+              onClick={runRandomSample}
+              disabled={analyzing}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
               style={{
                 fontSize: '14px',
                 fontWeight: 700,
@@ -303,7 +363,9 @@ export function HeroUpload() {
                 color: theme.neutral.surface,
               }}
               onMouseEnter={(event) => {
-                event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
+                if (!analyzing) {
+                  event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
+                }
               }}
               onMouseLeave={(event) => {
                 event.currentTarget.style.backgroundColor = theme.brand.primary;
@@ -315,8 +377,9 @@ export function HeroUpload() {
 
             <button
               type="button"
-              onClick={hasFiles ? undefined : openFilePicker}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all"
+              onClick={hasFiles ? handleAnalyzeDocuments : openFilePicker}
+              disabled={analyzing}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all disabled:cursor-not-allowed disabled:opacity-70"
               style={{
                 fontSize: '14px',
                 fontWeight: 500,
@@ -325,8 +388,10 @@ export function HeroUpload() {
                 color: theme.neutral.textSecondary,
               }}
               onMouseEnter={(event) => {
-                event.currentTarget.style.backgroundColor = theme.neutral.background;
-                event.currentTarget.style.borderColor = theme.neutral.borderStrong;
+                if (!analyzing) {
+                  event.currentTarget.style.backgroundColor = theme.neutral.background;
+                  event.currentTarget.style.borderColor = theme.neutral.borderStrong;
+                }
               }}
               onMouseLeave={(event) => {
                 event.currentTarget.style.backgroundColor = theme.neutral.surface;
@@ -336,7 +401,7 @@ export function HeroUpload() {
               {hasFiles ? (
                 <>
                   <ArrowRight className="h-4 w-4" style={{ color: theme.brand.primary }} />
-                  Analyze Documents
+                  {analyzing ? 'Preparing Analysis…' : 'Analyze Documents'}
                 </>
               ) : (
                 <>
@@ -346,7 +411,6 @@ export function HeroUpload() {
               )}
             </button>
           </div>
-
 
           <p
             style={{ fontSize: '12px', color: theme.neutral.textMuted }}
