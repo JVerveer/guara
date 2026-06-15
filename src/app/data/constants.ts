@@ -45,3 +45,12 @@ export const FAQS = [
     a: 'Yes — Guara exports vendor inventories, gap reports, concentration risk reports, audit readiness summaries, and structured evidence packages.',
   },
 ];
+
+export {
+  SAMPLE_DOCS,
+  SAMPLE_SCENARIOS,
+  SAMPLE_VENDORS as ALL_VENDORS,
+  SAMPLE_GAPS as DORA_GAPS,
+  SAMPLE_EVIDENCE as EVIDENCE_ITEMS,
+  SAMPLE_CLOUD_RISK as CLOUD_RISK,
+} from '../../analysis/sampleAnalysis';
