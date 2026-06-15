@@ -302,7 +302,7 @@ function detectVendors(text: string) {
       service: vendor.service,
       criticality: isCritical ? 'Critical' : 'Important',
       risk,
-      score: risk === 'High' ? 58 : risk === 'Medium' ? 74 : 88,
+      score: risk === 'Medium' ? 74 : 88,
       country: vendor.exposure === 'US' ? 'US' : 'Unknown',
       spend: 'Unknown',
       category: vendor.category,
