@@ -1,18 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+import { buildServerAnalysisResult } from '../src/analysis/server/buildServerAnalysisResult';
+import { extractUploadedDocuments } from '../src/analysis/server/extractUploadedDocuments';
+import { getServerErrorMessage } from '../src/analysis/server/serverErrors';
+
 export const config = {
   api: {
     bodyParser: false,
   },
 };
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return `${error.name}: ${error.message}`;
-  }
-
-  return 'Failed to analyze uploaded documents.';
-}
 
 export default async function handler(
   request: VercelRequest,
@@ -27,14 +23,6 @@ export default async function handler(
 
   try {
     console.log('[api/analyze] Started');
-
-    const { extractUploadedDocuments } = await import(
-      '../src/analysis/server/extractUploadedDocuments.ts'
-    );
-
-    const { buildServerAnalysisResult } = await import(
-      '../src/analysis/server/buildServerAnalysisResult.ts'
-    );
 
     const parsedDocuments = await extractUploadedDocuments(request);
 
@@ -51,8 +39,6 @@ export default async function handler(
 
     response.status(200).json(analysisResult);
   } catch (error) {
-    const message = getErrorMessage(error);
-
     console.error('[api/analyze] Error object:', error);
 
     if (error instanceof Error) {
@@ -62,7 +48,7 @@ export default async function handler(
     }
 
     response.status(500).json({
-      error: message,
+      error: getServerErrorMessage(error),
       details:
         error instanceof Error
           ? {
