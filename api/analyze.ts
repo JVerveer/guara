@@ -239,7 +239,7 @@ export default async function handler(
     // Important: import this inside try/catch so intelligence-layer import errors
     // are returned as JSON instead of Vercel's generic FUNCTION_INVOCATION_FAILED page.
     const { buildAnalysisResultFromDocuments } = await import(
-      '../src/analysis/builders/buildAnalysisResult'
+      '../src/analysis/builders/buildAnalysisResult.ts'
     );
 
     const analysisResult = buildAnalysisResultFromDocuments(parsedDocuments);
