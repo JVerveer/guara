@@ -6,12 +6,12 @@ import {
   Globe2,
   KeyRound,
   ShieldAlert,
-  ShieldCheck,
   Zap,
 } from 'lucide-react';
 import { Badge } from '../Badge';
 import { ALL_VENDORS, DORA_GAPS } from '../../data/constants';
 import { useApp } from '../../contexts/AppContext';
+import { theme } from '../../../styles/theme';
 
 const SOVEREIGNTY_SCORES: Record<
   string,
@@ -45,28 +45,108 @@ const DEPENDENCIES: Record<
   }>
 > = {
   'fintech-payments': [
-    { vendor: 'AWS', service: 'Cloud infrastructure', impact: 'Payments API, customer portal, analytics', icon: 'cloud' },
-    { vendor: 'Stripe', service: 'Payment processing', impact: 'Card acquiring, settlement, refunds', icon: 'payments' },
-    { vendor: 'Okta', service: 'Identity access', impact: 'Employee access, admin access', icon: 'identity' },
-    { vendor: 'Snowflake', service: 'Data platform', impact: 'Reporting, fraud analytics', icon: 'data' },
+    {
+      vendor: 'AWS',
+      service: 'Cloud infrastructure',
+      impact: 'Payments API, customer portal, analytics',
+      icon: 'cloud',
+    },
+    {
+      vendor: 'Stripe',
+      service: 'Payment processing',
+      impact: 'Card acquiring, settlement, refunds',
+      icon: 'payments',
+    },
+    {
+      vendor: 'Okta',
+      service: 'Identity access',
+      impact: 'Employee access, admin access',
+      icon: 'identity',
+    },
+    {
+      vendor: 'Snowflake',
+      service: 'Data platform',
+      impact: 'Reporting, fraud analytics',
+      icon: 'data',
+    },
   ],
   'digital-bank': [
-    { vendor: 'Microsoft Azure', service: 'Cloud infrastructure', impact: 'Mobile banking, APIs, monitoring', icon: 'cloud' },
-    { vendor: 'Okta', service: 'Identity access', impact: 'Privileged access, workforce identity', icon: 'identity' },
-    { vendor: 'Salesforce', service: 'CRM platform', impact: 'Customer service, onboarding', icon: 'data' },
-    { vendor: 'AWS', service: 'Data processing', impact: 'Analytics and internal reporting', icon: 'cloud' },
+    {
+      vendor: 'Microsoft Azure',
+      service: 'Cloud infrastructure',
+      impact: 'Mobile banking, APIs, monitoring',
+      icon: 'cloud',
+    },
+    {
+      vendor: 'Okta',
+      service: 'Identity access',
+      impact: 'Privileged access, workforce identity',
+      icon: 'identity',
+    },
+    {
+      vendor: 'Salesforce',
+      service: 'CRM platform',
+      impact: 'Customer service, onboarding',
+      icon: 'data',
+    },
+    {
+      vendor: 'AWS',
+      service: 'Data processing',
+      impact: 'Analytics and internal reporting',
+      icon: 'cloud',
+    },
   ],
   'insurance-platform': [
-    { vendor: 'Microsoft Azure', service: 'Cloud infrastructure', impact: 'Claims platform, customer portal', icon: 'cloud' },
-    { vendor: 'Salesforce', service: 'CRM platform', impact: 'Policyholder service, sales workflows', icon: 'data' },
-    { vendor: 'Okta', service: 'Identity access', impact: 'Workforce identity, privileged access', icon: 'identity' },
-    { vendor: 'Snowflake', service: 'Data warehouse', impact: 'Policy analytics, reporting', icon: 'data' },
+    {
+      vendor: 'Microsoft Azure',
+      service: 'Cloud infrastructure',
+      impact: 'Claims platform, customer portal',
+      icon: 'cloud',
+    },
+    {
+      vendor: 'Salesforce',
+      service: 'CRM platform',
+      impact: 'Policyholder service, sales workflows',
+      icon: 'data',
+    },
+    {
+      vendor: 'Okta',
+      service: 'Identity access',
+      impact: 'Workforce identity, privileged access',
+      icon: 'identity',
+    },
+    {
+      vendor: 'Snowflake',
+      service: 'Data warehouse',
+      impact: 'Policy analytics, reporting',
+      icon: 'data',
+    },
   ],
   default: [
-    { vendor: 'AWS', service: 'Cloud infrastructure', impact: 'Production workloads and data processing', icon: 'cloud' },
-    { vendor: 'Stripe', service: 'Payments', impact: 'Customer payments and settlement', icon: 'payments' },
-    { vendor: 'Okta', service: 'Identity access', impact: 'Authentication and access management', icon: 'identity' },
-    { vendor: 'Snowflake', service: 'Data platform', impact: 'Reporting and analytics', icon: 'data' },
+    {
+      vendor: 'AWS',
+      service: 'Cloud infrastructure',
+      impact: 'Production workloads and data processing',
+      icon: 'cloud',
+    },
+    {
+      vendor: 'Stripe',
+      service: 'Payments',
+      impact: 'Customer payments and settlement',
+      icon: 'payments',
+    },
+    {
+      vendor: 'Okta',
+      service: 'Identity access',
+      impact: 'Authentication and access management',
+      icon: 'identity',
+    },
+    {
+      vendor: 'Snowflake',
+      service: 'Data platform',
+      impact: 'Reporting and analytics',
+      icon: 'data',
+    },
   ],
 };
 
@@ -94,22 +174,32 @@ const BOARD_RISKS: Record<string, string[]> = {
 };
 
 function DependencyIcon({ type }: { type: 'cloud' | 'payments' | 'identity' | 'data' }) {
-  if (type === 'cloud') return <Cloud className="h-3.5 w-3.5 text-[#2563EB]" />;
-  if (type === 'identity') return <KeyRound className="h-3.5 w-3.5 text-[#2563EB]" />;
-  return <Database className="h-3.5 w-3.5 text-[#2563EB]" />;
+  const iconStyle = { color: theme.brand.primary };
+
+  if (type === 'cloud') {
+    return <Cloud className="h-3.5 w-3.5" style={iconStyle} />;
+  }
+
+  if (type === 'identity') {
+    return <KeyRound className="h-3.5 w-3.5" style={iconStyle} />;
+  }
+
+  return <Database className="h-3.5 w-3.5" style={iconStyle} />;
 }
 
 export function OverviewTab() {
   const { activeScenario } = useApp();
 
-  const sovereigntyScores = SOVEREIGNTY_SCORES[activeScenario.id] ?? SOVEREIGNTY_SCORES['fintech-payments'];
+  const sovereigntyScores =
+    SOVEREIGNTY_SCORES[activeScenario.id] ?? SOVEREIGNTY_SCORES['fintech-payments'];
+
   const sovereigntyScore = Math.round(
     (sovereigntyScores.cloud +
       sovereigntyScores.data +
       sovereigntyScores.ai +
       sovereigntyScores.concentration +
       sovereigntyScores.regulatory) /
-      5,
+      5
   );
 
   const dependencies = DEPENDENCIES[activeScenario.id] ?? DEPENDENCIES.default;
@@ -157,30 +247,64 @@ export function OverviewTab() {
         {kpis.map(({ label, value, sub, highlight }) => (
           <div
             key={label}
-            className={`rounded-xl border p-3 shadow-sm ${
-              highlight ? 'border-[#BFDBFE] bg-[#EFF6FF]' : 'border-[#E2E8F0] bg-white'
-            }`}
+            className="rounded-xl border p-3 shadow-sm"
+            style={{
+              backgroundColor: highlight ? theme.brand.primaryLight : theme.neutral.surface,
+              borderColor: highlight ? theme.brand.primaryBorder : theme.neutral.border,
+            }}
           >
             <p
-              style={{ fontSize: 'clamp(14px, 2vw, 20px)', fontWeight: 800 }}
-              className={highlight ? 'text-[#2563EB]' : 'text-[#0F172A]'}
+              style={{
+                fontSize: 'clamp(14px, 2vw, 20px)',
+                fontWeight: 800,
+                color: highlight ? theme.brand.primary : theme.neutral.text,
+              }}
             >
               {value}
             </p>
-            <p style={{ fontSize: '10px', fontWeight: 700 }} className="mt-0.5 text-[#0F172A]">
+
+            <p
+              style={{
+                fontSize: '10px',
+                fontWeight: 700,
+                color: theme.neutral.text,
+              }}
+              className="mt-0.5"
+            >
               {label}
             </p>
-            <p style={{ fontSize: '10px' }} className="mt-0.5 truncate text-[#94A3B8]">
+
+            <p
+              style={{
+                fontSize: '10px',
+                color: theme.neutral.textMuted,
+              }}
+              className="mt-0.5 truncate"
+            >
               {sub}
             </p>
           </div>
         ))}
       </div>
 
-      <div className="rounded-2xl bg-[#0F172A] p-4">
+      <div
+        className="rounded-2xl border p-4"
+        style={{
+          backgroundColor: theme.sidebar.background,
+          borderColor: theme.sidebar.border,
+          boxShadow: theme.shadow.card,
+        }}
+      >
         <div className="mb-3 flex items-center gap-2">
-          <Zap className="h-4 w-4 text-[#3B82F6]" />
-          <span style={{ fontSize: '13px', fontWeight: 700 }} className="text-white">
+          <Zap className="h-4 w-4" style={{ color: theme.brand.primary }} />
+
+          <span
+            style={{
+              fontSize: '13px',
+              fontWeight: 700,
+              color: theme.sidebar.activeText,
+            }}
+          >
             AI Executive Summary
           </span>
         </div>
@@ -195,8 +319,20 @@ export function OverviewTab() {
             `Audit readiness score: ${activeScenario.readinessScore}/100 — priority remediation recommended before formal review.`,
           ].map((line) => (
             <div key={line} className="flex items-start gap-1.5">
-              <span className="mt-0.5 flex-shrink-0 text-[#3B82F6]">›</span>
-              <span style={{ fontSize: '12px', lineHeight: 1.6 }} className="text-slate-300">
+              <span
+                className="mt-0.5 flex-shrink-0"
+                style={{ color: theme.brand.primary }}
+              >
+                ›
+              </span>
+
+              <span
+                style={{
+                  fontSize: '12px',
+                  lineHeight: 1.6,
+                  color: theme.sidebar.text,
+                }}
+              >
                 {line}
               </span>
             </div>
@@ -205,27 +341,66 @@ export function OverviewTab() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="rounded-2xl border border-[#E2E8F0] bg-white p-4 shadow-sm">
+        <div
+          className="rounded-2xl border p-4 shadow-sm"
+          style={{
+            backgroundColor: theme.neutral.surface,
+            borderColor: theme.neutral.border,
+          }}
+        >
           <div className="mb-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EFF6FF]">
-                <Globe2 className="h-4.5 w-4.5 text-[#2563EB]" />
+              <div
+                className="flex h-9 w-9 items-center justify-center rounded-xl"
+                style={{ backgroundColor: theme.brand.primaryLight }}
+              >
+                <Globe2
+                  className="h-4.5 w-4.5"
+                  style={{ color: theme.brand.primary }}
+                />
               </div>
+
               <div>
-                <p style={{ fontSize: '14px', fontWeight: 700 }} className="text-[#0F172A]">
+                <p
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    color: theme.neutral.text,
+                  }}
+                >
                   Digital Sovereignty Score
                 </p>
-                <p style={{ fontSize: '11px' }} className="text-[#64748B]">
+
+                <p
+                  style={{
+                    fontSize: '11px',
+                    color: theme.neutral.textSecondary,
+                  }}
+                >
                   Cloud, data, AI, and concentration exposure
                 </p>
               </div>
             </div>
 
             <div className="text-right">
-              <p style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.04em' }} className="text-[#0F172A]">
+              <p
+                style={{
+                  fontSize: '28px',
+                  fontWeight: 800,
+                  letterSpacing: '-0.04em',
+                  color: theme.neutral.text,
+                }}
+              >
                 {sovereigntyScore}
               </p>
-              <p style={{ fontSize: '10px', fontWeight: 700 }} className="text-[#64748B]">
+
+              <p
+                style={{
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  color: theme.neutral.textSecondary,
+                }}
+              >
                 /100
               </p>
             </div>
@@ -241,38 +416,102 @@ export function OverviewTab() {
             ].map(([label, value]) => (
               <div key={label as string}>
                 <div className="mb-1 flex justify-between">
-                  <span style={{ fontSize: '11px', fontWeight: 600 }} className="text-[#334155]">
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: theme.neutral.textSecondary,
+                    }}
+                  >
                     {label}
                   </span>
-                  <span style={{ fontSize: '11px', fontWeight: 800 }} className="text-[#0F172A]">
+
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      color: theme.neutral.text,
+                    }}
+                  >
                     {value}
                   </span>
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-[#E2E8F0]">
-                  <div className="h-full rounded-full bg-[#2563EB]" style={{ width: `${value}%` }} />
+
+                <div
+                  className="h-1.5 overflow-hidden rounded-full"
+                  style={{ backgroundColor: theme.neutral.border }}
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${value}%`,
+                      backgroundColor: theme.brand.primary,
+                    }}
+                  />
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="mt-4 flex items-start gap-2 rounded-xl border border-[#FED7AA] bg-[#FFF7ED] p-3">
-            <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#EA580C]" />
-            <p style={{ fontSize: '11px', lineHeight: 1.5 }} className="text-[#9A3412]">
+          <div
+            className="mt-4 flex items-start gap-2 rounded-xl border p-3"
+            style={{
+              backgroundColor: theme.status.warningLight,
+              borderColor: theme.status.warning,
+            }}
+          >
+            <ShieldAlert
+              className="mt-0.5 h-4 w-4 flex-shrink-0"
+              style={{ color: theme.status.warning }}
+            />
+
+            <p
+              style={{
+                fontSize: '11px',
+                lineHeight: 1.5,
+                color: theme.neutral.text,
+              }}
+            >
               Main concern: {activeScenario.regionExposure}. {activeScenario.mainRisk}
             </p>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#E2E8F0] bg-white p-4 shadow-sm">
+        <div
+          className="rounded-2xl border p-4 shadow-sm"
+          style={{
+            backgroundColor: theme.neutral.surface,
+            borderColor: theme.neutral.border,
+          }}
+        >
           <div className="mb-4 flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EFF6FF]">
-              <Building2 className="h-4.5 w-4.5 text-[#2563EB]" />
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-xl"
+              style={{ backgroundColor: theme.brand.primaryLight }}
+            >
+              <Building2
+                className="h-4.5 w-4.5"
+                style={{ color: theme.brand.primary }}
+              />
             </div>
+
             <div>
-              <p style={{ fontSize: '14px', fontWeight: 700 }} className="text-[#0F172A]">
+              <p
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  color: theme.neutral.text,
+                }}
+              >
                 Technology Dependency Map
               </p>
-              <p style={{ fontSize: '11px' }} className="text-[#64748B]">
+
+              <p
+                style={{
+                  fontSize: '11px',
+                  color: theme.neutral.textSecondary,
+                }}
+              >
                 Providers supporting critical business operations
               </p>
             </div>
@@ -280,22 +519,53 @@ export function OverviewTab() {
 
           <div className="grid gap-2 sm:grid-cols-2">
             {dependencies.map((dependency) => (
-              <div key={dependency.vendor} className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+              <div
+                key={dependency.vendor}
+                className="rounded-xl border p-3"
+                style={{
+                  backgroundColor: theme.neutral.background,
+                  borderColor: theme.neutral.border,
+                }}
+              >
                 <div className="mb-2 flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white">
+                  <div
+                    className="flex h-7 w-7 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: theme.neutral.surface }}
+                  >
                     <DependencyIcon type={dependency.icon} />
                   </div>
+
                   <div className="min-w-0">
-                    <p style={{ fontSize: '12px', fontWeight: 800 }} className="truncate text-[#0F172A]">
+                    <p
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        color: theme.neutral.text,
+                      }}
+                      className="truncate"
+                    >
                       {dependency.vendor}
                     </p>
-                    <p style={{ fontSize: '10px' }} className="truncate text-[#94A3B8]">
+
+                    <p
+                      style={{
+                        fontSize: '10px',
+                        color: theme.neutral.textMuted,
+                      }}
+                      className="truncate"
+                    >
                       {dependency.service}
                     </p>
                   </div>
                 </div>
 
-                <p style={{ fontSize: '11px', lineHeight: 1.45 }} className="text-[#64748B]">
+                <p
+                  style={{
+                    fontSize: '11px',
+                    lineHeight: 1.45,
+                    color: theme.neutral.textSecondary,
+                  }}
+                >
                   Impacts: {dependency.impact}
                 </p>
               </div>
@@ -305,52 +575,131 @@ export function OverviewTab() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white shadow-sm">
-          <div className="border-b border-[#F1F5F9] px-4 py-3">
-            <span style={{ fontSize: '12px', fontWeight: 700 }} className="text-[#0F172A]">
+        <div
+          className="overflow-hidden rounded-xl border shadow-sm"
+          style={{
+            backgroundColor: theme.neutral.surface,
+            borderColor: theme.neutral.border,
+          }}
+        >
+          <div
+            className="border-b px-4 py-3"
+            style={{ borderColor: theme.neutral.border }}
+          >
+            <span
+              style={{
+                fontSize: '12px',
+                fontWeight: 700,
+                color: theme.neutral.text,
+              }}
+            >
               Critical Vendors
             </span>
           </div>
 
-          <div className="divide-y divide-[#F8FAFC]">
-            {ALL_VENDORS.filter((vendor) => vendor.criticality === 'Critical').map((vendor) => (
-              <div key={vendor.name} className="flex items-center gap-2.5 px-4 py-2.5">
-                <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-[#EFF6FF]">
-                  <Building2 className="h-3.5 w-3.5 text-[#2563EB]" />
-                </div>
+          <div>
+            {ALL_VENDORS.filter((vendor) => vendor.criticality === 'Critical').map(
+              (vendor, index) => (
+                <div
+                  key={vendor.name}
+                  className="flex items-center gap-2.5 px-4 py-2.5"
+                  style={{
+                    borderTop:
+                      index === 0 ? undefined : `1px solid ${theme.neutral.background}`,
+                  }}
+                >
+                  <div
+                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md"
+                    style={{ backgroundColor: theme.brand.primaryLight }}
+                  >
+                    <Building2
+                      className="h-3.5 w-3.5"
+                      style={{ color: theme.brand.primary }}
+                    />
+                  </div>
 
-                <div className="min-w-0 flex-1">
-                  <p style={{ fontSize: '12px', fontWeight: 600 }} className="text-[#0F172A]">
-                    {vendor.name}
-                  </p>
-                  <p style={{ fontSize: '10px' }} className="text-[#94A3B8]">
-                    {vendor.service} · {vendor.country}
-                  </p>
-                </div>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      style={{
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: theme.neutral.text,
+                      }}
+                    >
+                      {vendor.name}
+                    </p>
 
-                <Badge level={vendor.risk} />
-              </div>
-            ))}
+                    <p
+                      style={{
+                        fontSize: '10px',
+                        color: theme.neutral.textMuted,
+                      }}
+                    >
+                      {vendor.service} · {vendor.country}
+                    </p>
+                  </div>
+
+                  <Badge level={vendor.risk} />
+                </div>
+              )
+            )}
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white shadow-sm">
-          <div className="border-b border-[#F1F5F9] px-4 py-3">
-            <span style={{ fontSize: '12px', fontWeight: 700 }} className="text-[#0F172A]">
+        <div
+          className="overflow-hidden rounded-xl border shadow-sm"
+          style={{
+            backgroundColor: theme.neutral.surface,
+            borderColor: theme.neutral.border,
+          }}
+        >
+          <div
+            className="border-b px-4 py-3"
+            style={{ borderColor: theme.neutral.border }}
+          >
+            <span
+              style={{
+                fontSize: '12px',
+                fontWeight: 700,
+                color: theme.neutral.text,
+              }}
+            >
               Board-Level Priority Risks
             </span>
           </div>
 
-          <div className="divide-y divide-[#F8FAFC]">
+          <div>
             {boardRisks.map((risk, index) => (
-              <div key={risk} className="flex items-start gap-2.5 px-4 py-2.5">
-                <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#EFF6FF]">
-                  <span style={{ fontSize: '10px', fontWeight: 800 }} className="text-[#2563EB]">
+              <div
+                key={risk}
+                className="flex items-start gap-2.5 px-4 py-2.5"
+                style={{
+                  borderTop:
+                    index === 0 ? undefined : `1px solid ${theme.neutral.background}`,
+                }}
+              >
+                <div
+                  className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full"
+                  style={{ backgroundColor: theme.brand.primaryLight }}
+                >
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      color: theme.brand.primary,
+                    }}
+                  >
                     {index + 1}
                   </span>
                 </div>
 
-                <p style={{ fontSize: '12px', lineHeight: 1.5 }} className="text-[#334155]">
+                <p
+                  style={{
+                    fontSize: '12px',
+                    lineHeight: 1.5,
+                    color: theme.neutral.textSecondary,
+                  }}
+                >
                   {risk}
                 </p>
               </div>
@@ -359,23 +708,60 @@ export function OverviewTab() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white shadow-sm">
-        <div className="border-b border-[#F1F5F9] px-4 py-3">
-          <span style={{ fontSize: '12px', fontWeight: 700 }} className="text-[#0F172A]">
+      <div
+        className="overflow-hidden rounded-xl border shadow-sm"
+        style={{
+          backgroundColor: theme.neutral.surface,
+          borderColor: theme.neutral.border,
+        }}
+      >
+        <div
+          className="border-b px-4 py-3"
+          style={{ borderColor: theme.neutral.border }}
+        >
+          <span
+            style={{
+              fontSize: '12px',
+              fontWeight: 700,
+              color: theme.neutral.text,
+            }}
+          >
             Highest Severity Gaps
           </span>
         </div>
 
-        <div className="divide-y divide-[#F8FAFC]">
-          {highGaps.slice(0, 4).map((gap) => (
-            <div key={`${gap.title}-${gap.vendor}`} className="flex items-start gap-2.5 px-4 py-2.5">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-500" />
+        <div>
+          {highGaps.slice(0, 4).map((gap, index) => (
+            <div
+              key={`${gap.title}-${gap.vendor}`}
+              className="flex items-start gap-2.5 px-4 py-2.5"
+              style={{
+                borderTop:
+                  index === 0 ? undefined : `1px solid ${theme.neutral.background}`,
+              }}
+            >
+              <AlertTriangle
+                className="mt-0.5 h-3.5 w-3.5 flex-shrink-0"
+                style={{ color: theme.status.error }}
+              />
 
               <div className="min-w-0 flex-1">
-                <p style={{ fontSize: '12px', fontWeight: 600 }} className="text-[#0F172A]">
+                <p
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: theme.neutral.text,
+                  }}
+                >
                   {gap.title}
                 </p>
-                <p style={{ fontSize: '10px' }} className="text-[#94A3B8]">
+
+                <p
+                  style={{
+                    fontSize: '10px',
+                    color: theme.neutral.textMuted,
+                  }}
+                >
                   {gap.vendor} · {gap.article}
                 </p>
               </div>
