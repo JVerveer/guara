@@ -9,234 +9,56 @@ import {
   Zap,
 } from 'lucide-react';
 import { Badge } from '../Badge';
-import { ALL_VENDORS, DORA_GAPS } from '../../data/constants';
-import { useApp } from '../../contexts/AppContext';
 import { theme } from '../../../styles/theme';
-
-const SOVEREIGNTY_SCORES: Record<
-  string,
-  {
-    cloud: number;
-    data: number;
-    ai: number;
-    concentration: number;
-    regulatory: number;
-  }
-> = {
-  'fintech-payments': { cloud: 52, data: 74, ai: 61, concentration: 48, regulatory: 72 },
-  'digital-bank': { cloud: 58, data: 67, ai: 70, concentration: 55, regulatory: 64 },
-  'insurance-platform': { cloud: 69, data: 49, ai: 75, concentration: 68, regulatory: 81 },
-  'wealth-manager': { cloud: 64, data: 72, ai: 66, concentration: 59, regulatory: 76 },
-  'crypto-exchange': { cloud: 45, data: 51, ai: 58, concentration: 43, regulatory: 58 },
-  'sme-lending': { cloud: 61, data: 68, ai: 55, concentration: 57, regulatory: 69 },
-  'payment-institution': { cloud: 49, data: 62, ai: 60, concentration: 46, regulatory: 61 },
-  'regtech-saas': { cloud: 73, data: 78, ai: 42, concentration: 71, regulatory: 84 },
-  'european-neobank': { cloud: 38, data: 54, ai: 47, concentration: 35, regulatory: 55 },
-  'brokerage-platform': { cloud: 57, data: 63, ai: 69, concentration: 52, regulatory: 67 },
-};
-
-const DEPENDENCIES: Record<
-  string,
-  Array<{
-    vendor: string;
-    service: string;
-    impact: string;
-    icon: 'cloud' | 'payments' | 'identity' | 'data';
-  }>
-> = {
-  'fintech-payments': [
-    {
-      vendor: 'AWS',
-      service: 'Cloud infrastructure',
-      impact: 'Payments API, customer portal, analytics',
-      icon: 'cloud',
-    },
-    {
-      vendor: 'Stripe',
-      service: 'Payment processing',
-      impact: 'Card acquiring, settlement, refunds',
-      icon: 'payments',
-    },
-    {
-      vendor: 'Okta',
-      service: 'Identity access',
-      impact: 'Employee access, admin access',
-      icon: 'identity',
-    },
-    {
-      vendor: 'Snowflake',
-      service: 'Data platform',
-      impact: 'Reporting, fraud analytics',
-      icon: 'data',
-    },
-  ],
-  'digital-bank': [
-    {
-      vendor: 'Microsoft Azure',
-      service: 'Cloud infrastructure',
-      impact: 'Mobile banking, APIs, monitoring',
-      icon: 'cloud',
-    },
-    {
-      vendor: 'Okta',
-      service: 'Identity access',
-      impact: 'Privileged access, workforce identity',
-      icon: 'identity',
-    },
-    {
-      vendor: 'Salesforce',
-      service: 'CRM platform',
-      impact: 'Customer service, onboarding',
-      icon: 'data',
-    },
-    {
-      vendor: 'AWS',
-      service: 'Data processing',
-      impact: 'Analytics and internal reporting',
-      icon: 'cloud',
-    },
-  ],
-  'insurance-platform': [
-    {
-      vendor: 'Microsoft Azure',
-      service: 'Cloud infrastructure',
-      impact: 'Claims platform, customer portal',
-      icon: 'cloud',
-    },
-    {
-      vendor: 'Salesforce',
-      service: 'CRM platform',
-      impact: 'Policyholder service, sales workflows',
-      icon: 'data',
-    },
-    {
-      vendor: 'Okta',
-      service: 'Identity access',
-      impact: 'Workforce identity, privileged access',
-      icon: 'identity',
-    },
-    {
-      vendor: 'Snowflake',
-      service: 'Data warehouse',
-      impact: 'Policy analytics, reporting',
-      icon: 'data',
-    },
-  ],
-  default: [
-    {
-      vendor: 'AWS',
-      service: 'Cloud infrastructure',
-      impact: 'Production workloads and data processing',
-      icon: 'cloud',
-    },
-    {
-      vendor: 'Stripe',
-      service: 'Payments',
-      impact: 'Customer payments and settlement',
-      icon: 'payments',
-    },
-    {
-      vendor: 'Okta',
-      service: 'Identity access',
-      impact: 'Authentication and access management',
-      icon: 'identity',
-    },
-    {
-      vendor: 'Snowflake',
-      service: 'Data platform',
-      impact: 'Reporting and analytics',
-      icon: 'data',
-    },
-  ],
-};
-
-const BOARD_RISKS: Record<string, string[]> = {
-  'fintech-payments': [
-    'High dependency on AWS and Stripe for critical payment operations.',
-    'No documented exit strategy found for AWS.',
-    'US provider dependency across critical infrastructure.',
-  ],
-  'digital-bank': [
-    'Missing exit strategies for multiple critical ICT providers.',
-    'Annual review evidence appears incomplete for critical suppliers.',
-    'Mixed EU and US processing creates oversight complexity.',
-  ],
-  'insurance-platform': [
-    'Sensitive policyholder data is processed by several non-EU vendors.',
-    'Data residency exposure requires review before audit.',
-    'Critical vendor dependency map should be validated by business owners.',
-  ],
-  default: [
-    'Critical technology dependencies require executive attention.',
-    'Vendor evidence coverage is incomplete.',
-    'Concentration risk exists across core service providers.',
-  ],
-};
+import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
+import { getHighSeverityGaps, getSovereigntyScore } from '../../../analysis/selectors';
 
 function DependencyIcon({ type }: { type: 'cloud' | 'payments' | 'identity' | 'data' }) {
   const iconStyle = { color: theme.brand.primary };
 
-  if (type === 'cloud') {
-    return <Cloud className="h-3.5 w-3.5" style={iconStyle} />;
-  }
-
-  if (type === 'identity') {
-    return <KeyRound className="h-3.5 w-3.5" style={iconStyle} />;
-  }
+  if (type === 'cloud') return <Cloud className="h-3.5 w-3.5" style={iconStyle} />;
+  if (type === 'identity') return <KeyRound className="h-3.5 w-3.5" style={iconStyle} />;
 
   return <Database className="h-3.5 w-3.5" style={iconStyle} />;
 }
 
 export function OverviewTab() {
-  const { activeScenario } = useApp();
+  const analysisResult = useAnalysisResult();
+  const { scenario } = analysisResult;
 
-  const sovereigntyScores =
-    SOVEREIGNTY_SCORES[activeScenario.id] ?? SOVEREIGNTY_SCORES['fintech-payments'];
-
-  const sovereigntyScore = Math.round(
-    (sovereigntyScores.cloud +
-      sovereigntyScores.data +
-      sovereigntyScores.ai +
-      sovereigntyScores.concentration +
-      sovereigntyScores.regulatory) /
-      5
-  );
-
-  const dependencies = DEPENDENCIES[activeScenario.id] ?? DEPENDENCIES.default;
-  const boardRisks = BOARD_RISKS[activeScenario.id] ?? BOARD_RISKS.default;
-
-  const highGaps = DORA_GAPS.filter((gap) => gap.severity === 'High');
+  const sovereigntyScore = getSovereigntyScore(analysisResult);
+  const highGaps = getHighSeverityGaps(analysisResult);
 
   const kpis = [
     {
       label: 'Readiness',
-      value: `${activeScenario.readinessScore}/100`,
+      value: `${scenario.readinessScore}/100`,
       sub: 'Audit-ready output',
       highlight: true,
     },
     {
       label: 'Sovereignty',
       value: `${sovereigntyScore}/100`,
-      sub: activeScenario.regionExposure,
+      sub: scenario.regionExposure,
     },
     {
       label: 'Vendors',
-      value: String(activeScenario.vendors),
-      sub: `${activeScenario.criticalVendors} critical`,
+      value: String(scenario.vendors),
+      sub: `${scenario.criticalVendors} critical`,
     },
     {
       label: 'Documents',
-      value: String(activeScenario.documents),
-      sub: 'Sample package',
+      value: String(scenario.documents),
+      sub: analysisResult.source === 'sample' ? 'Sample package' : 'Uploaded package',
     },
     {
       label: 'Concentration',
-      value: activeScenario.readinessScore < 65 ? 'Severe' : 'High',
+      value: scenario.readinessScore < 65 ? 'Severe' : 'High',
       sub: 'Critical dependency',
     },
     {
       label: 'Priority Risks',
-      value: String(boardRisks.length),
+      value: String(analysisResult.boardRisks.length),
       sub: 'Board-level items',
     },
   ];
@@ -311,18 +133,15 @@ export function OverviewTab() {
 
         <div className="grid gap-2 sm:grid-cols-2">
           {[
-            `Analysed ${activeScenario.documents} documents for a ${activeScenario.industry.toLowerCase()} scenario covering ${activeScenario.vendors} vendors.`,
-            `${activeScenario.criticalVendors} critical vendors identified across technology, data, infrastructure, and operational services.`,
-            activeScenario.headlineFinding,
-            activeScenario.mainRisk,
-            `Digital sovereignty exposure: ${activeScenario.regionExposure}.`,
-            `Audit readiness score: ${activeScenario.readinessScore}/100 — priority remediation recommended before formal review.`,
+            `Analysed ${scenario.documents} documents for a ${scenario.industry.toLowerCase()} scenario covering ${scenario.vendors} vendors.`,
+            `${scenario.criticalVendors} critical vendors identified across technology, data, infrastructure, and operational services.`,
+            scenario.headlineFinding,
+            scenario.mainRisk,
+            `Digital sovereignty exposure: ${scenario.regionExposure}.`,
+            `Audit readiness score: ${scenario.readinessScore}/100 — priority remediation recommended before formal review.`,
           ].map((line) => (
             <div key={line} className="flex items-start gap-1.5">
-              <span
-                className="mt-0.5 flex-shrink-0"
-                style={{ color: theme.brand.primary }}
-              >
+              <span className="mt-0.5 flex-shrink-0" style={{ color: theme.brand.primary }}>
                 ›
               </span>
 
@@ -354,10 +173,7 @@ export function OverviewTab() {
                 className="flex h-9 w-9 items-center justify-center rounded-xl"
                 style={{ backgroundColor: theme.brand.primaryLight }}
               >
-                <Globe2
-                  className="h-4.5 w-4.5"
-                  style={{ color: theme.brand.primary }}
-                />
+                <Globe2 className="h-4.5 w-4.5" style={{ color: theme.brand.primary }} />
               </div>
 
               <div>
@@ -408,11 +224,11 @@ export function OverviewTab() {
 
           <div className="space-y-2.5">
             {[
-              ['Cloud sovereignty', sovereigntyScores.cloud],
-              ['Data residency', sovereigntyScores.data],
-              ['AI sovereignty', sovereigntyScores.ai],
-              ['Vendor concentration', sovereigntyScores.concentration],
-              ['Regulatory readiness', sovereigntyScores.regulatory],
+              ['Cloud sovereignty', analysisResult.sovereigntyScores.cloud],
+              ['Data residency', analysisResult.sovereigntyScores.data],
+              ['AI sovereignty', analysisResult.sovereigntyScores.ai],
+              ['Vendor concentration', analysisResult.sovereigntyScores.concentration],
+              ['Regulatory readiness', analysisResult.sovereigntyScores.regulatory],
             ].map(([label, value]) => (
               <div key={label as string}>
                 <div className="mb-1 flex justify-between">
@@ -472,7 +288,7 @@ export function OverviewTab() {
                 color: theme.neutral.text,
               }}
             >
-              Main concern: {activeScenario.regionExposure}. {activeScenario.mainRisk}
+              Main concern: {scenario.regionExposure}. {scenario.mainRisk}
             </p>
           </div>
         </div>
@@ -489,10 +305,7 @@ export function OverviewTab() {
               className="flex h-9 w-9 items-center justify-center rounded-xl"
               style={{ backgroundColor: theme.brand.primaryLight }}
             >
-              <Building2
-                className="h-4.5 w-4.5"
-                style={{ color: theme.brand.primary }}
-              />
+              <Building2 className="h-4.5 w-4.5" style={{ color: theme.brand.primary }} />
             </div>
 
             <div>
@@ -518,9 +331,9 @@ export function OverviewTab() {
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2">
-            {dependencies.map((dependency) => (
+            {analysisResult.dependencies.map((dependency) => (
               <div
-                key={dependency.vendor}
+                key={`${dependency.vendor}-${dependency.service}`}
                 className="rounded-xl border p-3"
                 style={{
                   backgroundColor: theme.neutral.background,
@@ -582,10 +395,7 @@ export function OverviewTab() {
             borderColor: theme.neutral.border,
           }}
         >
-          <div
-            className="border-b px-4 py-3"
-            style={{ borderColor: theme.neutral.border }}
-          >
+          <div className="border-b px-4 py-3" style={{ borderColor: theme.neutral.border }}>
             <span
               style={{
                 fontSize: '12px',
@@ -598,8 +408,9 @@ export function OverviewTab() {
           </div>
 
           <div>
-            {ALL_VENDORS.filter((vendor) => vendor.criticality === 'Critical').map(
-              (vendor, index) => (
+            {analysisResult.vendors
+              .filter((vendor) => vendor.criticality === 'Critical')
+              .map((vendor, index) => (
                 <div
                   key={vendor.name}
                   className="flex items-center gap-2.5 px-4 py-2.5"
@@ -612,10 +423,7 @@ export function OverviewTab() {
                     className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md"
                     style={{ backgroundColor: theme.brand.primaryLight }}
                   >
-                    <Building2
-                      className="h-3.5 w-3.5"
-                      style={{ color: theme.brand.primary }}
-                    />
+                    <Building2 className="h-3.5 w-3.5" style={{ color: theme.brand.primary }} />
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -641,8 +449,7 @@ export function OverviewTab() {
 
                   <Badge level={vendor.risk} />
                 </div>
-              )
-            )}
+              ))}
           </div>
         </div>
 
@@ -653,10 +460,7 @@ export function OverviewTab() {
             borderColor: theme.neutral.border,
           }}
         >
-          <div
-            className="border-b px-4 py-3"
-            style={{ borderColor: theme.neutral.border }}
-          >
+          <div className="border-b px-4 py-3" style={{ borderColor: theme.neutral.border }}>
             <span
               style={{
                 fontSize: '12px',
@@ -669,7 +473,7 @@ export function OverviewTab() {
           </div>
 
           <div>
-            {boardRisks.map((risk, index) => (
+            {analysisResult.boardRisks.map((risk, index) => (
               <div
                 key={risk}
                 className="flex items-start gap-2.5 px-4 py-2.5"
@@ -715,10 +519,7 @@ export function OverviewTab() {
           borderColor: theme.neutral.border,
         }}
       >
-        <div
-          className="border-b px-4 py-3"
-          style={{ borderColor: theme.neutral.border }}
-        >
+        <div className="border-b px-4 py-3" style={{ borderColor: theme.neutral.border }}>
           <span
             style={{
               fontSize: '12px',
