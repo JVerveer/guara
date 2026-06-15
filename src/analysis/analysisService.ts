@@ -26,6 +26,16 @@ export async function analyzeUploadedDocumentsViaApi(
     body: formData,
   });
 
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (!contentType.includes('application/json')) {
+    const text = await response.text();
+
+    throw new Error(
+      `Expected JSON from /api/analyze but received ${response.status}: ${text.slice(0, 300)}`
+    );
+  }
+
   const data = await response.json();
 
   if (!response.ok) {
