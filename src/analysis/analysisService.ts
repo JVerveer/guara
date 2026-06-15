@@ -2,7 +2,13 @@ import type { AnalysisResult } from './types';
 import { analyzeUploadedPackage } from './analyzeUploadedPackage';
 import { normalizeUploadedAnalysisResult } from './normalizeUploadedAnalysis';
 
+const USE_SERVER_ANALYSIS = true;
+
 export async function analyzeUploadedDocuments(files: File[]): Promise<AnalysisResult> {
+  if (USE_SERVER_ANALYSIS) {
+    return analyzeUploadedDocumentsViaApi(files);
+  }
+
   return analyzeUploadedPackage(files);
 }
 
@@ -20,11 +26,15 @@ export async function analyzeUploadedDocumentsViaApi(
     body: formData,
   });
 
-  if (!response.ok) {
-    throw new Error('Failed to analyze uploaded documents.');
-  }
-
   const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      typeof data?.error === 'string'
+        ? data.error
+        : 'Failed to analyze uploaded documents.'
+    );
+  }
 
   return normalizeUploadedAnalysisResult(data);
 }
