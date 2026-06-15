@@ -38,28 +38,27 @@ const RESULTS_ITEMS: NavItem[] = [
   { id: 'audit', label: 'Board Package', icon: Package },
 ];
 
-const RESULTS_PAGES: Page[] = ['overview', 'vendors', 'gaps', 'evidence', 'concentration', 'audit'];
-
 export function Sidebar() {
-  const { page, navigate, hasResults, reset, sidebarOpen, setSidebarOpen } = useApp();
+  const {
+    page,
+    navigate,
+    hasResults,
+    reset,
+    sidebarOpen,
+    setSidebarOpen,
+  } = useApp();
 
-  const getLandingItemStyle = (id: Page): React.CSSProperties => {
+  const getItemStyle = (id: Page): React.CSSProperties => {
     const active = page === id;
 
     return {
       fontSize: '14px',
-      color: active ? '#FFFFFF' : theme.sidebar.textMuted,
-      backgroundColor: active ? 'rgba(255,255,255,0.10)' : 'transparent',
-    };
-  };
-
-  const getResultsItemStyle = (id: Page): React.CSSProperties => {
-    const active = page === id;
-
-    return {
-      fontSize: '14px',
-      color: active ? theme.sidebar.activeText : theme.sidebar.textMuted,
-      backgroundColor: active ? theme.sidebar.activeBackground : 'transparent',
+      color: active
+        ? theme.sidebar.activeText
+        : theme.sidebar.textMuted,
+      backgroundColor: active
+        ? theme.sidebar.activeBackground
+        : 'transparent',
     };
   };
 
@@ -67,7 +66,8 @@ export function Sidebar() {
     <>
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          className="fixed inset-0 z-40 md:hidden"
+          style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -79,20 +79,29 @@ export function Sidebar() {
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           md:static md:z-auto md:translate-x-0
         `}
-        style={{ backgroundColor: theme.sidebar.background }}
+        style={{
+          backgroundColor: theme.sidebar.background,
+        }}
       >
         <div
           className="flex h-16 flex-shrink-0 items-center justify-between px-5"
-          style={{ borderBottom: `1px solid ${theme.sidebar.border}` }}
+          style={{
+            borderBottom: `1px solid ${theme.sidebar.border}`,
+          }}
         >
-          <button onClick={() => navigate('home')} className="flex items-center">
+          <button
+            onClick={() => navigate('home')}
+            className="flex items-center"
+          >
             <GuaraLogo />
           </button>
 
           <button
             onClick={() => setSidebarOpen(false)}
-            className="transition-colors hover:text-white md:hidden"
-            style={{ color: theme.sidebar.textMuted }}
+            className="md:hidden transition-colors"
+            style={{
+              color: theme.sidebar.textMuted,
+            }}
           >
             <X className="h-5 w-5" />
           </button>
@@ -101,13 +110,13 @@ export function Sidebar() {
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-6">
             <p
+              className="mb-2 px-3 uppercase"
               style={{
                 fontSize: '10px',
                 fontWeight: 600,
                 letterSpacing: '0.08em',
                 color: theme.sidebar.textMuted,
               }}
-              className="mb-2 px-3 uppercase"
             >
               Menu
             </p>
@@ -116,8 +125,24 @@ export function Sidebar() {
               <button
                 key={id}
                 onClick={() => navigate(id)}
-                className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/5 hover:text-slate-200"
-                style={getLandingItemStyle(id)}
+                className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-all duration-200"
+                style={getItemStyle(id)}
+                onMouseEnter={(e) => {
+                  if (page !== id) {
+                    e.currentTarget.style.backgroundColor =
+                      theme.sidebar.hoverBackground;
+                    e.currentTarget.style.color =
+                      theme.sidebar.hoverText;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (page !== id) {
+                    e.currentTarget.style.backgroundColor =
+                      'transparent';
+                    e.currentTarget.style.color =
+                      theme.sidebar.textMuted;
+                  }
+                }}
               >
                 <Icon className="h-4 w-4 flex-shrink-0" />
                 {label}
@@ -128,13 +153,13 @@ export function Sidebar() {
           {hasResults && (
             <div>
               <p
+                className="mb-2 px-3 uppercase"
                 style={{
                   fontSize: '10px',
                   fontWeight: 600,
                   letterSpacing: '0.08em',
                   color: theme.sidebar.textMuted,
                 }}
-                className="mb-2 px-3 uppercase"
               >
                 Sample Analysis
               </p>
@@ -143,8 +168,24 @@ export function Sidebar() {
                 <button
                   key={id}
                   onClick={() => navigate(id)}
-                  className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/5 hover:text-slate-200"
-                  style={getResultsItemStyle(id)}
+                  className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-all duration-200"
+                  style={getItemStyle(id)}
+                  onMouseEnter={(e) => {
+                    if (page !== id) {
+                      e.currentTarget.style.backgroundColor =
+                        theme.sidebar.hoverBackground;
+                      e.currentTarget.style.color =
+                        theme.sidebar.hoverText;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (page !== id) {
+                      e.currentTarget.style.backgroundColor =
+                        'transparent';
+                      e.currentTarget.style.color =
+                        theme.sidebar.textMuted;
+                    }
+                  }}
                 >
                   <Icon className="h-4 w-4 flex-shrink-0" />
                   {label}
@@ -156,13 +197,30 @@ export function Sidebar() {
 
         <div
           className="flex-shrink-0 space-y-2 px-3 py-4"
-          style={{ borderTop: `1px solid ${theme.sidebar.border}` }}
+          style={{
+            borderTop: `1px solid ${theme.sidebar.border}`,
+          }}
         >
           {hasResults && (
             <button
               onClick={reset}
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-white/5 hover:text-slate-200"
-              style={{ fontSize: '13px', color: theme.sidebar.textMuted }}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 transition-all duration-200"
+              style={{
+                fontSize: '13px',
+                color: theme.sidebar.textMuted,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor =
+                  theme.sidebar.hoverBackground;
+                e.currentTarget.style.color =
+                  theme.sidebar.hoverText;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor =
+                  'transparent';
+                e.currentTarget.style.color =
+                  theme.sidebar.textMuted;
+              }}
             >
               <RotateCcw className="h-4 w-4" />
               Start over
@@ -170,7 +228,12 @@ export function Sidebar() {
           )}
 
           <div className="px-3 py-2">
-            <p style={{ fontSize: '11px', color: theme.sidebar.textMuted }}>
+            <p
+              style={{
+                fontSize: '11px',
+                color: theme.sidebar.textMuted,
+              }}
+            >
               © 2026 Guara
             </p>
           </div>

@@ -22,6 +22,29 @@ export function HeroUpload() {
     setFiles((prev) => prev.filter((file) => file !== name));
   };
 
+  const floatingDocStyles = [
+    {
+      backgroundColor: theme.brand.primaryLight,
+      borderColor: theme.brand.primaryBorder,
+    },
+    {
+      backgroundColor: theme.status.infoLight,
+      borderColor: theme.neutral.border,
+    },
+    {
+      backgroundColor: theme.status.successLight,
+      borderColor: theme.neutral.border,
+    },
+    {
+      backgroundColor: theme.status.warningLight,
+      borderColor: theme.neutral.border,
+    },
+    {
+      backgroundColor: theme.status.errorLight,
+      borderColor: theme.neutral.border,
+    },
+  ];
+
   return (
     <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-6">
       <section className="w-full max-w-3xl">
@@ -68,49 +91,58 @@ export function HeroUpload() {
         </p>
 
         <div className="relative isolate">
-          {/* Floating docs — deliberately above and overlapping the dropzone */}
           <div className="pointer-events-none absolute -left-6 top-8 z-50 hidden flex-col gap-2 xl:flex">
-            {FLOAT_DOCS.slice(0, 3).map((doc, index) => (
-              <div
-                key={doc.label}
-                style={{
-                  background: doc.color,
-                  borderColor: doc.border,
-                  transform: `translateX(${index === 1 ? '-10px' : index === 2 ? '8px' : '0px'})`,
-                }}
-                className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-95 shadow-lg backdrop-blur-sm"
-              >
-                <span style={{ fontSize: '13px' }}>{doc.icon}</span>
-                <span
-                  style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.textSecondary }}
-                  className="whitespace-nowrap"
+            {FLOAT_DOCS.slice(0, 3).map((doc, index) => {
+              const docStyle = floatingDocStyles[index % floatingDocStyles.length];
+
+              return (
+                <div
+                  key={doc.label}
+                  style={{
+                    backgroundColor: docStyle.backgroundColor,
+                    borderColor: docStyle.borderColor,
+                    boxShadow: theme.shadow.card,
+                    transform: `translateX(${index === 1 ? '-10px' : index === 2 ? '8px' : '0px'})`,
+                  }}
+                  className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-95 backdrop-blur-sm"
                 >
-                  {doc.label}
-                </span>
-              </div>
-            ))}
+                  <span style={{ fontSize: '13px' }}>{doc.icon}</span>
+                  <span
+                    style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.textSecondary }}
+                    className="whitespace-nowrap"
+                  >
+                    {doc.label}
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
           <div className="pointer-events-none absolute -right-6 top-12 z-50 hidden flex-col gap-2 xl:flex">
-            {FLOAT_DOCS.slice(3).map((doc, index) => (
-              <div
-                key={doc.label}
-                style={{
-                  background: doc.color,
-                  borderColor: doc.border,
-                  transform: `translateX(${index === 0 ? '8px' : '-8px'})`,
-                }}
-                className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-95 shadow-lg backdrop-blur-sm"
-              >
-                <span style={{ fontSize: '13px' }}>{doc.icon}</span>
-                <span
-                  style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.textSecondary }}
-                  className="whitespace-nowrap"
+            {FLOAT_DOCS.slice(3).map((doc, index) => {
+              const docStyle = floatingDocStyles[(index + 3) % floatingDocStyles.length];
+
+              return (
+                <div
+                  key={doc.label}
+                  style={{
+                    backgroundColor: docStyle.backgroundColor,
+                    borderColor: docStyle.borderColor,
+                    boxShadow: theme.shadow.card,
+                    transform: `translateX(${index === 0 ? '8px' : '-8px'})`,
+                  }}
+                  className="flex items-center gap-2 rounded-xl border px-3 py-2 opacity-95 backdrop-blur-sm"
                 >
-                  {doc.label}
-                </span>
-              </div>
-            ))}
+                  <span style={{ fontSize: '13px' }}>{doc.icon}</span>
+                  <span
+                    style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.textSecondary }}
+                    className="whitespace-nowrap"
+                  >
+                    {doc.label}
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
           <div
@@ -132,10 +164,11 @@ export function HeroUpload() {
               setDragOver(false);
               addFiles(Array.from(event.dataTransfer.files));
             }}
-            className="relative z-10 flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-9 shadow-sm transition-all duration-200 sm:p-12"
+            className="relative z-10 flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-9 transition-all duration-200 sm:p-12"
             style={{
               backgroundColor: dragOver ? theme.brand.primaryLight : theme.neutral.surface,
               borderColor: dragOver ? theme.brand.primary : theme.neutral.border,
+              boxShadow: theme.shadow.card,
               transform: dragOver ? 'scale(1.01)' : 'scale(1)',
             }}
           >
@@ -193,9 +226,10 @@ export function HeroUpload() {
                   style={{
                     fontSize: '12px',
                     fontWeight: 500,
+                    backgroundColor: theme.neutral.background,
                     color: theme.neutral.textSecondary,
                   }}
-                  className="rounded-full bg-[#F1F5F9] px-3 py-1"
+                  className="rounded-full px-3 py-1"
                 >
                   {label}
                 </span>
@@ -208,10 +242,11 @@ export function HeroUpload() {
               {files.map((file) => (
                 <div
                   key={file}
-                  className="flex items-center justify-between rounded-xl border px-4 py-2.5 shadow-sm"
+                  className="flex items-center justify-between rounded-xl border px-4 py-2.5"
                   style={{
                     backgroundColor: theme.neutral.surface,
                     borderColor: theme.neutral.border,
+                    boxShadow: theme.shadow.card,
                   }}
                 >
                   <div className="flex min-w-0 items-center gap-2">
@@ -230,8 +265,14 @@ export function HeroUpload() {
                       event.stopPropagation();
                       removeFile(file);
                     }}
-                    className="transition-colors hover:text-[#EF4444]"
+                    className="transition-colors"
                     style={{ color: theme.neutral.textMuted }}
+                    onMouseEnter={(event) => {
+                      event.currentTarget.style.color = theme.status.error;
+                    }}
+                    onMouseLeave={(event) => {
+                      event.currentTarget.style.color = theme.neutral.textMuted;
+                    }}
                     aria-label={`Remove ${file}`}
                   >
                     <X className="h-4 w-4" />
@@ -245,12 +286,13 @@ export function HeroUpload() {
             <button
               type="button"
               onClick={startSample}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 text-white shadow-md transition-colors"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3 transition-colors"
               style={{
                 fontSize: '14px',
                 fontWeight: 700,
                 backgroundColor: theme.brand.primary,
                 boxShadow: theme.shadow.brand,
+                color: theme.neutral.surface,
               }}
               onMouseEnter={(event) => {
                 event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
@@ -266,7 +308,7 @@ export function HeroUpload() {
             <button
               type="button"
               onClick={hasFiles ? undefined : openFilePicker}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all hover:bg-[#F8FAFC]"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border px-5 py-3 transition-all"
               style={{
                 fontSize: '14px',
                 fontWeight: 500,
@@ -275,9 +317,11 @@ export function HeroUpload() {
                 color: theme.neutral.textSecondary,
               }}
               onMouseEnter={(event) => {
+                event.currentTarget.style.backgroundColor = theme.neutral.background;
                 event.currentTarget.style.borderColor = theme.neutral.borderStrong;
               }}
               onMouseLeave={(event) => {
+                event.currentTarget.style.backgroundColor = theme.neutral.surface;
                 event.currentTarget.style.borderColor = theme.neutral.border;
               }}
             >

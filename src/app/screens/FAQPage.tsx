@@ -9,7 +9,6 @@ export function FAQPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
-        {/* Header */}
         <div className="mb-8">
           <p
             style={{
@@ -46,73 +45,87 @@ export function FAQPage() {
           </p>
         </div>
 
-        {/* FAQ Items */}
         <div className="space-y-2">
-          {FAQS.map(({ q, a }, i) => (
-            <div
-              key={q}
-              className="rounded-xl overflow-hidden shadow-sm"
-              style={{
-                backgroundColor: theme.neutral.surface,
-                border: `1px solid ${theme.neutral.border}`,
-              }}
-            >
-              <button
-                onClick={() => setOpen(open === i ? null : i)}
-                className="w-full flex items-center justify-between px-5 py-4 text-left transition-colors"
+          {FAQS.map(({ q, a }, i) => {
+            const isOpen = open === i;
+
+            return (
+              <div
+                key={q}
+                className="rounded-xl overflow-hidden shadow-sm"
                 style={{
-                  backgroundColor:
-                    open === i ? theme.brand.primaryLight : theme.neutral.surface,
+                  backgroundColor: theme.neutral.surface,
+                  border: `1px solid ${theme.neutral.border}`,
                 }}
               >
-                <span
+                <button
+                  onClick={() => setOpen(isOpen ? null : i)}
+                  className="w-full flex items-center justify-between px-5 py-4 text-left transition-colors"
                   style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: theme.neutral.text,
+                    backgroundColor: isOpen
+                      ? theme.brand.primaryLight
+                      : theme.neutral.surface,
                   }}
-                  className="pr-4"
+                  onMouseEnter={(event) => {
+                    if (!isOpen) {
+                      event.currentTarget.style.backgroundColor =
+                        theme.neutral.background;
+                    }
+                  }}
+                  onMouseLeave={(event) => {
+                    if (!isOpen) {
+                      event.currentTarget.style.backgroundColor =
+                        theme.neutral.surface;
+                    }
+                  }}
                 >
-                  {q}
-                </span>
+                  <span
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      color: theme.neutral.text,
+                    }}
+                    className="pr-4"
+                  >
+                    {q}
+                  </span>
 
-                <ChevronDown
-                  className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${
-                    open === i ? 'rotate-180' : ''
-                  }`}
-                  style={{
-                    color:
-                      open === i
+                  <ChevronDown
+                    className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${
+                      isOpen ? 'rotate-180' : ''
+                    }`}
+                    style={{
+                      color: isOpen
                         ? theme.brand.primary
                         : theme.neutral.textMuted,
-                  }}
-                />
-              </button>
-
-              {open === i && (
-                <div
-                  className="px-5 pb-4"
-                  style={{
-                    borderTop: `1px solid ${theme.neutral.border}`,
-                  }}
-                >
-                  <p
-                    style={{
-                      fontSize: '13px',
-                      lineHeight: 1.7,
-                      color: theme.neutral.textSecondary,
                     }}
-                    className="pt-3"
+                  />
+                </button>
+
+                {isOpen && (
+                  <div
+                    className="px-5 pb-4"
+                    style={{
+                      borderTop: `1px solid ${theme.neutral.border}`,
+                    }}
                   >
-                    {a}
-                  </p>
-                </div>
-              )}
-            </div>
-          ))}
+                    <p
+                      style={{
+                        fontSize: '13px',
+                        lineHeight: 1.7,
+                        color: theme.neutral.textSecondary,
+                      }}
+                      className="pt-3"
+                    >
+                      {a}
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        {/* CTA */}
         <div
           className="mt-6 rounded-xl p-5 text-center"
           style={{
@@ -149,7 +162,15 @@ export function FAQPage() {
               fontWeight: 700,
               color: theme.brand.primary,
             }}
-            className="mt-3 cursor-pointer hover:underline"
+            className="mt-3 cursor-pointer"
+            onMouseEnter={(event) => {
+              event.currentTarget.style.color = theme.brand.primaryHover;
+              event.currentTarget.style.textDecoration = 'underline';
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.color = theme.brand.primary;
+              event.currentTarget.style.textDecoration = 'none';
+            }}
           >
             hello@guara.io
           </p>

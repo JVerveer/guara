@@ -1,11 +1,9 @@
 export const theme = {
   brand: {
-    // Main Guara color
     primary: '#c72025',
     primaryHover: '#a61b1f',
     primaryActive: '#8f171b',
 
-    // Light variants
     primaryLight: '#FEF2F2',
     primaryBorder: '#FECACA',
     primaryMuted: '#FCA5A5',
@@ -15,53 +13,66 @@ export const theme = {
     background: '#F8FAFC',
     surface: '#FFFFFF',
 
-    border: '#E2E8F0',
+    border: '#E5EAF1',
     borderStrong: '#CBD5E1',
 
-    text: '#0F172A',
+    text: '#0B1220',
     textSecondary: '#475569',
-    textMuted: '#94A3B8',
+    textMuted: '#64748B',
   },
 
   sidebar: {
-    background: '#0F172A',
-    border: '#1E293B',
+    background: '#0B1220',
+    border: '#172033',
 
-    text: '#CBD5E1',
-    textMuted: '#64748B',
+    text: '#E2E8F0',
+    textMuted: '#94A3B8',
 
     activeBackground: '#3B0A0C',
-    activeText: '#FCA5A5',
+    activeText: '#FFFFFF',
+
+    hoverBackground: '#172033',
+    hoverText: '#E2E8F0',
   },
 
   risk: {
     high: '#DC2626',
-    medium: '#D97706',
-    low: '#16A34A',
+    medium: '#F59E0B',
+    low: '#15803D',
   },
 
   status: {
-    success: '#16A34A',
+    success: '#15803D',
     successLight: '#F0FDF4',
 
-    warning: '#D97706',
-    warningLight: '#FFF7ED',
+    warning: '#F59E0B',
+    warningLight: '#FFFBEB',
 
     error: '#DC2626',
     errorLight: '#FEF2F2',
 
-    info: '#0284C7',
-    infoLight: '#F0F9FF',
+    // More trustworthy than bright cyan
+    info: '#1E40AF',
+    infoLight: '#EFF6FF',
   },
 
   charts: {
     primary: '#c72025',
-    secondary: '#0F172A',
+
+    // Trust
+    secondary: '#1E3A5F',
+
+    // Neutral analytics
     tertiary: '#64748B',
 
-    accent1: '#D97706',
-    accent2: '#16A34A',
-    accent3: '#0284C7',
+    // Action / Attention
+    accent1: '#F59E0B',
+
+    // Positive outcome
+    accent2: '#15803D',
+
+    // Intelligence / Trust
+    accent3: '#2563EB',
   },
 
   cloud: {
@@ -75,12 +86,12 @@ export const theme = {
       'linear-gradient(135deg, #c72025 0%, #a61b1f 100%)',
 
     hero:
-      'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
+      'linear-gradient(135deg, #0B1220 0%, #1E3A5F 100%)',
   },
 
   shadow: {
-    card: '0 1px 3px rgba(15, 23, 42, 0.08)',
-    modal: '0 20px 40px rgba(15, 23, 42, 0.15)',
+    card: '0 2px 8px rgba(15, 23, 42, 0.06)',
+    modal: '0 24px 48px rgba(15, 23, 42, 0.16)',
 
     brand:
       '0 10px 25px rgba(199, 32, 37, 0.20)',
