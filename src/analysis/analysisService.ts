@@ -1,29 +1,9 @@
-import {
-  normalizeUploadedAnalysisResult,
-  createEmptyAnalysisResult,
-} from './normalizeUploadedAnalysis';
-import type { AnalysisResult, ScenarioSummary } from './analysisResultSchema';
+import type { AnalysisResult } from './types';
+import { analyzeUploadedPackage } from './analyzeUploadedPackage';
+import { normalizeUploadedAnalysisResult } from './normalizeUploadedAnalysis';
 
 export async function analyzeUploadedDocuments(files: File[]): Promise<AnalysisResult> {
-  const scenario: ScenarioSummary = {
-    id: `upload-${Date.now()}`,
-    name: 'Uploaded Vendor Package',
-    industry: 'Uploaded Analysis',
-    documents: files.length,
-    vendors: 0,
-    criticalVendors: 0,
-    readinessScore: 0,
-    mainRisk: 'Analysis has not completed yet.',
-    headlineFinding: 'Uploaded documents received.',
-    regionExposure: 'Not assessed',
-  };
-
-  // Replace this stub with your backend call later.
-  // Your backend should return JSON matching AnalysisResultSchema.
-  return createEmptyAnalysisResult(
-    scenario,
-    files.map((file) => file.name)
-  );
+  return analyzeUploadedPackage(files);
 }
 
 export async function analyzeUploadedDocumentsViaApi(
