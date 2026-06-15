@@ -1,72 +1,60 @@
-import pdfParse from 'pdf-parse';
-import mammoth from 'mammoth';
-import * as XLSX from 'xlsx';
-import type { ServerExtractedFile, ServerParsedDocument } from './types';
-
-function extractPlainText(buffer: Buffer) {
-  return buffer.toString('utf8');
-}
-
-async function extractPdfText(buffer: Buffer) {
-  const result = await pdfParse(buffer);
-
-  return result.text;
-}
+import type { ParsedDocument } from './types';
 
 async function extractDocxText(buffer: Buffer) {
+  const mammoth = await import('mammoth');
   const result = await mammoth.extractRawText({ buffer });
 
   return result.value;
 }
 
-function extractSpreadsheetText(buffer: Buffer) {
+async function extractSpreadsheetText(buffer: Buffer) {
+  const XLSX = await import('xlsx');
+
   const workbook = XLSX.read(buffer, {
     type: 'buffer',
     cellDates: true,
   });
 
-  const sheetTexts = workbook.SheetNames.map((sheetName) => {
+  return workbook.SheetNames.map((sheetName) => {
     const sheet = workbook.Sheets[sheetName];
     const csv = XLSX.utils.sheet_to_csv(sheet);
 
-    return [`Sheet: ${sheetName}`, csv].join('\n');
-  });
-
-  return sheetTexts.join('\n\n');
+    return `Sheet: ${sheetName}\n${csv}`;
+  }).join('\n\n');
 }
 
-export async function extractTextFromServerFile(
-  file: ServerExtractedFile
-): Promise<ServerParsedDocument> {
+export async function extractText(
+  fileName: string,
+  extension: string,
+  buffer: Buffer
+): Promise<ParsedDocument> {
   let text = '';
 
-  if (file.extension === 'pdf') {
-    text = await extractPdfText(file.buffer);
-  } else if (file.extension === 'docx') {
-    text = await extractDocxText(file.buffer);
-  } else if (file.extension === 'xlsx' || file.extension === 'xls') {
-    text = extractSpreadsheetText(file.buffer);
+  if (extension === 'pdf') {
+    // pdf-parse/pdfjs can fail on Vercel Node because DOMMatrix is not available.
+    // Keep PDFs in the document list for now, but do not block CSV/DOCX/XLSX analysis.
+    text = [
+      `PDF uploaded: ${fileName}`,
+      'PDF text extraction is temporarily disabled in the Vercel function.',
+      'CSV, XLSX, DOCX, TXT, MD, JSON, and ZIP extraction remain enabled.',
+    ].join('\n');
+  } else if (extension === 'docx') {
+    text = await extractDocxText(buffer);
+  } else if (extension === 'xlsx' || extension === 'xls') {
+    text = await extractSpreadsheetText(buffer);
   } else if (
-    file.extension === 'csv' ||
-    file.extension === 'txt' ||
-    file.extension === 'md' ||
-    file.extension === 'json'
+    extension === 'csv' ||
+    extension === 'txt' ||
+    extension === 'md' ||
+    extension === 'json'
   ) {
-    text = extractPlainText(file.buffer);
-  } else {
-    text = '';
+    text = buffer.toString('utf8');
   }
 
   return {
-    fileName: file.name,
-    extension: file.extension,
+    fileName,
+    extension,
     text: text.trim(),
-    size: file.size,
+    size: buffer.length,
   };
-}
-
-export async function extractTextFromServerFiles(
-  files: ServerExtractedFile[]
-): Promise<ServerParsedDocument[]> {
-  return Promise.all(files.map(extractTextFromServerFile));
 }
