@@ -12,6 +12,8 @@ import { useState } from 'react';
 import { useApp } from '../../contexts/AppContext';
 import { theme } from '../../../styles/theme';
 import { downloadRiskReportPdf } from '../../../reports/downloadRiskReportPdf';
+import { getSampleAnalysisResult } from '../../../analysis/sampleAnalysis';
+import type { AnalysisResult } from '../../../analysis/types';
 
 type ConversionIntent = 'save' | 'export' | 'upload';
 
@@ -43,7 +45,7 @@ const INTENT_COPY: Record<
     icon: Download,
     title: 'Your board pack is ready',
     description:
-      'Create a free account to download the generated board and audit package, including the dependency map, evidence summary, and risk findings.',
+      'Download the generated board and audit package, including the dependency map, evidence summary, and risk findings.',
     primaryCta: 'Download Board Pack',
     secondaryCta: 'Preview first',
   },
@@ -62,7 +64,13 @@ export function ConversionModal({
   intent = 'save',
   onClose,
 }: ConversionModalProps) {
-  const { activeScenario } = useApp();
+  const app = useApp() as ReturnType<typeof useApp> & {
+    analysisResult?: AnalysisResult | null;
+  };
+
+  const { activeScenario } = app;
+  const analysisResult = app.analysisResult ?? getSampleAnalysisResult(activeScenario.id);
+
   const [downloading, setDownloading] = useState(false);
 
   if (!open) {
@@ -79,7 +87,7 @@ export function ConversionModal({
 
     try {
       setDownloading(true);
-      await downloadRiskReportPdf(activeScenario);
+      await downloadRiskReportPdf(analysisResult);
       onClose();
     } finally {
       setDownloading(false);
@@ -111,14 +119,6 @@ export function ConversionModal({
             style={{
               color: theme.neutral.textMuted,
               backgroundColor: 'transparent',
-            }}
-            onMouseEnter={(event) => {
-              event.currentTarget.style.backgroundColor = theme.neutral.surface;
-              event.currentTarget.style.color = theme.neutral.text;
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.backgroundColor = 'transparent';
-              event.currentTarget.style.color = theme.neutral.textMuted;
             }}
             aria-label="Close modal"
           >
@@ -173,7 +173,7 @@ export function ConversionModal({
                     color: theme.neutral.text,
                   }}
                 >
-                  {activeScenario.name}
+                  {analysisResult.scenario.name}
                 </p>
 
                 <p
@@ -182,7 +182,7 @@ export function ConversionModal({
                     color: theme.neutral.textSecondary,
                   }}
                 >
-                  {activeScenario.headlineFinding}
+                  {analysisResult.scenario.headlineFinding}
                 </p>
               </div>
 
@@ -197,7 +197,7 @@ export function ConversionModal({
                     color: theme.brand.primary,
                   }}
                 >
-                  {activeScenario.readinessScore}
+                  {analysisResult.scenario.readinessScore}
                 </p>
 
                 <p
@@ -216,15 +216,15 @@ export function ConversionModal({
               {[
                 {
                   label: 'Vendors',
-                  value: activeScenario.vendors,
+                  value: analysisResult.scenario.vendors,
                 },
                 {
                   label: 'Critical',
-                  value: activeScenario.criticalVendors,
+                  value: analysisResult.scenario.criticalVendors,
                 },
                 {
                   label: 'Docs',
-                  value: activeScenario.documents,
+                  value: analysisResult.scenario.documents,
                 },
               ].map(({ label, value }) => (
                 <div
@@ -301,14 +301,6 @@ export function ConversionModal({
                   backgroundColor: theme.neutral.surface,
                   borderColor: theme.neutral.border,
                 }}
-                onFocusCapture={(event) => {
-                  event.currentTarget.style.borderColor = theme.brand.primary;
-                  event.currentTarget.style.boxShadow = `0 0 0 2px ${theme.brand.primaryBorder}`;
-                }}
-                onBlurCapture={(event) => {
-                  event.currentTarget.style.borderColor = theme.neutral.border;
-                  event.currentTarget.style.boxShadow = 'none';
-                }}
               >
                 <Mail
                   className="h-4 w-4 flex-shrink-0"
@@ -341,14 +333,6 @@ export function ConversionModal({
               color: theme.sidebar.activeText,
               boxShadow: theme.shadow.brand,
             }}
-            onMouseEnter={(event) => {
-              if (!downloading) {
-                event.currentTarget.style.backgroundColor = theme.brand.primaryHover;
-              }
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.backgroundColor = theme.brand.primary;
-            }}
           >
             {downloading ? 'Preparing PDF…' : copy.primaryCta}
             <ArrowRight className="h-4 w-4" />
@@ -363,14 +347,6 @@ export function ConversionModal({
               fontWeight: 600,
               backgroundColor: 'transparent',
               color: theme.neutral.textSecondary,
-            }}
-            onMouseEnter={(event) => {
-              event.currentTarget.style.backgroundColor = theme.neutral.background;
-              event.currentTarget.style.color = theme.neutral.text;
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.backgroundColor = 'transparent';
-              event.currentTarget.style.color = theme.neutral.textSecondary;
             }}
           >
             {copy.secondaryCta}

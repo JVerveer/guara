@@ -1,5 +1,6 @@
 import { pdf } from '@react-pdf/renderer';
-import { buildRiskReportData, type RiskReportScenario } from './buildRiskReportData';
+import type { AnalysisResult } from '../analysis/types';
+import { buildRiskReportData } from './buildRiskReportData';
 import { RiskReportPdf } from './RiskReportPdf';
 
 function slugify(value: string) {
@@ -10,15 +11,15 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, '');
 }
 
-export async function downloadRiskReportPdf(activeScenario: RiskReportScenario) {
-  const data = buildRiskReportData(activeScenario);
+export async function downloadRiskReportPdf(analysisResult: AnalysisResult) {
+  const data = buildRiskReportData(analysisResult);
   const blob = await pdf(<RiskReportPdf data={data} />).toBlob();
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
 
   link.href = url;
-  link.download = `guara-risk-report-${slugify(activeScenario.name)}.pdf`;
+  link.download = `guara-risk-report-${slugify(analysisResult.scenario.name)}.pdf`;
 
   document.body.appendChild(link);
   link.click();
