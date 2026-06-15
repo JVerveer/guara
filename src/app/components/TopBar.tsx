@@ -1,5 +1,6 @@
 import { Menu, LogIn } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
+import { theme } from '../../styles/theme';
 
 const PAGE_TITLES: Record<string, string> = {
   home: 'Guara',
@@ -19,24 +20,73 @@ export function TopBar() {
   const { page, setSidebarOpen } = useApp();
 
   return (
-    <header className="h-14 border-b border-[#E2E8F0] bg-white flex items-center justify-between px-4 md:px-6 flex-shrink-0">
-      {/* Left: hamburger (mobile) + page title */}
+    <header
+      className="h-14 flex items-center justify-between px-4 md:px-6 flex-shrink-0 border-b"
+      style={{
+        backgroundColor: theme.neutral.surface,
+        borderColor: theme.neutral.border,
+      }}
+    >
       <div className="flex items-center gap-3">
         <button
           onClick={() => setSidebarOpen(true)}
-          className="md:hidden text-[#64748B] hover:text-[#0F172A] transition-colors p-1"
+          className="md:hidden transition-colors p-1"
+          style={{
+            color: theme.neutral.textSecondary,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = theme.neutral.text;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color =
+              theme.neutral.textSecondary;
+          }}
         >
           <Menu className="w-5 h-5" />
         </button>
-        <span style={{ fontSize: '14px', fontWeight: 600 }} className="text-[#0F172A]">
+
+        <span
+          style={{
+            fontSize: '14px',
+            fontWeight: 700,
+            letterSpacing: '-0.01em',
+            color: theme.neutral.text,
+          }}
+        >
           {PAGE_TITLES[page] ?? 'Guara'}
         </span>
       </div>
 
-      {/* Right: Sign In */}
-      <button className="flex items-center gap-2 bg-[#2563EB] text-white px-4 py-2 rounded-lg hover:bg-[#1D4ED8] transition-colors shadow-sm" style={{ fontSize: '13px', fontWeight: 600 }}>
+      <button
+        className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors"
+        style={{
+          fontSize: '13px',
+          fontWeight: 600,
+          backgroundColor: theme.neutral.surface,
+          borderColor: theme.neutral.border,
+          color: theme.neutral.textSecondary,
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor =
+            theme.neutral.background;
+          e.currentTarget.style.borderColor =
+            theme.neutral.borderStrong;
+          e.currentTarget.style.color =
+            theme.neutral.text;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor =
+            theme.neutral.surface;
+          e.currentTarget.style.borderColor =
+            theme.neutral.border;
+          e.currentTarget.style.color =
+            theme.neutral.textSecondary;
+        }}
+      >
         <LogIn className="w-4 h-4" />
-        <span className="hidden sm:inline">Sign In</span>
+        <span className="hidden sm:inline">
+          Sign In
+        </span>
       </button>
     </header>
   );
