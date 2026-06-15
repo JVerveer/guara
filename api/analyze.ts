@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import JSZip from 'jszip';
 import { ZodError } from 'zod';
 
+import { buildAnalysisResultFromDocuments } from '../src/analysis/builders/buildAnalysisResult';
 import type { ParsedDocument } from '../src/analysis/ingestion/types';
 
 export const config = {
@@ -112,19 +113,6 @@ async function extractZip(buffer: Buffer, sourceName: string): Promise<ParsedDoc
   return docs;
 }
 
-async function extractPdfText(buffer: Buffer) {
-  const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data: buffer });
-
-  try {
-    const result = await parser.getText();
-
-    return result.text;
-  } finally {
-    await parser.destroy();
-  }
-}
-
 async function extractDocxText(buffer: Buffer) {
   const mammoth = await import('mammoth');
   const result = await mammoth.extractRawText({ buffer });
@@ -156,7 +144,13 @@ async function extractText(
   let text = '';
 
   if (extension === 'pdf') {
-    text = await extractPdfText(buffer);
+    // pdf-parse/pdfjs can fail on Vercel Node because DOMMatrix is not available.
+    // Keep PDFs in the document list for now, but do not block CSV/DOCX/XLSX analysis.
+    text = [
+      `PDF uploaded: ${fileName}`,
+      'PDF text extraction is temporarily disabled in the Vercel function.',
+      'CSV, XLSX, DOCX, TXT, MD, JSON, and ZIP extraction remain enabled.',
+    ].join('\n');
   } else if (extension === 'docx') {
     text = await extractDocxText(buffer);
   } else if (extension === 'xlsx' || extension === 'xls') {
@@ -235,12 +229,6 @@ export default async function handler(
       });
       return;
     }
-
-    // Important: import this inside try/catch so intelligence-layer import errors
-    // are returned as JSON instead of Vercel's generic FUNCTION_INVOCATION_FAILED page.
-    const { buildAnalysisResultFromDocuments } = await import(
-      '../src/analysis/builders/buildAnalysisResult.ts'
-    );
 
     const analysisResult = buildAnalysisResultFromDocuments(parsedDocuments);
 
