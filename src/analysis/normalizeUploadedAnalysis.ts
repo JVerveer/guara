@@ -1,10 +1,14 @@
-import type { AnalysisResult, ScenarioSummary } from './types';
+import {
+  AnalysisResultSchema,
+  type AnalysisResult,
+  type ScenarioSummary,
+} from './analysisResultSchema';
 
 export function createEmptyAnalysisResult(
   scenario: ScenarioSummary,
   uploadedFileNames: string[] = []
 ): AnalysisResult {
-  return {
+  return AnalysisResultSchema.parse({
     source: 'upload',
     generatedAt: new Date().toISOString(),
     scenario: {
@@ -40,27 +44,30 @@ export function createEmptyAnalysisResult(
       affectedServices: [],
       impact: 'Medium',
       recovery: 'Not assessed',
-      recommendation: 'Complete document analysis before generating outage recommendations.',
+      recommendation:
+        'Complete document analysis before generating outage recommendations.',
     },
     boardRisks: [],
     auditItems: [],
     auditRecommendations: [],
-  };
+  });
 }
 
-export function normalizeUploadedAnalysisResult(input: AnalysisResult): AnalysisResult {
+export function normalizeUploadedAnalysisResult(input: unknown): AnalysisResult {
+  const parsed = AnalysisResultSchema.parse(input);
+
   return {
-    ...input,
+    ...parsed,
     source: 'upload',
-    generatedAt: input.generatedAt ?? new Date().toISOString(),
-    documents: input.documents ?? [],
-    vendors: input.vendors ?? [],
-    gaps: input.gaps ?? [],
-    evidence: input.evidence ?? [],
-    cloudRisk: input.cloudRisk ?? [],
-    dependencies: input.dependencies ?? [],
-    boardRisks: input.boardRisks ?? [],
-    auditItems: input.auditItems ?? [],
-    auditRecommendations: input.auditRecommendations ?? [],
+    generatedAt: parsed.generatedAt ?? new Date().toISOString(),
+    documents: parsed.documents ?? [],
+    vendors: parsed.vendors ?? [],
+    gaps: parsed.gaps ?? [],
+    evidence: parsed.evidence ?? [],
+    cloudRisk: parsed.cloudRisk ?? [],
+    dependencies: parsed.dependencies ?? [],
+    boardRisks: parsed.boardRisks ?? [],
+    auditItems: parsed.auditItems ?? [],
+    auditRecommendations: parsed.auditRecommendations ?? [],
   };
 }
