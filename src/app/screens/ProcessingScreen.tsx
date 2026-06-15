@@ -88,7 +88,7 @@ export function ProcessingScreen() {
 
           <div className="mb-3 grid gap-3 lg:grid-cols-[0.95fr_1.05fr]">
             <div
-              className="overflow-hidden rounded-2xl border shadow-sm"
+              className="flex max-h-[310px] min-h-[310px] flex-col overflow-hidden rounded-2xl border shadow-sm"
               style={{
                 backgroundColor: theme.neutral.surface,
                 borderColor: theme.neutral.border,
@@ -124,7 +124,7 @@ export function ProcessingScreen() {
                 </span>
               </div>
 
-              <div>
+              <div className="flex-1 overflow-y-auto">
                 {visibleDocs.map((doc, index) => {
                   const done = index < stepsDone;
                   const active = index === stepsDone;
@@ -140,7 +140,7 @@ export function ProcessingScreen() {
                           index === 0 ? undefined : `1px solid ${theme.neutral.background}`,
                       }}
                     >
-                      <span style={{ fontSize: '14px' }}>{doc.icon}</span>
+                      <span style={{ fontSize: '14px' }}>{doc.icon ?? '📄'}</span>
 
                       <div className="min-w-0 flex-1">
                         <p
