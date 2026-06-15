@@ -178,7 +178,7 @@ export function HeroUpload() {
   ];
 
   return (
-    <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-6">
+    <div className="h-full overflow-y-auto px-4 py-6">
       <input
         ref={fileInputRef}
         type="file"
@@ -218,7 +218,7 @@ export function HeroUpload() {
         } as DirectoryInputProps)}
       />
 
-      <section className="w-full max-w-3xl">
+      <section className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-center py-4">
         <div className="mb-5 flex justify-center">
           <div
             className="inline-flex items-center gap-2 rounded-full border px-3 py-1"
