@@ -5,12 +5,8 @@ import formidable, {
 } from 'formidable';
 import fs from 'node:fs/promises';
 import JSZip from 'jszip';
-import { PDFParse } from 'pdf-parse';
-import mammoth from 'mammoth';
-import * as XLSX from 'xlsx';
 import { ZodError } from 'zod';
 
-import { buildAnalysisResultFromDocuments } from '../src/analysis/builders/buildAnalysisResult';
 import type { ParsedDocument } from '../src/analysis/ingestion/types';
 
 export const config = {
@@ -117,6 +113,7 @@ async function extractZip(buffer: Buffer, sourceName: string): Promise<ParsedDoc
 }
 
 async function extractPdfText(buffer: Buffer) {
+  const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: buffer });
 
   try {
@@ -126,6 +123,29 @@ async function extractPdfText(buffer: Buffer) {
   } finally {
     await parser.destroy();
   }
+}
+
+async function extractDocxText(buffer: Buffer) {
+  const mammoth = await import('mammoth');
+  const result = await mammoth.extractRawText({ buffer });
+
+  return result.value;
+}
+
+async function extractSpreadsheetText(buffer: Buffer) {
+  const XLSX = await import('xlsx');
+
+  const workbook = XLSX.read(buffer, {
+    type: 'buffer',
+    cellDates: true,
+  });
+
+  return workbook.SheetNames.map((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+    const csv = XLSX.utils.sheet_to_csv(sheet);
+
+    return `Sheet: ${sheetName}\n${csv}`;
+  }).join('\n\n');
 }
 
 async function extractText(
@@ -138,20 +158,9 @@ async function extractText(
   if (extension === 'pdf') {
     text = await extractPdfText(buffer);
   } else if (extension === 'docx') {
-    const result = await mammoth.extractRawText({ buffer });
-    text = result.value;
+    text = await extractDocxText(buffer);
   } else if (extension === 'xlsx' || extension === 'xls') {
-    const workbook = XLSX.read(buffer, {
-      type: 'buffer',
-      cellDates: true,
-    });
-
-    text = workbook.SheetNames.map((sheetName) => {
-      const sheet = workbook.Sheets[sheetName];
-      const csv = XLSX.utils.sheet_to_csv(sheet);
-
-      return `Sheet: ${sheetName}\n${csv}`;
-    }).join('\n\n');
+    text = await extractSpreadsheetText(buffer);
   } else if (
     extension === 'csv' ||
     extension === 'txt' ||
@@ -227,6 +236,12 @@ export default async function handler(
       return;
     }
 
+    // Important: import this inside try/catch so intelligence-layer import errors
+    // are returned as JSON instead of Vercel's generic FUNCTION_INVOCATION_FAILED page.
+    const { buildAnalysisResultFromDocuments } = await import(
+      '../src/analysis/builders/buildAnalysisResult'
+    );
+
     const analysisResult = buildAnalysisResultFromDocuments(parsedDocuments);
 
     console.log('[api/analyze] AnalysisResult created:', {
@@ -237,7 +252,6 @@ export default async function handler(
     });
 
     response.status(200).json(analysisResult);
-    
   } catch (error) {
     const message = getErrorMessage(error);
 
@@ -251,7 +265,14 @@ export default async function handler(
 
     response.status(500).json({
       error: message,
+      details:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+            }
+          : undefined,
     });
   }
 }
-
