@@ -43,7 +43,7 @@ export function detectGapsFromFacts(facts: AnalysisFacts): Finding[] {
   const usResidency = facts.residency.find((item) => item.region === 'US');
 
   const exitPlanEvidence = facts.evidence.find(
-    (item) => item.evidenceType === 'ExitPlan' && item.status !== 'Missing'
+    (item) => item.evidenceType === 'ExitPlan' && item.status === 'Valid'
   );
 
   const bcpEvidence = facts.evidence.find(

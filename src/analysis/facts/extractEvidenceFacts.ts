@@ -26,7 +26,17 @@ function detectStatus(text: string): EvidenceFact['status'] {
   const lower = text.toLowerCase();
 
   if (
-    includesAny(lower, ['missing', 'not attached', 'not documented', 'unsigned', 'not included'])
+    includesAny(lower, [
+      'missing',
+      'not attached',
+      'not documented',
+      'unsigned',
+      'not included',
+      'does not include',
+      'no validated',
+      'no evidence',
+      'has not been performed',
+    ])
   ) {
     return 'Missing';
   }
