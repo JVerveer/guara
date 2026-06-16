@@ -2,7 +2,7 @@ import type { AnalysisResult } from './types';
 import { analyzeUploadedPackage } from './analyzeUploadedPackage';
 import { normalizeUploadedAnalysisResult } from './normalizeUploadedAnalysis';
 
-const USE_SERVER_ANALYSIS = true;
+const USE_SERVER_ANALYSIS = false;
 
 export async function analyzeUploadedDocuments(files: File[]): Promise<AnalysisResult> {
   if (USE_SERVER_ANALYSIS) {
