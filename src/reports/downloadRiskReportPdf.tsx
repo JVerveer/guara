@@ -23,11 +23,13 @@ export async function downloadRiskReportPdf(
   const link = document.createElement('a');
 
   link.href = url;
-  link.download = `guara-risk-report-${slugify(analysisResult.scenario.name)}.pdf`;
+  link.download = `guara-board-pack-${slugify(analysisResult.scenario.name)}.pdf`;
 
   document.body.appendChild(link);
   link.click();
   link.remove();
 
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
