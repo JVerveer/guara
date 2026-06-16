@@ -7,6 +7,7 @@ import {
 } from '@react-pdf/renderer';
 import { theme } from '../styles/theme';
 import type { RiskReportData } from './buildRiskReportData';
+import type { FindingTrace } from '../analysis/types';
 
 const styles = StyleSheet.create({
   page: {
@@ -88,6 +89,31 @@ const styles = StyleSheet.create({
     backgroundColor: theme.status.successLight,
     marginBottom: 10,
   },
+  traceCard: {
+    marginTop: 7,
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: theme.neutral.background,
+    border: `1px solid ${theme.neutral.border}`,
+  },
+  traceTitle: {
+    fontSize: 8,
+    fontWeight: 800,
+    color: theme.brand.primary,
+    marginBottom: 3,
+  },
+  traceText: {
+    fontSize: 8,
+    lineHeight: 1.4,
+    color: theme.neutral.textSecondary,
+  },
+  traceLabel: {
+    fontSize: 8,
+    fontWeight: 800,
+    color: theme.neutral.text,
+    marginTop: 6,
+    marginBottom: 3,
+  },
   grid: {
     display: 'flex',
     flexDirection: 'row',
@@ -134,6 +160,11 @@ const styles = StyleSheet.create({
     borderBottom: `1px solid ${theme.neutral.background}`,
     paddingVertical: 7,
     gap: 8,
+  },
+  rowStack: {
+    borderBottom: `1px solid ${theme.neutral.background}`,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
   },
   rowHeader: {
     display: 'flex',
@@ -279,6 +310,37 @@ function PageTitle({
   );
 }
 
+function TraceEvidenceBlock({
+  trace,
+  title = 'Evidence source',
+  limit = 2,
+}: {
+  trace?: FindingTrace[];
+  title?: string;
+  limit?: number;
+}) {
+  if (!trace || trace.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.traceCard}>
+      <Text style={styles.traceLabel}>{title}</Text>
+
+      {trace.slice(0, limit).map((item, index) => (
+        <View key={`${item.document}-${item.chunkId ?? index}`} style={{ marginBottom: index === trace.length - 1 ? 0 : 6 }}>
+          <Text style={styles.traceTitle}>
+            {item.document}
+            {item.page ? ` · page ${item.page}` : ''} · {Math.round(item.confidence * 100)}% confidence
+          </Text>
+
+          <Text style={styles.traceText}>“{item.excerpt}”</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function RiskReportPdf({ data }: { data: RiskReportData }) {
   const { scenario } = data;
 
@@ -318,6 +380,15 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
           <Text style={styles.sectionTitle}>Digital sovereignty exposure</Text>
           <Text style={styles.body}>{scenario.regionExposure}</Text>
         </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Traceability coverage</Text>
+          <Text style={styles.body}>
+            {data.traceability.findingsWithTrace}/{data.gaps.findings.length} findings,{' '}
+            {data.traceability.vendorsWithTrace}/{data.vendors.all.length} vendors, and{' '}
+            {data.traceability.evidenceWithTrace}/{data.evidence.items.length} evidence items include source traceability.
+          </Text>
+        </View>
       </Page>
 
       <Page size="A4" style={styles.page}>
@@ -335,7 +406,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
             <MetricCard label="Sovereignty" value={`${data.overview.sovereigntyScore}/100`} sub={scenario.regionExposure} />
           </View>
           <View style={styles.gridItem}>
-            <MetricCard label="Priority risks" value={data.audit.recommendations.length} sub="Board-level items" />
+            <MetricCard label="Traceable findings" value={data.traceability.findingsWithTrace} sub={`${data.traceability.totalFindingTraces} source links`} />
           </View>
         </View>
 
@@ -377,7 +448,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
             <MetricCard label="Shown vendors" value={data.vendors.all.length} sub="Sample preview" />
           </View>
           <View style={styles.gridItem}>
-            <MetricCard label="Region exposure" value="Review" sub={scenario.regionExposure} />
+            <MetricCard label="Traceable vendors" value={data.traceability.vendorsWithTrace} sub={`${data.traceability.totalVendorTraces} source links`} />
           </View>
         </View>
 
@@ -390,12 +461,16 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
             <Text style={[styles.th, styles.col]}>Score</Text>
           </View>
           {data.vendors.all.map((vendor) => (
-            <View key={vendor.name} style={styles.row}>
-              <Text style={[styles.td, styles.colLarge]}>{vendor.name}</Text>
-              <Text style={[styles.td, styles.col]}>{vendor.service}</Text>
-              <Text style={[styles.td, styles.col]}>{vendor.criticality}</Text>
-              <Text style={[styles.td, styles.col]}>{vendor.risk}</Text>
-              <Text style={[styles.td, styles.col]}>{vendor.score}</Text>
+            <View key={vendor.name} style={styles.rowStack}>
+              <View style={{ display: 'flex', flexDirection: 'row', gap: 8 }}>
+                <Text style={[styles.td, styles.colLarge]}>{vendor.name}</Text>
+                <Text style={[styles.td, styles.col]}>{vendor.service}</Text>
+                <Text style={[styles.td, styles.col]}>{vendor.criticality}</Text>
+                <Text style={[styles.td, styles.col]}>{vendor.risk}</Text>
+                <Text style={[styles.td, styles.col]}>{vendor.score}</Text>
+              </View>
+
+              <TraceEvidenceBlock trace={vendor.trace} title="Found in source documents" limit={1} />
             </View>
           ))}
         </View>
@@ -426,29 +501,10 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
               {finding.category} · {finding.vendor} · {finding.article}
             </Text>
 
+            <TraceEvidenceBlock trace={finding.trace} title="Evidence behind this finding" limit={2} />
+
+            <Text style={[styles.traceLabel, { marginTop: 8 }]}>Recommended action</Text>
             <Text style={styles.body}>{finding.rec}</Text>
-
-            {finding.trace?.slice(0, 2).map((trace, index) => (
-              <View
-                key={`${trace.document}-${trace.chunkId ?? index}`}
-                style={{
-                  marginTop: 6,
-                  padding: 8,
-                  borderRadius: 6,
-                  backgroundColor: theme.neutral.background,
-                  border: `1px solid ${theme.neutral.border}`,
-                }}
-              >
-                <Text style={{ fontSize: 8, fontWeight: 800, color: theme.brand.primary, marginBottom: 3 }}>
-                  Source: {trace.document}
-                  {trace.page ? ` · page ${trace.page}` : ''} · {Math.round(trace.confidence * 100)}% confidence
-                </Text>
-
-                <Text style={{ fontSize: 8, lineHeight: 1.4, color: theme.neutral.textSecondary }}>
-                  “{trace.excerpt}”
-                </Text>
-              </View>
-            ))}
           </View>
         ))}
 
@@ -470,10 +526,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
             <MetricCard label="Valid" value={data.evidence.valid} sub="Current and accepted" />
           </View>
           <View style={styles.gridItem}>
-            <MetricCard label="Missing" value={data.evidence.missing} sub="Evidence required" />
-          </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Expiring" value={data.evidence.expiring} sub="Requires refresh" />
+            <MetricCard label="Traceable evidence" value={data.traceability.evidenceWithTrace} sub={`${data.traceability.totalEvidenceTraces} source links`} />
           </View>
         </View>
 
@@ -493,11 +546,15 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
             <Text style={[styles.th, styles.col]}>Expires</Text>
           </View>
           {data.evidence.items.map((item) => (
-            <View key={item.name} style={styles.row}>
-              <Text style={[styles.td, styles.colLarge]}>{item.name}</Text>
-              <Text style={[styles.td, styles.col]}>{item.vendor}</Text>
-              <Text style={[styles.td, styles.col]}>{item.status}</Text>
-              <Text style={[styles.td, styles.col]}>{item.expires}</Text>
+            <View key={`${item.name}-${item.vendor}-${item.type}`} style={styles.rowStack}>
+              <View style={{ display: 'flex', flexDirection: 'row', gap: 8 }}>
+                <Text style={[styles.td, styles.colLarge]}>{item.name}</Text>
+                <Text style={[styles.td, styles.col]}>{item.vendor}</Text>
+                <Text style={[styles.td, styles.col]}>{item.status}</Text>
+                <Text style={[styles.td, styles.col]}>{item.expires}</Text>
+              </View>
+
+              <TraceEvidenceBlock trace={item.trace} title="Evidence source" limit={1} />
             </View>
           ))}
         </View>
@@ -567,7 +624,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
           <Text style={styles.sectionTitle}>Package generated for review</Text>
           <Text style={styles.body}>
             This sample package includes supplier registers, evidence inventory, gap analysis,
-            dependency mapping, concentration risk, and remediation actions.
+            dependency mapping, concentration risk, source traceability, and remediation actions.
           </Text>
         </View>
 
