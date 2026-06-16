@@ -3,6 +3,7 @@ import {
   Clock3,
   Download,
   FileCheck,
+  FileSearch,
   FileText,
   ShieldCheck,
 } from 'lucide-react';
@@ -10,6 +11,79 @@ import { Badge } from '../Badge';
 import { theme } from '../../../styles/theme';
 import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
 import { evidenceStatusColor, getEvidenceSummary } from '../../../analysis/selectors';
+import type { EvidenceItem } from '../../../analysis/types';
+
+function EvidenceTraceRow({ item }: { item: EvidenceItem }) {
+  const trace = item.trace ?? [];
+
+  if (trace.length === 0) {
+    return null;
+  }
+
+  return (
+    <tr>
+      <td colSpan={5} className="px-4 pb-3">
+        <div
+          className="ml-6 rounded-xl border p-3"
+          style={{
+            backgroundColor: theme.neutral.background,
+            borderColor: theme.neutral.border,
+          }}
+        >
+          <div className="mb-2 flex items-center gap-1.5">
+            <FileSearch className="h-3.5 w-3.5" style={{ color: theme.brand.primary }} />
+
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                color: theme.neutral.text,
+              }}
+            >
+              Evidence source
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {trace.slice(0, 3).map((source, index) => (
+              <div
+                key={`${source.document}-${source.chunkId ?? index}`}
+                className="rounded-lg border p-2"
+                style={{
+                  backgroundColor: theme.neutral.surface,
+                  borderColor: theme.neutral.border,
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    color: theme.brand.primary,
+                  }}
+                >
+                  {source.document}
+                  {source.page ? ` · page ${source.page}` : ''} ·{' '}
+                  {Math.round(source.confidence * 100)}% confidence
+                </p>
+
+                <p
+                  className="mt-1"
+                  style={{
+                    fontSize: '11px',
+                    lineHeight: 1.5,
+                    color: theme.neutral.textSecondary,
+                  }}
+                >
+                  “{source.excerpt}”
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 export function EvidenceTab() {
   const analysisResult = useAnalysisResult();
@@ -34,7 +108,11 @@ export function EvidenceTab() {
     },
     {
       label: 'Business Continuity Plans',
-      status: analysisResult.evidence.some((item) => item.type === 'BCP') ? 'Covered' : 'Missing',
+      status: analysisResult.evidence.some(
+        (item) => item.type === 'BCP' || item.type === 'Business Continuity'
+      )
+        ? 'Covered'
+        : 'Missing',
       icon: AlertTriangle,
     },
     {
@@ -223,48 +301,57 @@ export function EvidenceTab() {
             </thead>
 
             <tbody>
-              {analysisResult.evidence.map((item, index) => (
-                <tr
-                  key={item.name}
-                  className="transition-colors"
-                  style={{
-                    borderBottom:
-                      index === analysisResult.evidence.length - 1
-                        ? 'none'
-                        : `1px solid ${theme.neutral.background}`,
-                  }}
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-3.5 w-3.5" style={{ color: theme.brand.primary }} />
-                      <span style={{ fontSize: '12px', fontWeight: 600, color: theme.neutral.text }}>
-                        {item.name}
-                      </span>
-                    </div>
-                  </td>
+              {analysisResult.evidence.map((item, index) => {
+                const hasTrace = item.trace && item.trace.length > 0;
+                const isLast = index === analysisResult.evidence.length - 1;
 
-                  <td className="px-4 py-3" style={{ fontSize: '12px', color: theme.neutral.textSecondary }}>
-                    {item.vendor}
-                  </td>
+                return (
+                  <>
+                    <tr
+                      key={item.name}
+                      className="transition-colors"
+                      style={{
+                        borderBottom:
+                          isLast && !hasTrace
+                            ? 'none'
+                            : `1px solid ${theme.neutral.background}`,
+                      }}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-3.5 w-3.5" style={{ color: theme.brand.primary }} />
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: theme.neutral.text }}>
+                            {item.name}
+                          </span>
+                        </div>
+                      </td>
 
-                  <td className="px-4 py-3" style={{ fontSize: '12px', color: theme.neutral.textSecondary }}>
-                    {item.type}
-                  </td>
+                      <td className="px-4 py-3" style={{ fontSize: '12px', color: theme.neutral.textSecondary }}>
+                        {item.vendor}
+                      </td>
 
-                  <td className="px-4 py-3">
-                    <Badge level={item.status} />
-                  </td>
+                      <td className="px-4 py-3" style={{ fontSize: '12px', color: theme.neutral.textSecondary }}>
+                        {item.type}
+                      </td>
 
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <Clock3 className="h-3.5 w-3.5" style={{ color: theme.neutral.textMuted }} />
-                      <span style={{ fontSize: '12px', color: theme.neutral.textSecondary }}>
-                        {item.expires}
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      <td className="px-4 py-3">
+                        <Badge level={item.status} />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <Clock3 className="h-3.5 w-3.5" style={{ color: theme.neutral.textMuted }} />
+                          <span style={{ fontSize: '12px', color: theme.neutral.textSecondary }}>
+                            {item.expires}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <EvidenceTraceRow item={item} />
+                  </>
+                );
+              })}
             </tbody>
           </table>
         </div>

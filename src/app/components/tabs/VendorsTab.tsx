@@ -4,6 +4,7 @@ import {
   Cloud,
   Database,
   Download,
+  FileSearch,
   Globe2,
   KeyRound,
   ShieldAlert,
@@ -12,7 +13,7 @@ import { Badge } from '../Badge';
 import { theme } from '../../../styles/theme';
 import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
 import { getVendorSummary } from '../../../analysis/selectors';
-import type { ExposureRegion } from '../../../analysis/types';
+import type { ExposureRegion, Vendor } from '../../../analysis/types';
 
 function CategoryIcon({ category }: { category?: string }) {
   const iconStyle = { color: theme.brand.primary };
@@ -57,6 +58,78 @@ function ExposureBadge({ exposure }: { exposure: ExposureRegion }) {
     >
       {exposure}
     </span>
+  );
+}
+
+function VendorTraceRow({ vendor }: { vendor: Vendor }) {
+  const trace = vendor.trace ?? [];
+
+  if (trace.length === 0) {
+    return null;
+  }
+
+  return (
+    <tr>
+      <td colSpan={10} className="px-4 pb-3">
+        <div
+          className="ml-9 rounded-xl border p-3"
+          style={{
+            backgroundColor: theme.neutral.background,
+            borderColor: theme.neutral.border,
+          }}
+        >
+          <div className="mb-2 flex items-center gap-1.5">
+            <FileSearch className="h-3.5 w-3.5" style={{ color: theme.brand.primary }} />
+
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                color: theme.neutral.text,
+              }}
+            >
+              Found in source documents
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {trace.slice(0, 3).map((item, index) => (
+              <div
+                key={`${item.document}-${item.chunkId ?? index}`}
+                className="rounded-lg border p-2"
+                style={{
+                  backgroundColor: theme.neutral.surface,
+                  borderColor: theme.neutral.border,
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    color: theme.brand.primary,
+                  }}
+                >
+                  {item.document}
+                  {item.page ? ` · page ${item.page}` : ''} ·{' '}
+                  {Math.round(item.confidence * 100)}% confidence
+                </p>
+
+                <p
+                  className="mt-1"
+                  style={{
+                    fontSize: '11px',
+                    lineHeight: 1.5,
+                    color: theme.neutral.textSecondary,
+                  }}
+                >
+                  “{item.excerpt}”
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -207,102 +280,107 @@ export function VendorsTab() {
             <tbody>
               {analysisResult.vendors.map((vendor, index) => {
                 const exposure = vendor.exposure ?? (vendor.country === 'US' ? 'US' : 'Global');
+                const isLast = index === analysisResult.vendors.length - 1;
 
                 return (
-                  <tr
-                    key={vendor.name}
-                    className="transition-colors"
-                    style={{
-                      borderBottom:
-                        index === analysisResult.vendors.length - 1
-                          ? 'none'
-                          : `1px solid ${theme.neutral.background}`,
-                    }}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg"
-                          style={{ backgroundColor: theme.brand.primaryLight }}
-                        >
-                          <CategoryIcon category={vendor.category} />
-                        </div>
-
-                        <div>
-                          <span style={{ fontSize: '12px', fontWeight: 700, color: theme.neutral.text }}>
-                            {vendor.name}
-                          </span>
-                          <p style={{ fontSize: '10px', color: theme.neutral.textMuted }}>
-                            {vendor.country} provider
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <span
-                        className="rounded-full px-2 py-0.5"
-                        style={{
-                          fontSize: '10px',
-                          fontWeight: 700,
-                          backgroundColor: theme.neutral.background,
-                          color: theme.neutral.textSecondary,
-                        }}
-                      >
-                        {vendor.category ?? 'SaaS'}
-                      </span>
-                    </td>
-
-                    <td className="px-4 py-3" style={{ fontSize: '12px' }}>
-                      <span style={{ color: theme.neutral.textSecondary }}>{vendor.service}</span>
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <Badge level={vendor.criticality} />
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <Badge level={vendor.risk} />
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <Badge level={vendor.dependency ?? vendor.criticality} />
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <ExposureBadge exposure={exposure} />
-                    </td>
-
-                    <td className="px-4 py-3" style={{ fontSize: '12px' }}>
-                      <span style={{ color: theme.neutral.textSecondary }}>
-                        {vendor.dataType ?? 'Business data'}
-                      </span>
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        <div
-                          className="h-1.5 w-12 overflow-hidden rounded-full"
-                          style={{ backgroundColor: theme.neutral.border }}
-                        >
+                  <>
+                    <tr
+                      key={vendor.name}
+                      className="transition-colors"
+                      style={{
+                        borderBottom:
+                          isLast && (!vendor.trace || vendor.trace.length === 0)
+                            ? 'none'
+                            : `1px solid ${theme.neutral.background}`,
+                      }}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
                           <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${vendor.score}%`,
-                              backgroundColor: theme.brand.primary,
-                            }}
-                          />
-                        </div>
-                        <span style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.text }}>
-                          {vendor.score}
-                        </span>
-                      </div>
-                    </td>
+                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg"
+                            style={{ backgroundColor: theme.brand.primaryLight }}
+                          >
+                            <CategoryIcon category={vendor.category} />
+                          </div>
 
-                    <td className="px-4 py-3" style={{ fontSize: '12px', fontWeight: 600 }}>
-                      <span style={{ color: theme.neutral.text }}>{vendor.spend}</span>
-                    </td>
-                  </tr>
+                          <div>
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: theme.neutral.text }}>
+                              {vendor.name}
+                            </span>
+                            <p style={{ fontSize: '10px', color: theme.neutral.textMuted }}>
+                              {vendor.country} provider
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <span
+                          className="rounded-full px-2 py-0.5"
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            backgroundColor: theme.neutral.background,
+                            color: theme.neutral.textSecondary,
+                          }}
+                        >
+                          {vendor.category ?? 'SaaS'}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3" style={{ fontSize: '12px' }}>
+                        <span style={{ color: theme.neutral.textSecondary }}>{vendor.service}</span>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <Badge level={vendor.criticality} />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <Badge level={vendor.risk} />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <Badge level={vendor.dependency ?? vendor.criticality} />
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <ExposureBadge exposure={exposure} />
+                      </td>
+
+                      <td className="px-4 py-3" style={{ fontSize: '12px' }}>
+                        <span style={{ color: theme.neutral.textSecondary }}>
+                          {vendor.dataType ?? 'Business data'}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <div
+                            className="h-1.5 w-12 overflow-hidden rounded-full"
+                            style={{ backgroundColor: theme.neutral.border }}
+                          >
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${vendor.score}%`,
+                                backgroundColor: theme.brand.primary,
+                              }}
+                            />
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: theme.neutral.text }}>
+                            {vendor.score}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3" style={{ fontSize: '12px', fontWeight: 600 }}>
+                        <span style={{ color: theme.neutral.text }}>{vendor.spend}</span>
+                      </td>
+                    </tr>
+
+                    <VendorTraceRow vendor={vendor} />
+                  </>
                 );
               })}
             </tbody>

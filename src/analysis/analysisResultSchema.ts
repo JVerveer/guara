@@ -96,6 +96,7 @@ export const VendorSchema = z.object({
     .optional(),
 
   dataType: z.string().optional(),
+  trace: z.array(FindingTraceSchema).default([]),
 });
 
 export const FindingSchema = z.object({
@@ -114,6 +115,7 @@ export const EvidenceItemSchema = z.object({
   type: z.string().min(1),
   status: EvidenceStatusSchema,
   expires: z.string().min(1),
+  trace: z.array(FindingTraceSchema).default([]),
 });
 
 export const CloudRiskSchema = z.object({

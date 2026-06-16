@@ -25,6 +25,16 @@ import { extractVendors as extractVendorDetections } from '../intelligence/extra
 
 import { buildFacts } from '../facts/buildFacts';
 
+import {
+  attachEvidenceTrace,
+  attachVendorTrace,
+} from '../traceability/mapFactsToDomain';
+
+import {
+  applyVendorScoring,
+  calculateReadinessScoreFromEvidenceAndFindings,
+} from '../scoring/riskScoring';
+
 import type {
   ClassifiedDocument,
   EvidenceCoverage,
@@ -82,27 +92,6 @@ function buildScenario(
     headlineFinding,
     regionExposure,
   };
-}
-
-function calculateReadinessScore(args: {
-  vendorCount: number;
-  highFindingCount: number;
-  evidenceCount: number;
-  missingEvidenceCount: number;
-}) {
-  const base = 82;
-  const highFindingPenalty = args.highFindingCount * 7;
-  const missingEvidencePenalty = args.missingEvidenceCount * 5;
-  const lowEvidencePenalty = args.evidenceCount < 4 ? 8 : 0;
-  const vendorBonus = args.vendorCount > 0 ? 4 : 0;
-
-  return Math.max(
-    35,
-    Math.min(
-      94,
-      base - highFindingPenalty - missingEvidencePenalty - lowEvidencePenalty + vendorBonus
-    )
-  );
 }
 
 function buildSovereigntyScores(args: {
@@ -225,6 +214,7 @@ function buildVendorFromDetection(detection: VendorDetection): Vendor {
             : category === 'Identity'
               ? 'Identity data'
               : 'Business data',
+    trace: [],
   };
 }
 
@@ -356,7 +346,8 @@ function evidenceItemFromClassifiedDocument(
         ? 'Missing'
         : 'Valid',
     expires: 'Review required',
-  };
+    trace: [],
+  } as EvidenceItem;
 }
 
 function addMissingEvidenceItems(
@@ -389,7 +380,8 @@ function addMissingEvidenceItems(
           type: expected.type,
           status: 'Missing',
           expires: '—',
-        });
+          trace: [],
+        } as EvidenceItem);
       }
     }
   });
@@ -439,24 +431,26 @@ export function buildAnalysisResultFromDocuments(documents: ParsedDocument[]): A
   const intelligenceRisks = detectRisks(vendorDetections, evidenceCoverage);
 
   const detectedVendors = detectVendors(documents);
-  const vendors = mergeVendors(detectedVendors, vendorDetections);
+  const mergedVendors = mergeVendors(detectedVendors, vendorDetections);
+  const vendorsWithTrace = attachVendorTrace(mergedVendors, facts);
 
   const detectedEvidence = detectEvidenceItems(documents);
-  const evidence = mergeEvidence(
+  const mergedEvidence = mergeEvidence(
     detectedEvidence,
     classifiedDocuments,
     documents,
     evidenceCoverage
   );
+  const evidence = attachEvidenceTrace(mergedEvidence, facts);
 
-  const legacyGaps = detectGaps(documents, vendors);
+  const legacyGaps = detectGaps(documents, vendorsWithTrace);
   const factBasedGaps = detectGapsFromFacts(facts);
   const gaps = mergeFindings([...factBasedGaps, ...legacyGaps], intelligenceRisks);
 
-  console.log('TRACE DEBUG', {
+  const vendors = applyVendorScoring({
+    vendors: vendorsWithTrace,
     facts,
-    legacyGaps,
-    factBasedGaps,
+    evidence,
     gaps,
   });
 
@@ -465,16 +459,14 @@ export function buildAnalysisResultFromDocuments(documents: ParsedDocument[]): A
   const outageSimulation = buildOutageSimulation(documents, vendors);
 
   const highFindingCount = gaps.filter((finding) => finding.severity === 'High').length;
-  const missingEvidenceCount = evidence.filter((item) => item.status === 'Missing').length;
   const hasUsExposure = vendors.some((vendor) => vendor.exposure === 'US');
   const hasAiExposure = vendors.some((vendor) => vendor.category === 'AI');
   const cloudConcentration = cloudRisk[0]?.pct ?? 0;
 
-  const readinessScore = calculateReadinessScore({
-    vendorCount: vendors.length,
-    highFindingCount,
-    evidenceCount: evidence.length,
-    missingEvidenceCount,
+  const readinessScore = calculateReadinessScoreFromEvidenceAndFindings({
+    vendors,
+    evidence,
+    gaps,
   });
 
   const mainRisk =
