@@ -482,14 +482,14 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
 
           <View style={styles.warningCard}>
             <Text style={styles.sectionTitle}>Material risks</Text>
-            {data.executiveSummary.materialRisks.map((item, index) => (
+            {(data.executiveSummary?.materialRisks ?? []).map((item, index) => (
               <Text key={`${item}-${index}`} style={styles.body}>• {item}</Text>
             ))}
           </View>
 
           <View style={styles.successCard}>
             <Text style={styles.sectionTitle}>Recommended focus</Text>
-            {data.executiveSummary.recommendedFocus.map((item, index) => (
+            {(data.executiveSummary?.recommendedFocus ?? []).map((item, index) => (
               <Text key={`${item}-${index}`} style={styles.body}>{index + 1}. {item}</Text>
             ))}
           </View>
