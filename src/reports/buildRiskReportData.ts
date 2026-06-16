@@ -65,7 +65,21 @@ export function buildRiskReportData(
     generatedAt: analysisResult.generatedAt,
     source: analysisResult.source,
     scenario: analysisResult.scenario,
-    executiveSummary: analysisResult.executiveSummary,
+    executiveSummary:
+      analysisResult.executiveSummary ?? {
+        title: 'Vendor risk executive summary',
+        narrative:
+          'Guara analysed the uploaded package for vendor, evidence, resilience, sovereignty, and regulatory risk.',
+        keyPoints: [
+          `${analysisResult.scenario.vendors} vendors were identified.`,
+          `${analysisResult.scenario.criticalVendors} critical vendors were identified.`,
+          `${analysisResult.gaps.length} findings were detected.`,
+        ],
+        materialRisks: analysisResult.gaps.slice(0, 5).map((gap) => gap.title),
+        recommendedFocus: Array.from(
+          new Set(analysisResult.gaps.map((gap) => gap.rec))
+        ).slice(0, 5),
+      },
     documents: analysisResult.documents,
     reportSections,
 

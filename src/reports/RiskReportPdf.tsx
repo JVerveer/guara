@@ -456,7 +456,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
         <Page size="A4" style={styles.page}>
           <PageTitle
             eyebrow="Executive summary"
-            title={data.executiveSummary.title}
+            title={data.executiveSummary?.title ?? 'Vendor risk executive summary'}
             subtitle="Board-level narrative generated from findings, evidence, vendors, and remediation priorities."
           />
 
@@ -474,7 +474,10 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Executive narrative</Text>
-            <Text style={styles.body}>{data.executiveSummary.narrative}</Text>
+            <Text style={styles.body}>
+              {data.executiveSummary?.narrative ??
+                'Guara analysed the uploaded package for vendor, evidence, resilience, sovereignty, and regulatory risk.'}
+            </Text>
           </View>
 
           <View style={styles.warningCard}>
