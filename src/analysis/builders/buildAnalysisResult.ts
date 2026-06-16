@@ -406,6 +406,7 @@ function getDocumentIcon(extension: string) {
 
 export function buildAnalysisResultFromDocuments(documents: ParsedDocument[]): AnalysisResult {
   const facts = buildFacts(documents);
+  console.log('facts', facts); //tbd
 
   const classifiedDocuments = classifyDocuments(documents);
   const vendorDetections = extractVendorDetections(documents);
@@ -424,8 +425,13 @@ export function buildAnalysisResultFromDocuments(documents: ParsedDocument[]): A
   );
 
   const legacyGaps = detectGaps(documents, vendors);
+  console.log('legacyGaps', legacyGaps); //tbd
   const factBasedGaps = detectGapsFromFacts(facts);
-  const gaps = mergeFindings([...factBasedGaps, ...legacyGaps], intelligenceRisks);
+  console.log('factBasedGaps', factBasedGaps); //tbd
+  const gaps = mergeFindings(
+    [...factBasedGaps, ...legacyGaps],
+    intelligenceRisks
+  );
 
   const cloudRisk = buildCloudRisk(vendors);
   const dependencies = buildDependencies(vendors);
