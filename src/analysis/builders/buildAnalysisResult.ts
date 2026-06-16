@@ -272,20 +272,44 @@ function hasTrace(finding: Finding) {
   return Boolean(finding.trace && finding.trace.length > 0);
 }
 
+function findingKey(finding: Finding) {
+  return `${finding.title}-${finding.vendor}-${finding.category}`;
+}
+
+function looseFindingKey(finding: Finding) {
+  return `${finding.title}-${finding.category}`;
+}
+
 function mergeFindings(baseFindings: Finding[], intelligenceRisks: RiskFinding[]): Finding[] {
   const findingsByKey = new Map<string, Finding>();
+  const tracedByLooseKey = new Map<string, Finding>();
+
+  baseFindings.forEach((finding) => {
+    if (hasTrace(finding)) {
+      tracedByLooseKey.set(looseFindingKey(finding), finding);
+    }
+  });
 
   const addOrUpgrade = (finding: Finding) => {
-    const key = `${finding.title}-${finding.vendor}-${finding.category}`;
+    const key = findingKey(finding);
     const existing = findingsByKey.get(key);
+    const tracedMatch = tracedByLooseKey.get(looseFindingKey(finding));
+
+    const upgradedFinding =
+      !hasTrace(finding) && tracedMatch
+        ? {
+            ...finding,
+            trace: tracedMatch.trace,
+          }
+        : finding;
 
     if (!existing) {
-      findingsByKey.set(key, finding);
+      findingsByKey.set(key, upgradedFinding);
       return;
     }
 
-    if (!hasTrace(existing) && hasTrace(finding)) {
-      findingsByKey.set(key, finding);
+    if (!hasTrace(existing) && hasTrace(upgradedFinding)) {
+      findingsByKey.set(key, upgradedFinding);
     }
   };
 
@@ -326,7 +350,9 @@ function evidenceItemFromClassifiedDocument(
     status:
       sourceDocument?.text.toLowerCase().includes('missing') ||
       sourceDocument?.text.toLowerCase().includes('unsigned') ||
-      sourceDocument?.text.toLowerCase().includes('not documented')
+      sourceDocument?.text.toLowerCase().includes('not documented') ||
+      sourceDocument?.text.toLowerCase().includes('does not include') ||
+      sourceDocument?.text.toLowerCase().includes('no validated')
         ? 'Missing'
         : 'Valid',
     expires: 'Review required',
@@ -406,7 +432,6 @@ function getDocumentIcon(extension: string) {
 
 export function buildAnalysisResultFromDocuments(documents: ParsedDocument[]): AnalysisResult {
   const facts = buildFacts(documents);
-  console.log('facts', facts); //tbd
 
   const classifiedDocuments = classifyDocuments(documents);
   const vendorDetections = extractVendorDetections(documents);
@@ -425,13 +450,15 @@ export function buildAnalysisResultFromDocuments(documents: ParsedDocument[]): A
   );
 
   const legacyGaps = detectGaps(documents, vendors);
-  console.log('legacyGaps', legacyGaps); //tbd
   const factBasedGaps = detectGapsFromFacts(facts);
-  console.log('factBasedGaps', factBasedGaps); //tbd
-  const gaps = mergeFindings(
-    [...factBasedGaps, ...legacyGaps],
-    intelligenceRisks
-  );
+  const gaps = mergeFindings([...factBasedGaps, ...legacyGaps], intelligenceRisks);
+
+  console.log('TRACE DEBUG', {
+    facts,
+    legacyGaps,
+    factBasedGaps,
+    gaps,
+  });
 
   const cloudRisk = buildCloudRisk(vendors);
   const dependencies = buildDependencies(vendors);
