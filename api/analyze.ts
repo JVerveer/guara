@@ -186,6 +186,25 @@ async function extractZip(buffer: Buffer, sourceName: string): Promise<ParsedDoc
   return docs;
 }
 
+async function extractPdfText(buffer: Buffer) {
+  const { PDFParse } = await import('pdf-parse');
+
+  const parser = new PDFParse({ data: buffer });
+  const result = await parser.getText();
+
+  const text = result.text?.trim() ?? '';
+
+  if (!text) {
+    return [
+      'PDF uploaded, but no selectable text could be extracted.',
+      'This PDF may be scanned or image-based.',
+      'OCR is not yet enabled for scanned PDFs.',
+    ].join('\n');
+  }
+
+  return text;
+}
+
 async function extractDocxText(buffer: Buffer) {
   const mammoth = await import('mammoth');
   const result = await mammoth.extractRawText({ buffer });
@@ -217,11 +236,7 @@ async function extractText(
   let text = '';
 
   if (extension === 'pdf') {
-    text = [
-      `PDF uploaded: ${fileName}`,
-      'PDF text extraction is temporarily disabled in the Vercel function.',
-      'CSV, XLSX, DOCX, TXT, MD, JSON, and ZIP extraction remain enabled.',
-    ].join('\n');
+    text = await extractPdfText(buffer);
   } else if (extension === 'docx') {
     text = await extractDocxText(buffer);
   } else if (extension === 'xlsx' || extension === 'xls') {
