@@ -4,15 +4,19 @@ import {
   CheckCircle2,
   Cloud,
   Database,
+  FileText,
   Globe2,
   KeyRound,
+  Package,
   ShieldAlert,
+  TrendingUp,
   Zap,
 } from 'lucide-react';
 import { Badge } from '../Badge';
 import { theme } from '../../../styles/theme';
 import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
 import { getHighSeverityGaps, getSovereigntyScore } from '../../../analysis/selectors';
+import { useApp, type ReportSectionKey } from '../../contexts/AppContext';
 
 function DependencyIcon({ type }: { type: 'cloud' | 'payments' | 'identity' | 'data' }) {
   const iconStyle = { color: theme.brand.primary };
@@ -23,8 +27,67 @@ function DependencyIcon({ type }: { type: 'cloud' | 'payments' | 'identity' | 'd
   return <Database className="h-3.5 w-3.5" style={iconStyle} />;
 }
 
+const REPORT_SECTIONS: Array<{
+  id: ReportSectionKey;
+  label: string;
+  description: string;
+  pages: number;
+  icon: React.ElementType;
+}> = [
+  {
+    id: 'overview',
+    label: 'Executive Summary',
+    description: 'Board narrative, key risks, and recommended focus.',
+    pages: 2,
+    icon: Zap,
+  },
+  {
+    id: 'vendors',
+    label: 'Vendor Intelligence',
+    description: 'Supplier inventory, criticality, residency, and traceability.',
+    pages: 2,
+    icon: Building2,
+  },
+  {
+    id: 'gaps',
+    label: 'Findings',
+    description: 'Regulatory and technology findings with evidence excerpts.',
+    pages: 3,
+    icon: AlertTriangle,
+  },
+  {
+    id: 'evidence',
+    label: 'Evidence Coverage',
+    description: 'Evidence inventory, missing items, and source traces.',
+    pages: 2,
+    icon: FileText,
+  },
+  {
+    id: 'concentration',
+    label: 'Dependencies',
+    description: 'Cloud concentration, outage impact, and dependency share.',
+    pages: 2,
+    icon: TrendingUp,
+  },
+  {
+    id: 'remediation',
+    label: 'Remediation Plans',
+    description: 'Management actions, owners, timelines, and success criteria.',
+    pages: 3,
+    icon: CheckCircle2,
+  },
+  {
+    id: 'audit',
+    label: 'Board Package',
+    description: 'Generated audit outputs and recommended next actions.',
+    pages: 2,
+    icon: Package,
+  },
+];
+
 export function OverviewTab() {
   const analysisResult = useAnalysisResult();
+  const { reportSections, toggleReportSection, resetReportSections } = useApp();
   const { scenario } = analysisResult;
 
   const sovereigntyScore = getSovereigntyScore(analysisResult);
@@ -33,6 +96,9 @@ export function OverviewTab() {
 
   const highPriorityPlans = remediationPlans.filter((plan) => plan.priority === 'High').length;
   const openPlans = remediationPlans.filter((plan) => plan.status === 'Open').length;
+
+  const selectedSections = REPORT_SECTIONS.filter((section) => reportSections[section.id]);
+  const estimatedPages = selectedSections.reduce((sum, section) => sum + section.pages, 0);
 
   const kpis = [
     {
@@ -57,9 +123,9 @@ export function OverviewTab() {
       sub: analysisResult.source === 'sample' ? 'Sample package' : 'Uploaded package',
     },
     {
-      label: 'Remediation',
-      value: String(remediationPlans.length),
-      sub: `${highPriorityPlans} high priority`,
+      label: 'Report Sections',
+      value: String(selectedSections.length),
+      sub: `${estimatedPages} estimated pages`,
     },
     {
       label: 'Open Actions',
@@ -125,6 +191,122 @@ export function OverviewTab() {
             </p>
           </div>
         ))}
+      </div>
+
+      <div
+        className="rounded-2xl border p-4 shadow-sm"
+        style={{
+          backgroundColor: theme.neutral.surface,
+          borderColor: theme.neutral.border,
+        }}
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p style={{ fontSize: '14px', fontWeight: 800, color: theme.neutral.text }}>
+              Build Report
+            </p>
+
+            <p style={{ fontSize: '11px', color: theme.neutral.textSecondary }}>
+              Select the sections that should appear in the exported PDF. Click a section to include or exclude it.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={resetReportSections}
+            className="rounded-lg border px-3 py-1.5"
+            style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              backgroundColor: theme.neutral.background,
+              borderColor: theme.neutral.border,
+              color: theme.neutral.textSecondary,
+            }}
+          >
+            Select all
+          </button>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {REPORT_SECTIONS.map((section) => {
+            const selected = reportSections[section.id];
+            const Icon = section.icon;
+
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => toggleReportSection(section.id)}
+                className="rounded-xl border p-3 text-left transition-all"
+                style={{
+                  backgroundColor: selected ? theme.brand.primaryLight : theme.neutral.background,
+                  borderColor: selected ? theme.brand.primaryBorder : theme.neutral.border,
+                  opacity: selected ? 1 : 0.58,
+                }}
+              >
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex h-7 w-7 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor: selected ? theme.neutral.surface : theme.neutral.surface,
+                      }}
+                    >
+                      <Icon
+                        className="h-3.5 w-3.5"
+                        style={{
+                          color: selected ? theme.brand.primary : theme.neutral.textMuted,
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <p style={{ fontSize: '12px', fontWeight: 800, color: theme.neutral.text }}>
+                        {section.label}
+                      </p>
+
+                      <p style={{ fontSize: '10px', color: theme.neutral.textMuted }}>
+                        ~{section.pages} pages
+                      </p>
+                    </div>
+                  </div>
+
+                  <span
+                    className="rounded-full border px-2 py-0.5"
+                    style={{
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      backgroundColor: selected ? theme.neutral.surface : theme.neutral.background,
+                      borderColor: selected ? theme.brand.primaryBorder : theme.neutral.border,
+                      color: selected ? theme.brand.primary : theme.neutral.textMuted,
+                    }}
+                  >
+                    {selected ? 'Included' : 'Excluded'}
+                  </span>
+                </div>
+
+                <p style={{ fontSize: '11px', lineHeight: 1.45, color: theme.neutral.textSecondary }}>
+                  {section.description}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          className="mt-3 rounded-xl border p-3"
+          style={{
+            backgroundColor: theme.neutral.background,
+            borderColor: theme.neutral.border,
+          }}
+        >
+          <p style={{ fontSize: '11px', fontWeight: 800, color: theme.neutral.text }}>
+            Selected report: {selectedSections.length} sections · approximately {estimatedPages} pages
+          </p>
+          <p style={{ fontSize: '11px', color: theme.neutral.textSecondary }} className="mt-0.5">
+            Deselected sections remain visible in the dashboard, but they will not be included in the exported PDF.
+          </p>
+        </div>
       </div>
 
       <div

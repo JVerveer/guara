@@ -410,7 +410,7 @@ function RemediationBlock({ plan }: { plan?: RemediationPlan }) {
 }
 
 export function RiskReportPdf({ data }: { data: RiskReportData }) {
-  const { scenario } = data;
+  const { scenario, reportSections } = data;
 
   return (
     <Document
@@ -422,9 +422,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
         <Text style={styles.eyebrow}>Guara Risk Intelligence</Text>
         <Text style={styles.coverTitle}>Board & Audit Risk Report</Text>
         <Text style={styles.coverSubtitle}>
-          Generated analysis for {scenario.name}. This report summarises vendor dependency,
-          concentration risk, evidence coverage, DORA gaps, digital sovereignty exposure,
-          remediation priorities, and audit-ready outputs.
+          Generated analysis for {scenario.name}. This report contains only the sections selected in the report builder.
         </Text>
 
         <View style={styles.grid}>
@@ -435,7 +433,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
             <MetricCard label="Vendors" value={scenario.vendors} sub={`${scenario.criticalVendors} critical`} />
           </View>
           <View style={styles.gridItem}>
-            <MetricCard label="Remediation" value={data.remediation.total} sub={`${data.remediation.highPriority} high priority`} />
+            <MetricCard label="Sections" value={Object.values(reportSections).filter(Boolean).length} sub="Included in PDF" />
           </View>
         </View>
 
@@ -445,326 +443,308 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Digital sovereignty exposure</Text>
-          <Text style={styles.body}>{scenario.regionExposure}</Text>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Traceability coverage</Text>
-          <Text style={styles.body}>
-            {data.traceability.findingsWithTrace}/{data.gaps.findings.length} findings,{' '}
-            {data.traceability.vendorsWithTrace}/{data.vendors.all.length} vendors, and{' '}
-            {data.traceability.evidenceWithTrace}/{data.evidence.items.length} evidence items include source traceability.
-          </Text>
+          <Text style={styles.sectionTitle}>Included sections</Text>
+          {Object.entries(reportSections)
+            .filter(([, selected]) => selected)
+            .map(([section]) => (
+              <Text key={section} style={styles.body}>• {section}</Text>
+            ))}
         </View>
       </Page>
 
-      <Page size="A4" style={styles.page}>
-        <PageTitle
-          eyebrow="Executive summary"
-          title={data.executiveSummary.title}
-          subtitle="Board-level narrative generated from findings, evidence, vendors, and remediation priorities."
-        />
+      {reportSections.overview && (
+        <Page size="A4" style={styles.page}>
+          <PageTitle
+            eyebrow="Executive summary"
+            title={data.executiveSummary.title}
+            subtitle="Board-level narrative generated from findings, evidence, vendors, and remediation priorities."
+          />
 
-        <View style={styles.grid}>
-          <View style={styles.gridItem}>
-            <MetricCard label="Readiness" value={`${scenario.readinessScore}/100`} sub="Audit-ready output" highlight />
+          <View style={styles.grid}>
+            <View style={styles.gridItem}>
+              <MetricCard label="Readiness" value={`${scenario.readinessScore}/100`} sub="Audit-ready output" highlight />
+            </View>
+            <View style={styles.gridItem}>
+              <MetricCard label="Sovereignty" value={`${data.overview.sovereigntyScore}/100`} sub={scenario.regionExposure} />
+            </View>
+            <View style={styles.gridItem}>
+              <MetricCard label="High-priority plans" value={data.remediation.highPriority} sub={`${data.remediation.total} total plans`} />
+            </View>
           </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Sovereignty" value={`${data.overview.sovereigntyScore}/100`} sub={scenario.regionExposure} />
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Executive narrative</Text>
+            <Text style={styles.body}>{data.executiveSummary.narrative}</Text>
           </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="High-priority plans" value={data.remediation.highPriority} sub={`${data.remediation.total} total plans`} />
+
+          <View style={styles.warningCard}>
+            <Text style={styles.sectionTitle}>Material risks</Text>
+            {data.executiveSummary.materialRisks.map((item, index) => (
+              <Text key={`${item}-${index}`} style={styles.body}>• {item}</Text>
+            ))}
           </View>
-        </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Executive narrative</Text>
-          <Text style={styles.body}>{data.executiveSummary.narrative}</Text>
-        </View>
-
-        <View style={styles.warningCard}>
-          <Text style={styles.sectionTitle}>Material risks</Text>
-          {data.executiveSummary.materialRisks.map((item, index) => (
-            <Text key={`${item}-${index}`} style={styles.body}>• {item}</Text>
-          ))}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Key observations</Text>
-          {data.executiveSummary.keyPoints.map((item, index) => (
-            <Text key={`${item}-${index}`} style={styles.body}>• {item}</Text>
-          ))}
-        </View>
-
-        <View style={styles.successCard}>
-          <Text style={styles.sectionTitle}>Recommended focus</Text>
-          {data.executiveSummary.recommendedFocus.map((item, index) => (
-            <Text key={`${item}-${index}`} style={styles.body}>{index + 1}. {item}</Text>
-          ))}
-        </View>
-
-        <Footer data={data} />
-      </Page>
-
-      <Page size="A4" style={styles.page}>
-        <PageTitle
-          eyebrow="Vendor intelligence"
-          title="Vendor inventory"
-          subtitle={`${scenario.vendors} vendors identified. This preview shows ${data.vendors.all.length} sample vendors and their risk attributes.`}
-        />
-
-        <View style={styles.grid}>
-          <View style={styles.gridItem}>
-            <MetricCard label="Critical suppliers" value={scenario.criticalVendors} sub={`${data.vendors.criticalCount} visible in sample`} highlight />
+          <View style={styles.successCard}>
+            <Text style={styles.sectionTitle}>Recommended focus</Text>
+            {data.executiveSummary.recommendedFocus.map((item, index) => (
+              <Text key={`${item}-${index}`} style={styles.body}>{index + 1}. {item}</Text>
+            ))}
           </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Shown vendors" value={data.vendors.all.length} sub="Sample preview" />
-          </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Traceable vendors" value={data.traceability.vendorsWithTrace} sub={`${data.traceability.totalVendorTraces} source links`} />
-          </View>
-        </View>
 
-        <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            <Text style={[styles.th, styles.colLarge]}>Vendor</Text>
-            <Text style={[styles.th, styles.col]}>Service</Text>
-            <Text style={[styles.th, styles.col]}>Criticality</Text>
-            <Text style={[styles.th, styles.col]}>Risk</Text>
-            <Text style={[styles.th, styles.col]}>Score</Text>
+          <Footer data={data} />
+        </Page>
+      )}
+
+      {reportSections.vendors && (
+        <Page size="A4" style={styles.page}>
+          <PageTitle
+            eyebrow="Vendor intelligence"
+            title="Vendor inventory"
+            subtitle={`${scenario.vendors} vendors identified. This preview shows ${data.vendors.all.length} sample vendors and their risk attributes.`}
+          />
+
+          <View style={styles.grid}>
+            <View style={styles.gridItem}>
+              <MetricCard label="Critical suppliers" value={scenario.criticalVendors} sub={`${data.vendors.criticalCount} visible in sample`} highlight />
+            </View>
+            <View style={styles.gridItem}>
+              <MetricCard label="Shown vendors" value={data.vendors.all.length} sub="Sample preview" />
+            </View>
+            <View style={styles.gridItem}>
+              <MetricCard label="Traceable vendors" value={data.traceability.vendorsWithTrace} sub={`${data.traceability.totalVendorTraces} source links`} />
+            </View>
           </View>
-          {data.vendors.all.map((vendor) => (
-            <View key={vendor.name} style={styles.rowStack}>
-              <View style={{ display: 'flex', flexDirection: 'row', gap: 8 }}>
-                <Text style={[styles.td, styles.colLarge]}>{vendor.name}</Text>
-                <Text style={[styles.td, styles.col]}>{vendor.service}</Text>
-                <Text style={[styles.td, styles.col]}>{vendor.criticality}</Text>
-                <Text style={[styles.td, styles.col]}>{vendor.risk}</Text>
-                <Text style={[styles.td, styles.col]}>{vendor.score}</Text>
+
+          <View style={styles.table}>
+            <View style={styles.rowHeader}>
+              <Text style={[styles.th, styles.colLarge]}>Vendor</Text>
+              <Text style={[styles.th, styles.col]}>Service</Text>
+              <Text style={[styles.th, styles.col]}>Criticality</Text>
+              <Text style={[styles.th, styles.col]}>Risk</Text>
+              <Text style={[styles.th, styles.col]}>Score</Text>
+            </View>
+            {data.vendors.all.map((vendor) => (
+              <View key={vendor.name} style={styles.rowStack}>
+                <View style={{ display: 'flex', flexDirection: 'row', gap: 8 }}>
+                  <Text style={[styles.td, styles.colLarge]}>{vendor.name}</Text>
+                  <Text style={[styles.td, styles.col]}>{vendor.service}</Text>
+                  <Text style={[styles.td, styles.col]}>{vendor.criticality}</Text>
+                  <Text style={[styles.td, styles.col]}>{vendor.risk}</Text>
+                  <Text style={[styles.td, styles.col]}>{vendor.score}</Text>
+                </View>
+
+                <TraceEvidenceBlock trace={vendor.trace} title="Found in source documents" limit={1} />
+              </View>
+            ))}
+          </View>
+
+          <Footer data={data} />
+        </Page>
+      )}
+
+      {reportSections.gaps && (
+        <Page size="A4" style={styles.page}>
+          <PageTitle
+            eyebrow="Gap analysis"
+            title="Regulatory and technology findings"
+            subtitle={`${data.gaps.findings.length} findings across ${data.gaps.categories.length} risk domains. ${data.gaps.highCount} high-severity items require priority remediation.`}
+          />
+
+          {data.gaps.evidenceBackedFindings.slice(0, 10).map((finding) => (
+            <View key={`${finding.title}-${finding.vendor}-${finding.category}`} style={styles.card}>
+              <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+                <Text style={{ fontSize: 11, fontWeight: 800, color: theme.neutral.text }}>{finding.title}</Text>
+                <SeverityBadge level={finding.severity} />
               </View>
 
-              <TraceEvidenceBlock trace={vendor.trace} title="Found in source documents" limit={1} />
+              <Text style={[styles.td, { marginBottom: 4 }]}>
+                {finding.category} · {finding.vendor} · {finding.article}
+              </Text>
+
+              <TraceEvidenceBlock trace={finding.trace} title="Evidence behind this finding" limit={2} />
+
+              <Text style={[styles.traceLabel, { marginTop: 8 }]}>Recommended action</Text>
+              <Text style={styles.body}>{finding.rec}</Text>
+
+              <RemediationBlock plan={finding.remediationPlan} />
             </View>
           ))}
-        </View>
 
-        <Footer data={data} />
-      </Page>
+          <Footer data={data} />
+        </Page>
+      )}
 
-      <Page size="A4" style={styles.page}>
-        <PageTitle
-          eyebrow="Gap analysis"
-          title="Regulatory and technology findings"
-          subtitle={`${data.gaps.findings.length} findings across ${data.gaps.categories.length} risk domains. ${data.gaps.highCount} high-severity items require priority remediation.`}
-        />
+      {reportSections.remediation && (
+        <Page size="A4" style={styles.page}>
+          <PageTitle
+            eyebrow="Remediation"
+            title="Action plan"
+            subtitle={`${data.remediation.total} remediation plans generated. ${data.remediation.highPriority} are high priority.`}
+          />
 
-        <View style={styles.warningCard}>
-          <Text style={styles.sectionTitle}>Priority interpretation</Text>
-          <Text style={styles.body}>{scenario.headlineFinding} {scenario.mainRisk}</Text>
-        </View>
-
-        {data.gaps.evidenceBackedFindings.slice(0, 10).map((finding) => (
-          <View key={`${finding.title}-${finding.vendor}-${finding.category}`} style={styles.card}>
-            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
-              <Text style={{ fontSize: 11, fontWeight: 800, color: theme.neutral.text }}>{finding.title}</Text>
-              <SeverityBadge level={finding.severity} />
+          <View style={styles.grid}>
+            <View style={styles.gridItem}>
+              <MetricCard label="Total plans" value={data.remediation.total} sub="Generated from findings" highlight />
             </View>
-
-            <Text style={[styles.td, { marginBottom: 4 }]}>
-              {finding.category} · {finding.vendor} · {finding.article}
-            </Text>
-
-            <TraceEvidenceBlock trace={finding.trace} title="Evidence behind this finding" limit={2} />
-
-            <Text style={[styles.traceLabel, { marginTop: 8 }]}>Recommended action</Text>
-            <Text style={styles.body}>{finding.rec}</Text>
-
-            <RemediationBlock plan={finding.remediationPlan} />
-          </View>
-        ))}
-
-        <Footer data={data} />
-      </Page>
-
-      <Page size="A4" style={styles.page}>
-        <PageTitle
-          eyebrow="Remediation"
-          title="Action plan"
-          subtitle={`${data.remediation.total} remediation plans generated. ${data.remediation.highPriority} are high priority.`}
-        />
-
-        <View style={styles.grid}>
-          <View style={styles.gridItem}>
-            <MetricCard label="Total plans" value={data.remediation.total} sub="Generated from findings" highlight />
-          </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Open" value={data.remediation.open} sub="Not yet started" />
-          </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="High priority" value={data.remediation.highPriority} sub="Requires urgent action" />
-          </View>
-        </View>
-
-        {data.remediation.plans.slice(0, 8).map((plan) => (
-          <View key={plan.id} style={styles.card}>
-            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
-              <Text style={{ fontSize: 11, fontWeight: 800, color: theme.neutral.text }}>{plan.findingTitle}</Text>
-              <SeverityBadge level={plan.priority} />
+            <View style={styles.gridItem}>
+              <MetricCard label="Open" value={data.remediation.open} sub="Not yet started" />
             </View>
-
-            <Text style={[styles.td, { marginBottom: 5 }]}>
-              {plan.category} · {plan.vendor} · {plan.relatedArticle}
-            </Text>
-
-            <RemediationBlock plan={plan} />
-            <TraceEvidenceBlock trace={plan.trace} title="Source evidence" limit={1} />
+            <View style={styles.gridItem}>
+              <MetricCard label="High priority" value={data.remediation.highPriority} sub="Requires urgent action" />
+            </View>
           </View>
-        ))}
 
-        <Footer data={data} />
-      </Page>
-
-      <Page size="A4" style={styles.page}>
-        <PageTitle
-          eyebrow="Evidence"
-          title="Evidence coverage"
-          subtitle="Evidence status across contracts, assurance reports, certificates, continuity plans, and exit strategies."
-        />
-
-        <View style={styles.grid}>
-          <View style={styles.gridItem}>
-            <MetricCard label="Coverage" value={`${data.evidence.coverage}%`} sub="Assessment evidence" highlight />
-          </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Valid" value={data.evidence.valid} sub="Current and accepted" />
-          </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Traceable evidence" value={data.traceability.evidenceWithTrace} sub={`${data.traceability.totalEvidenceTraces} source links`} />
-          </View>
-        </View>
-
-        <View style={styles.warningCard}>
-          <Text style={styles.sectionTitle}>Evidence observation</Text>
-          <Text style={styles.body}>
-            {scenario.headlineFinding} Missing documentation around exit planning and resilience
-            evidence would likely be challenged during a formal review.
-          </Text>
-        </View>
-
-        <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            <Text style={[styles.th, styles.colLarge]}>Evidence</Text>
-            <Text style={[styles.th, styles.col]}>Vendor</Text>
-            <Text style={[styles.th, styles.col]}>Status</Text>
-            <Text style={[styles.th, styles.col]}>Expires</Text>
-          </View>
-          {data.evidence.items.map((item) => (
-            <View key={`${item.name}-${item.vendor}-${item.type}`} style={styles.rowStack}>
-              <View style={{ display: 'flex', flexDirection: 'row', gap: 8 }}>
-                <Text style={[styles.td, styles.colLarge]}>{item.name}</Text>
-                <Text style={[styles.td, styles.col]}>{item.vendor}</Text>
-                <Text style={[styles.td, styles.col]}>{item.status}</Text>
-                <Text style={[styles.td, styles.col]}>{item.expires}</Text>
+          {data.remediation.plans.slice(0, 8).map((plan) => (
+            <View key={plan.id} style={styles.card}>
+              <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+                <Text style={{ fontSize: 11, fontWeight: 800, color: theme.neutral.text }}>{plan.findingTitle}</Text>
+                <SeverityBadge level={plan.priority} />
               </View>
 
-              <TraceEvidenceBlock trace={item.trace} title="Evidence source" limit={1} />
+              <Text style={[styles.td, { marginBottom: 5 }]}>
+                {plan.category} · {plan.vendor} · {plan.relatedArticle}
+              </Text>
+
+              <RemediationBlock plan={plan} />
+              <TraceEvidenceBlock trace={plan.trace} title="Source evidence" limit={1} />
             </View>
           ))}
-        </View>
 
-        <Footer data={data} />
-      </Page>
+          <Footer data={data} />
+        </Page>
+      )}
 
-      <Page size="A4" style={styles.page}>
-        <PageTitle
-          eyebrow="Concentration"
-          title="Dependency and outage impact"
-          subtitle="Cloud, hyperscaler, sovereignty, and provider-outage concentration analysis."
-        />
+      {reportSections.evidence && (
+        <Page size="A4" style={styles.page}>
+          <PageTitle
+            eyebrow="Evidence"
+            title="Evidence coverage"
+            subtitle="Evidence status across contracts, assurance reports, certificates, continuity plans, and exit strategies."
+          />
 
-        <View style={styles.grid}>
-          <View style={styles.gridItem}>
-            <MetricCard label="Primary provider" value={data.concentration.topProvider.label} sub={`${data.concentration.topProvider.pct}% cloud dependency`} />
-          </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Outage impact" value={data.concentration.simulation.impact} sub={`${data.concentration.simulation.affectedDependencies} dependencies affected`} highlight />
-          </View>
-          <View style={styles.gridItem}>
-            <MetricCard label="Recovery" value={data.concentration.simulation.recovery.split(' ')[0]} sub={data.concentration.simulation.recovery} />
-          </View>
-        </View>
-
-        <View style={styles.warningCard}>
-          <Text style={styles.sectionTitle}>
-            Outage simulation: {data.concentration.simulation.provider} unavailable
-          </Text>
-          <Text style={styles.body}>
-            {data.concentration.simulation.affectedDependencies} dependencies would be affected.
-            Estimated recovery: {data.concentration.simulation.recovery}.{' '}
-            {data.concentration.simulation.recommendation}
-          </Text>
-        </View>
-
-        <Text style={styles.sectionTitle}>Cloud dependency share</Text>
-        {data.concentration.cloudRisk.map((provider) => (
-          <View key={provider.label} style={{ marginBottom: 9 }}>
-            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={styles.td}>{provider.label} · {provider.spend}/yr</Text>
-              <Text style={[styles.td, styles.strong]}>{provider.pct}%</Text>
+          <View style={styles.grid}>
+            <View style={styles.gridItem}>
+              <MetricCard label="Coverage" value={`${data.evidence.coverage}%`} sub="Assessment evidence" highlight />
             </View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${provider.pct}%` }]} />
+            <View style={styles.gridItem}>
+              <MetricCard label="Valid" value={data.evidence.valid} sub="Current and accepted" />
+            </View>
+            <View style={styles.gridItem}>
+              <MetricCard label="Traceable evidence" value={data.traceability.evidenceWithTrace} sub={`${data.traceability.totalEvidenceTraces} source links`} />
             </View>
           </View>
-        ))}
 
-        <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Affected services</Text>
-        {data.concentration.simulation.affectedServices.map((service) => (
-          <Text key={service} style={styles.body}>• {service}</Text>
-        ))}
+          <View style={styles.table}>
+            <View style={styles.rowHeader}>
+              <Text style={[styles.th, styles.colLarge]}>Evidence</Text>
+              <Text style={[styles.th, styles.col]}>Vendor</Text>
+              <Text style={[styles.th, styles.col]}>Status</Text>
+              <Text style={[styles.th, styles.col]}>Expires</Text>
+            </View>
+            {data.evidence.items.map((item) => (
+              <View key={`${item.name}-${item.vendor}-${item.type}`} style={styles.rowStack}>
+                <View style={{ display: 'flex', flexDirection: 'row', gap: 8 }}>
+                  <Text style={[styles.td, styles.colLarge]}>{item.name}</Text>
+                  <Text style={[styles.td, styles.col]}>{item.vendor}</Text>
+                  <Text style={[styles.td, styles.col]}>{item.status}</Text>
+                  <Text style={[styles.td, styles.col]}>{item.expires}</Text>
+                </View>
 
-        <Footer data={data} />
-      </Page>
-
-      <Page size="A4" style={styles.page}>
-        <PageTitle
-          eyebrow="Audit package"
-          title="Generated board and audit outputs"
-          subtitle={`${data.audit.items.length} documents · ${data.audit.totalPages} generated pages · ready for review workflow.`}
-        />
-
-        <View style={styles.successCard}>
-          <Text style={styles.sectionTitle}>Package generated for review</Text>
-          <Text style={styles.body}>
-            This package includes supplier registers, evidence inventory, gap analysis,
-            dependency mapping, concentration risk, source traceability, executive summary,
-            and remediation actions.
-          </Text>
-        </View>
-
-        <View style={styles.table}>
-          <View style={styles.rowHeader}>
-            <Text style={[styles.th, styles.colLarge]}>Document</Text>
-            <Text style={[styles.th, styles.col]}>Type</Text>
-            <Text style={[styles.th, styles.col]}>Pages</Text>
+                <TraceEvidenceBlock trace={item.trace} title="Evidence source" limit={1} />
+              </View>
+            ))}
           </View>
-          {data.audit.items.map((item) => (
-            <View key={item.label} style={styles.row}>
-              <Text style={[styles.td, styles.colLarge]}>{item.label}</Text>
-              <Text style={[styles.td, styles.col]}>{item.type}</Text>
-              <Text style={[styles.td, styles.col]}>{item.pages}</Text>
+
+          <Footer data={data} />
+        </Page>
+      )}
+
+      {reportSections.concentration && (
+        <Page size="A4" style={styles.page}>
+          <PageTitle
+            eyebrow="Concentration"
+            title="Dependency and outage impact"
+            subtitle="Cloud, hyperscaler, sovereignty, and provider-outage concentration analysis."
+          />
+
+          <View style={styles.grid}>
+            <View style={styles.gridItem}>
+              <MetricCard label="Primary provider" value={data.concentration.topProvider.label} sub={`${data.concentration.topProvider.pct}% cloud dependency`} />
+            </View>
+            <View style={styles.gridItem}>
+              <MetricCard label="Outage impact" value={data.concentration.simulation.impact} sub={`${data.concentration.simulation.affectedDependencies} dependencies affected`} highlight />
+            </View>
+            <View style={styles.gridItem}>
+              <MetricCard label="Recovery" value={data.concentration.simulation.recovery.split(' ')[0]} sub={data.concentration.simulation.recovery} />
+            </View>
+          </View>
+
+          <View style={styles.warningCard}>
+            <Text style={styles.sectionTitle}>
+              Outage simulation: {data.concentration.simulation.provider} unavailable
+            </Text>
+            <Text style={styles.body}>
+              {data.concentration.simulation.affectedDependencies} dependencies would be affected.
+              Estimated recovery: {data.concentration.simulation.recovery}.{' '}
+              {data.concentration.simulation.recommendation}
+            </Text>
+          </View>
+
+          <Text style={styles.sectionTitle}>Cloud dependency share</Text>
+          {data.concentration.cloudRisk.map((provider) => (
+            <View key={provider.label} style={{ marginBottom: 9 }}>
+              <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={styles.td}>{provider.label} · {provider.spend}/yr</Text>
+                <Text style={[styles.td, styles.strong]}>{provider.pct}%</Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${provider.pct}%` }]} />
+              </View>
             </View>
           ))}
-        </View>
 
-        <Text style={styles.sectionTitle}>Recommended next actions</Text>
-        {data.audit.recommendations.map((recommendation, index) => (
-          <Text key={recommendation} style={styles.body}>{index + 1}. {recommendation}</Text>
-        ))}
+          <Footer data={data} />
+        </Page>
+      )}
 
-        <Footer data={data} />
-      </Page>
+      {reportSections.audit && (
+        <Page size="A4" style={styles.page}>
+          <PageTitle
+            eyebrow="Audit package"
+            title="Generated board and audit outputs"
+            subtitle={`${data.audit.items.length} documents · ${data.audit.totalPages} generated pages · ready for review workflow.`}
+          />
+
+          <View style={styles.successCard}>
+            <Text style={styles.sectionTitle}>Package generated for review</Text>
+            <Text style={styles.body}>
+              This package includes selected board and audit sections based on the report builder configuration.
+            </Text>
+          </View>
+
+          <View style={styles.table}>
+            <View style={styles.rowHeader}>
+              <Text style={[styles.th, styles.colLarge]}>Document</Text>
+              <Text style={[styles.th, styles.col]}>Type</Text>
+              <Text style={[styles.th, styles.col]}>Pages</Text>
+            </View>
+            {data.audit.items.map((item) => (
+              <View key={item.label} style={styles.row}>
+                <Text style={[styles.td, styles.colLarge]}>{item.label}</Text>
+                <Text style={[styles.td, styles.col]}>{item.type}</Text>
+                <Text style={[styles.td, styles.col]}>{item.pages}</Text>
+              </View>
+            ))}
+          </View>
+
+          <Text style={styles.sectionTitle}>Recommended next actions</Text>
+          {data.audit.recommendations.map((recommendation, index) => (
+            <Text key={recommendation} style={styles.body}>{index + 1}. {recommendation}</Text>
+          ))}
+
+          <Footer data={data} />
+        </Page>
+      )}
     </Document>
   );
 }

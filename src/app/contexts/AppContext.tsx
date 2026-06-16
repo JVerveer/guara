@@ -27,6 +27,27 @@ export type Page =
   | 'remediation'
   | 'audit';
 
+export type ReportSectionKey =
+  | 'overview'
+  | 'vendors'
+  | 'gaps'
+  | 'evidence'
+  | 'concentration'
+  | 'remediation'
+  | 'audit';
+
+export type ReportSections = Record<ReportSectionKey, boolean>;
+
+export const DEFAULT_REPORT_SECTIONS: ReportSections = {
+  overview: true,
+  vendors: true,
+  gaps: true,
+  evidence: true,
+  concentration: true,
+  remediation: true,
+  audit: true,
+};
+
 interface AppContextValue {
   page: Page;
   navigate: (page: Page) => void;
@@ -37,6 +58,11 @@ interface AppContextValue {
   activeScenario: ScenarioSummary;
   analysisResult: AnalysisResult;
   setAnalysisResult: (analysisResult: AnalysisResult) => void;
+
+  reportSections: ReportSections;
+  setReportSections: (sections: ReportSections) => void;
+  toggleReportSection: (section: ReportSectionKey) => void;
+  resetReportSections: () => void;
 
   startSample: (scenarioId?: string) => void;
   startUploadedAnalysis: (analysisResult: AnalysisResult) => void;
@@ -59,11 +85,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     useState<ScenarioSummary>(initialScenario);
   const [analysisResult, setAnalysisResult] =
     useState<AnalysisResult>(initialAnalysisResult);
+  const [reportSections, setReportSections] =
+    useState<ReportSections>(DEFAULT_REPORT_SECTIONS);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navigate = (nextPage: Page) => {
     setPage(nextPage);
     setSidebarOpen(false);
+  };
+
+  const toggleReportSection = (section: ReportSectionKey) => {
+    setReportSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }));
+  };
+
+  const resetReportSections = () => {
+    setReportSections(DEFAULT_REPORT_SECTIONS);
   };
 
   const completeProcessing = (result: AnalysisResult) => {
@@ -79,6 +118,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     setActiveScenario(scenario);
     setAnalysisResult(result);
+    setReportSections(DEFAULT_REPORT_SECTIONS);
     setStepsDone(0);
     setHasResults(false);
     setPage('processing');
@@ -107,6 +147,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const startUploadedAnalysis = (result: AnalysisResult) => {
     setActiveScenario(result.scenario);
     setAnalysisResult(result);
+    setReportSections(DEFAULT_REPORT_SECTIONS);
     setStepsDone(0);
     setHasResults(false);
     setPage('processing');
@@ -141,6 +182,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStepsDone(0);
     setActiveScenario(scenario);
     setAnalysisResult(result);
+    setReportSections(DEFAULT_REPORT_SECTIONS);
     setSidebarOpen(false);
   };
 
@@ -153,13 +195,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activeScenario,
       analysisResult,
       setAnalysisResult,
+      reportSections,
+      setReportSections,
+      toggleReportSection,
+      resetReportSections,
       startSample,
       startUploadedAnalysis,
       reset,
       sidebarOpen,
       setSidebarOpen,
     }),
-    [page, hasResults, stepsDone, activeScenario, analysisResult, sidebarOpen]
+    [page, hasResults, stepsDone, activeScenario, analysisResult, reportSections, sidebarOpen]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

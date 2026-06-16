@@ -1,5 +1,6 @@
 import { pdf } from '@react-pdf/renderer';
 import type { AnalysisResult } from '../analysis/types';
+import type { ReportSections } from '../app/contexts/AppContext';
 import { buildRiskReportData } from './buildRiskReportData';
 import { RiskReportPdf } from './RiskReportPdf';
 
@@ -11,8 +12,11 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, '');
 }
 
-export async function downloadRiskReportPdf(analysisResult: AnalysisResult) {
-  const data = buildRiskReportData(analysisResult);
+export async function downloadRiskReportPdf(
+  analysisResult: AnalysisResult,
+  reportSections: ReportSections
+) {
+  const data = buildRiskReportData(analysisResult, reportSections);
   const blob = await pdf(<RiskReportPdf data={data} />).toBlob();
 
   const url = URL.createObjectURL(blob);

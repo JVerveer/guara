@@ -1,4 +1,5 @@
 import type { AnalysisResult, FindingTrace, RemediationPlan } from '../analysis/types';
+import type { ReportSections } from '../app/contexts/AppContext';
 
 function traceCount(items: Array<{ trace?: FindingTrace[] }>) {
   return items.reduce((sum, item) => sum + (item.trace?.length ?? 0), 0);
@@ -24,7 +25,10 @@ function remediationForFinding(
   );
 }
 
-export function buildRiskReportData(analysisResult: AnalysisResult) {
+export function buildRiskReportData(
+  analysisResult: AnalysisResult,
+  reportSections: ReportSections
+) {
   const evidenceValid = analysisResult.evidence.filter((item) => item.status === 'Valid').length;
   const evidenceMissing = analysisResult.evidence.filter((item) => item.status === 'Missing').length;
   const evidenceExpiring = analysisResult.evidence.filter((item) => item.status === 'Expiring').length;
@@ -63,6 +67,7 @@ export function buildRiskReportData(analysisResult: AnalysisResult) {
     scenario: analysisResult.scenario,
     executiveSummary: analysisResult.executiveSummary,
     documents: analysisResult.documents,
+    reportSections,
 
     traceability: {
       findingsWithTrace: tracedFindings.length,
