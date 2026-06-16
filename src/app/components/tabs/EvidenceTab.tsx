@@ -7,6 +7,7 @@ import {
   FileText,
   ShieldCheck,
 } from 'lucide-react';
+import { Fragment } from 'react';
 import { Badge } from '../Badge';
 import { theme } from '../../../styles/theme';
 import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
@@ -306,9 +307,8 @@ export function EvidenceTab() {
                 const isLast = index === analysisResult.evidence.length - 1;
 
                 return (
-                  <>
+                  <Fragment key={`${item.name}-${item.vendor}-${item.type}-${index}`}>
                     <tr
-                      key={item.name}
                       className="transition-colors"
                       style={{
                         borderBottom:
@@ -349,7 +349,7 @@ export function EvidenceTab() {
                     </tr>
 
                     <EvidenceTraceRow item={item} />
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

@@ -5,9 +5,226 @@ import type {
   DependencyItem,
   EvidenceItem,
   Finding,
+  FindingTrace,
   ScenarioSummary,
   Vendor,
 } from './types';
+
+function sampleTrace(args: {
+  document: string;
+  excerpt: string;
+  confidence?: number;
+}): FindingTrace {
+  return {
+    document: args.document,
+    excerpt: args.excerpt,
+    confidence: args.confidence ?? 0.82,
+  };
+}
+
+function sampleVendorTrace(vendorName: string): FindingTrace[] {
+  const traceByVendor: Record<string, FindingTrace[]> = {
+    AWS: [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'AWS is listed as a critical cloud infrastructure provider supporting production workloads and customer-facing services.',
+        confidence: 0.88,
+      }),
+      sampleTrace({
+        document: 'AWS_Master_Agreement_2024.pdf',
+        excerpt:
+          'The AWS master agreement covers cloud infrastructure used for production workloads, APIs, data processing, and operational services.',
+        confidence: 0.84,
+      }),
+    ],
+    Stripe: [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'Stripe is listed as a critical payment processing provider supporting card acquiring, settlement, refunds, and disputes.',
+        confidence: 0.87,
+      }),
+      sampleTrace({
+        document: 'Stripe_SOC2_Type2_Report.pdf',
+        excerpt:
+          'Stripe SOC 2 Type II evidence is available for security, availability, and processing integrity controls.',
+        confidence: 0.84,
+      }),
+    ],
+    'Microsoft Azure': [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'Microsoft Azure is listed as a critical cloud services provider supporting infrastructure, identity integrations, and backup workloads.',
+        confidence: 0.86,
+      }),
+      sampleTrace({
+        document: 'ISO27001_Certificate_Azure.pdf',
+        excerpt:
+          'Microsoft Azure ISO 27001 certificate evidence is included for cloud services and infrastructure controls.',
+        confidence: 0.83,
+      }),
+    ],
+    Salesforce: [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'Salesforce is listed as an important SaaS provider supporting CRM, customer service, onboarding, and sales workflows.',
+        confidence: 0.82,
+      }),
+    ],
+    Twilio: [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'Twilio is listed as an important communications provider supporting customer messaging and communications APIs.',
+        confidence: 0.81,
+      }),
+    ],
+    Okta: [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'Okta is listed as a critical identity provider supporting workforce identity, privileged access, and authentication.',
+        confidence: 0.86,
+      }),
+    ],
+    Snowflake: [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'Snowflake is listed as an important data platform supporting analytics, reporting, and business data processing.',
+        confidence: 0.82,
+      }),
+    ],
+    Datadog: [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'Datadog is listed as a monitoring and observability provider supporting telemetry, monitoring, and incident detection.',
+        confidence: 0.8,
+      }),
+    ],
+  };
+
+  return traceByVendor[vendorName] ?? [
+    sampleTrace({
+      document: 'Vendor_Inventory_Q4.xlsx',
+      excerpt: `${vendorName} is listed in the sample vendor inventory as a third-party technology provider.`,
+      confidence: 0.75,
+    }),
+  ];
+}
+
+function sampleGapTrace(finding: Pick<Finding, 'title' | 'vendor' | 'category'>): FindingTrace[] {
+  const title = finding.title.toLowerCase();
+
+  if (title.includes('exit')) {
+    return [
+      sampleTrace({
+        document: 'AWS_Master_Agreement_2024.pdf',
+        excerpt:
+          'The contract package does not include a tested provider exit strategy. No validated migration plan is documented.',
+        confidence: 0.86,
+      }),
+    ];
+  }
+
+  if (title.includes('soc')) {
+    return [
+      sampleTrace({
+        document: 'Vendor_Risk_Assessments_2024.pdf',
+        excerpt:
+          'The Twilio SOC 2 Type II report is marked as missing and should be requested before formal audit review.',
+        confidence: 0.84,
+      }),
+    ];
+  }
+
+  if (title.includes('data') || finding.category === 'Data Residency') {
+    return [
+      sampleTrace({
+        document: 'GCP_DPA_Agreement.pdf',
+        excerpt:
+          'Customer data processing includes cross-border transfer considerations and requires documented safeguards for regulated data.',
+        confidence: 0.82,
+      }),
+    ];
+  }
+
+  if (title.includes('ai')) {
+    return [
+      sampleTrace({
+        document: 'DORA_ICT_Register_Draft.xlsx',
+        excerpt:
+          'AI tooling and model providers are referenced in the draft ICT register but are not fully mapped to use cases and oversight controls.',
+        confidence: 0.8,
+      }),
+    ];
+  }
+
+  if (title.includes('concentration') || finding.category === 'Digital Sovereignty') {
+    return [
+      sampleTrace({
+        document: 'Vendor_Inventory_Q4.xlsx',
+        excerpt:
+          'AWS represents the largest share of cloud dependency and supports production workloads and critical operational services.',
+        confidence: 0.85,
+      }),
+    ];
+  }
+
+  if (title.includes('recovery') || finding.category === 'Operational Resilience') {
+    return [
+      sampleTrace({
+        document: 'Vendor_Risk_Assessments_2024.pdf',
+        excerpt:
+          'Provider outage simulation evidence is incomplete and recovery testing has not been validated for critical services.',
+        confidence: 0.81,
+      }),
+    ];
+  }
+
+  return [
+    sampleTrace({
+      document: 'Vendor_Risk_Assessments_2024.pdf',
+      excerpt: `${finding.vendor} requires additional evidence or remediation based on the sample risk assessment.`,
+      confidence: 0.76,
+    }),
+  ];
+}
+
+function sampleEvidenceTrace(item: Pick<EvidenceItem, 'name' | 'vendor' | 'type' | 'status'>): FindingTrace[] {
+  if (item.status === 'Missing') {
+    return [
+      sampleTrace({
+        document: 'Vendor_Risk_Assessments_2024.pdf',
+        excerpt: `${item.name} for ${item.vendor} is marked as missing and should be collected from the vendor.`,
+        confidence: 0.82,
+      }),
+    ];
+  }
+
+  if (item.status === 'Expiring') {
+    return [
+      sampleTrace({
+        document: item.name,
+        excerpt: `${item.type} evidence for ${item.vendor} is available but requires renewal or review before the expiry date.`,
+        confidence: 0.8,
+      }),
+    ];
+  }
+
+  return [
+    sampleTrace({
+      document: item.name,
+      excerpt: `${item.type} evidence for ${item.vendor} is available and marked as valid in the sample evidence inventory.`,
+      confidence: 0.84,
+    }),
+  ];
+}
+
 
 export const SAMPLE_SCENARIOS: ScenarioSummary[] = [
   {
@@ -143,7 +360,7 @@ export const SAMPLE_DOCS = [
   { name: 'Vendor_Risk_Assessments_2024.pdf', size: '3.2 MB', type: 'Assessment', icon: '🗂️' },
 ];
 
-export const SAMPLE_VENDORS: Vendor[] = [
+const SAMPLE_VENDOR_BASE: Omit<Vendor, 'trace'>[] = [
   { name: 'AWS', service: 'Cloud Infrastructure', criticality: 'Critical', risk: 'High', score: 82, country: 'US', spend: '€420K', category: 'Cloud', exposure: 'US', dependency: 'Critical', dataType: 'Production workloads' },
   { name: 'Stripe', service: 'Payment Processing', criticality: 'Critical', risk: 'Medium', score: 91, country: 'US', spend: '€185K', category: 'Payments', exposure: 'US', dependency: 'Critical', dataType: 'Payment data' },
   { name: 'Microsoft Azure', service: 'Cloud Services', criticality: 'Critical', risk: 'Medium', score: 88, country: 'US', spend: '€310K', category: 'Cloud', exposure: 'US', dependency: 'Critical', dataType: 'Infrastructure data' },
@@ -152,9 +369,15 @@ export const SAMPLE_VENDORS: Vendor[] = [
   { name: 'Okta', service: 'Identity & Access', criticality: 'Critical', risk: 'Low', score: 96, country: 'US', spend: '€78K', category: 'Identity', exposure: 'US', dependency: 'Critical', dataType: 'Identity data' },
   { name: 'Snowflake', service: 'Data Warehousing', criticality: 'Important', risk: 'Medium', score: 85, country: 'US', spend: '€124K', category: 'Data', exposure: 'US', dependency: 'High', dataType: 'Analytics data' },
   { name: 'Datadog', service: 'Monitoring & Observability', criticality: 'Standard', risk: 'Low', score: 92, country: 'US', spend: '€31K', category: 'Monitoring', exposure: 'US', dependency: 'Medium', dataType: 'Telemetry data' },
+
 ];
 
-export const SAMPLE_GAPS: Finding[] = [
+export const SAMPLE_VENDORS: Vendor[] = SAMPLE_VENDOR_BASE.map((vendor): Vendor => ({
+  ...vendor,
+  trace: sampleVendorTrace(vendor.name),
+}));
+
+const SAMPLE_GAP_BASE: Omit<Finding, 'trace'>[] = [
   { title: 'Missing Exit Strategy', severity: 'High', vendor: 'AWS', rec: 'Document a detailed vendor exit and substitutability plan per DORA Art. 28(3)(e).', article: 'Art. 28(3)(e)', category: 'DORA' },
   { title: 'Missing Annual Review', severity: 'Medium', vendor: 'Stripe', rec: 'Schedule annual performance and risk review per DORA Art. 28(3)(f).', article: 'Art. 28(3)(f)', category: 'DORA' },
   { title: 'Missing SOC Report', severity: 'High', vendor: 'Twilio', rec: 'Request updated SOC 2 Type II evidence from vendor.', article: 'Art. 28(2)', category: 'DORA' },
@@ -167,16 +390,28 @@ export const SAMPLE_GAPS: Finding[] = [
   { title: 'AI Supplier Not Fully Inventoried', severity: 'Medium', vendor: 'OpenAI / Azure AI', category: 'AI Act', article: 'AI Inventory', rec: 'Create an AI supplier inventory covering models, use cases, data inputs, and human oversight responsibilities.' },
   { title: 'Hyperscaler Dependency Exceeds Tolerance', severity: 'High', vendor: 'AWS', category: 'Digital Sovereignty', article: 'Concentration', rec: 'Assess substitutability and document a mitigation plan for critical cloud dependency.' },
   { title: 'No Validated Recovery Scenario', severity: 'Medium', vendor: 'Microsoft Azure', category: 'Operational Resilience', article: 'Resilience', rec: 'Run and document a provider outage simulation for critical services supported by this vendor.' },
+
 ];
 
-export const SAMPLE_EVIDENCE: EvidenceItem[] = [
+export const SAMPLE_GAPS: Finding[] = SAMPLE_GAP_BASE.map((finding): Finding => ({
+  ...finding,
+  trace: sampleGapTrace(finding),
+}));
+
+const SAMPLE_EVIDENCE_BASE: Omit<EvidenceItem, 'trace'>[] = [
   { name: 'AWS SOC 2 Type II Report', vendor: 'AWS', type: 'SOC Report', status: 'Valid', expires: '2025-09-30' },
   { name: 'ISO 27001 Certificate', vendor: 'Microsoft Azure', type: 'Certificate', status: 'Valid', expires: '2026-03-15' },
   { name: 'Stripe SOC 2 Type II Report', vendor: 'Stripe', type: 'SOC Report', status: 'Valid', expires: '2025-12-31' },
   { name: 'Okta ISO 27001', vendor: 'Okta', type: 'Certificate', status: 'Valid', expires: '2026-01-20' },
   { name: 'Twilio SOC 2 Report', vendor: 'Twilio', type: 'SOC Report', status: 'Missing', expires: '—' },
   { name: 'Snowflake DPA', vendor: 'Snowflake', type: 'DPA', status: 'Expiring', expires: '2025-07-01' },
+
 ];
+
+export const SAMPLE_EVIDENCE: EvidenceItem[] = SAMPLE_EVIDENCE_BASE.map((item): EvidenceItem => ({
+  ...item,
+  trace: sampleEvidenceTrace(item),
+}));
 
 export const SAMPLE_CLOUD_RISK: CloudRisk[] = [
   { label: 'AWS', pct: 65, spend: '€420K' },

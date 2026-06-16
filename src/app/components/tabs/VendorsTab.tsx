@@ -9,6 +9,7 @@ import {
   KeyRound,
   ShieldAlert,
 } from 'lucide-react';
+import { Fragment } from 'react';
 import { Badge } from '../Badge';
 import { theme } from '../../../styles/theme';
 import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
@@ -280,16 +281,16 @@ export function VendorsTab() {
             <tbody>
               {analysisResult.vendors.map((vendor, index) => {
                 const exposure = vendor.exposure ?? (vendor.country === 'US' ? 'US' : 'Global');
+                const hasTrace = vendor.trace && vendor.trace.length > 0;
                 const isLast = index === analysisResult.vendors.length - 1;
 
                 return (
-                  <>
+                  <Fragment key={`${vendor.name}-${vendor.service}-${index}`}>
                     <tr
-                      key={vendor.name}
                       className="transition-colors"
                       style={{
                         borderBottom:
-                          isLast && (!vendor.trace || vendor.trace.length === 0)
+                          isLast && !hasTrace
                             ? 'none'
                             : `1px solid ${theme.neutral.background}`,
                       }}
@@ -380,7 +381,7 @@ export function VendorsTab() {
                     </tr>
 
                     <VendorTraceRow vendor={vendor} />
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
