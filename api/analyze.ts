@@ -5,6 +5,12 @@ import formidable, {
 } from 'formidable';
 import fs from 'node:fs/promises';
 import JSZip from 'jszip';
+import {
+  getDocumentIcon,
+  getExtension,
+  isHiddenOrSystemFile,
+  isSupportedExtension,
+} from '../src/analysis/server/fileRules';
 
 export const config = {
   api: {
@@ -21,18 +27,6 @@ type ParsedDocument = {
 
 type Severity = 'High' | 'Medium' | 'Low';
 type Criticality = 'Critical' | 'Important' | 'Standard' | 'Low';
-
-const SUPPORTED_EXTENSIONS = [
-  'pdf',
-  'docx',
-  'xlsx',
-  'xls',
-  'csv',
-  'zip',
-  'txt',
-  'md',
-  'json',
-];
 
 const KNOWN_VENDORS = [
   {
@@ -106,23 +100,6 @@ const KNOWN_VENDORS = [
     exposure: 'US',
   },
 ];
-
-function getExtension(fileName: string) {
-  return fileName.split('.').pop()?.toLowerCase() ?? '';
-}
-
-function isSupportedExtension(extension: string) {
-  return SUPPORTED_EXTENSIONS.includes(extension.toLowerCase());
-}
-
-function isHiddenOrSystemFile(fileName: string) {
-  return (
-    fileName.startsWith('__MACOSX/') ||
-    fileName.includes('/.') ||
-    fileName.startsWith('.') ||
-    fileName.endsWith('.DS_Store')
-  );
-}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
@@ -241,14 +218,6 @@ async function extractText(
     text: text.trim(),
     size: buffer.length,
   };
-}
-
-function getDocumentIcon(extension: string) {
-  if (extension === 'csv' || extension === 'xlsx' || extension === 'xls') return '📊';
-  if (extension === 'pdf') return '📄';
-  if (extension === 'docx') return '📝';
-
-  return '📎';
 }
 
 function getCombinedText(documents: ParsedDocument[]) {
