@@ -474,12 +474,88 @@ function detectGaps(text: string, vendors: ReturnType<typeof detectVendors>, evi
   return gaps;
 }
 
+function createId(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function buildExecutiveSummary(args: {
+  documents: ParsedDocument[];
+  vendors: ReturnType<typeof detectVendors>;
+  gaps: ReturnType<typeof detectGaps>;
+  evidence: ReturnType<typeof detectEvidence>;
+  industry: string;
+}) {
+  const highGaps = args.gaps.filter((gap) => gap.severity === 'High');
+  const missingEvidence = args.evidence.filter((item) => item.status === 'Missing');
+
+  return {
+    title: `${args.industry} vendor risk executive summary`,
+    narrative: `Guara analysed ${args.documents.length} uploaded documents covering ${args.vendors.length} detected vendors. ${highGaps.length} high-priority findings and ${missingEvidence.length} missing evidence items were identified. The main priority is to close critical supplier evidence gaps and validate remediation ownership.`,
+    keyPoints: [
+      `${args.vendors.length} vendors detected across the uploaded package.`,
+      `${highGaps.length} high-severity findings require priority review.`,
+      `${missingEvidence.length} evidence items are missing or incomplete.`,
+    ],
+    materialRisks: args.gaps.slice(0, 5).map((gap) => gap.title),
+    recommendedFocus: Array.from(new Set(args.gaps.map((gap) => gap.rec))).slice(0, 5),
+  };
+}
+
+function buildRemediationPlans(gaps: ReturnType<typeof detectGaps>) {
+  return gaps.map((gap) => ({
+    id: `remediation-${createId(`${gap.title}-${gap.vendor}`)}`,
+    findingTitle: gap.title,
+    vendor: gap.vendor,
+    category: gap.category,
+    priority: gap.severity,
+    owner:
+      gap.category === 'DORA'
+        ? 'Procurement'
+        : gap.category === 'Data Residency'
+          ? 'Data Protection'
+          : gap.category === 'AI Act'
+            ? 'Compliance'
+            : gap.category === 'Operational Resilience'
+              ? 'IT'
+              : 'Risk',
+    timeline: gap.severity === 'High' ? '30 days' : gap.severity === 'Medium' ? '60 days' : '90 days',
+    status: 'Open',
+    objective: gap.rec,
+    actions: [
+      'Assign accountable business and control owner.',
+      'Collect or validate supporting evidence.',
+      'Update vendor risk register and control documentation.',
+      'Confirm completion through management review.',
+    ],
+    successCriteria: [
+      'Evidence is attached and reviewable.',
+      'Risk owner has approved the remediation outcome.',
+      'Finding status can be re-assessed with source traceability.',
+    ],
+    relatedArticle: gap.article,
+    trace: 'trace' in gap ? gap.trace ?? [] : [],
+  }));
+}
+
 function buildAnalysisResult(documents: ParsedDocument[]) {
   const text = getCombinedText(documents);
   const industry = detectIndustry(text);
   const vendors = detectVendors(text);
   const evidence = detectEvidence(documents, text);
   const gaps = detectGaps(text, vendors, evidence);
+
+  const executiveSummary = buildExecutiveSummary({
+    documents,
+    vendors,
+    gaps,
+    evidence,
+    industry,
+  });
+
+  const remediationPlans = buildRemediationPlans(gaps);
 
   const highFindingCount = gaps.filter((gap) => gap.severity === 'High').length;
   const missingEvidenceCount = evidence.filter((item) => item.status === 'Missing').length;
@@ -550,8 +626,10 @@ function buildAnalysisResult(documents: ParsedDocument[]) {
             : industry === 'Payments'
               ? 'Uploaded Payments Risk Package'
               : 'Uploaded Vendor Package',
+      executiveSummary,
       industry,
       documents: documents.length,
+      remediationPlans,
       vendors: vendors.length,
       criticalVendors,
       readinessScore,
