@@ -10,7 +10,7 @@ import { ConcentrationTab } from '../components/tabs/ConcentrationTab';
 import { RemediationTab } from '../components/tabs/RemediationTab';
 import { AuditTab } from '../components/tabs/AuditTab';
 import { theme } from '../../styles/theme';
-import { downloadRiskReportPdf } from '../../pdf/downloadRiskReportPdf';
+import { downloadRiskReportPdf } from '../../reports/downloadRiskReportPdf';
 import type { Page } from '../contexts/AppContext';
 
 type ConversionIntent = 'save' | 'upload';
