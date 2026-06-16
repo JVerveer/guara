@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
@@ -13,6 +14,8 @@ import { theme } from '../../../styles/theme';
 import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
 import { severityColor } from '../../../analysis/selectors';
 import type { RemediationPlan } from '../../../analysis/types';
+
+type RemediationFilter = 'all' | 'high' | 'open' | 'in-progress' | 'completed';
 
 function ownerStyle(owner: RemediationPlan['owner']): React.CSSProperties {
   if (owner === 'Procurement') {
@@ -309,11 +312,33 @@ export function RemediationTab() {
   const analysisResult = useAnalysisResult();
   const { scenario } = analysisResult;
   const plans = analysisResult.remediationPlans ?? [];
+  const [activeFilter, setActiveFilter] = useState<RemediationFilter>('all');
 
   const highPriority = plans.filter((plan) => plan.priority === 'High').length;
   const open = plans.filter((plan) => plan.status === 'Open').length;
   const inProgress = plans.filter((plan) => plan.status === 'In Progress').length;
   const completed = plans.filter((plan) => plan.status === 'Completed').length;
+
+  const filteredPlans = useMemo(() => {
+    if (activeFilter === 'high') return plans.filter((plan) => plan.priority === 'High');
+    if (activeFilter === 'open') return plans.filter((plan) => plan.status === 'Open');
+    if (activeFilter === 'in-progress') return plans.filter((plan) => plan.status === 'In Progress');
+    if (activeFilter === 'completed') return plans.filter((plan) => plan.status === 'Completed');
+
+    return plans;
+  }, [activeFilter, plans]);
+
+  const filterButtons: Array<{
+    id: RemediationFilter;
+    label: string;
+    count: number;
+  }> = [
+    { id: 'all', label: 'All', count: plans.length },
+    { id: 'high', label: 'High priority', count: highPriority },
+    { id: 'open', label: 'Open', count: open },
+    { id: 'in-progress', label: 'In progress', count: inProgress },
+    { id: 'completed', label: 'Completed', count: completed },
+  ];
 
   const summaryCards = [
     {
@@ -419,6 +444,30 @@ export function RemediationTab() {
         </div>
       </div>
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        {filterButtons.map((filter) => {
+          const active = activeFilter === filter.id;
+
+          return (
+            <button
+              key={filter.id}
+              type="button"
+              onClick={() => setActiveFilter(filter.id)}
+              className="rounded-full border px-3 py-1 transition-colors"
+              style={{
+                fontSize: '11px',
+                fontWeight: 800,
+                backgroundColor: active ? theme.brand.primaryLight : theme.neutral.surface,
+                borderColor: active ? theme.brand.primaryBorder : theme.neutral.border,
+                color: active ? theme.brand.primary : theme.neutral.textSecondary,
+              }}
+            >
+              {filter.label} · {filter.count}
+            </button>
+          );
+        })}
+      </div>
+
       {plans.length === 0 ? (
         <div
           className="rounded-2xl border p-6 text-center"
@@ -437,9 +486,27 @@ export function RemediationTab() {
             Upload or analyse a package with findings to generate action plans.
           </p>
         </div>
+      ) : filteredPlans.length === 0 ? (
+        <div
+          className="rounded-2xl border p-6 text-center"
+          style={{
+            backgroundColor: theme.neutral.surface,
+            borderColor: theme.neutral.border,
+          }}
+        >
+          <ClipboardCheck className="mx-auto h-8 w-8" style={{ color: theme.brand.primary }} />
+
+          <p style={{ fontSize: '14px', fontWeight: 800, color: theme.neutral.text }} className="mt-3">
+            No plans match this filter
+          </p>
+
+          <p style={{ fontSize: '12px', color: theme.neutral.textSecondary }} className="mt-1">
+            Select another filter to view available remediation actions.
+          </p>
+        </div>
       ) : (
         <div className="space-y-2.5">
-          {plans.map((plan) => (
+          {filteredPlans.map((plan) => (
             <RemediationPlanCard key={plan.id} plan={plan} />
           ))}
         </div>

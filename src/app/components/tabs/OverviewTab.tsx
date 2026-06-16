@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Building2,
+  CheckCircle2,
   Cloud,
   Database,
   Globe2,
@@ -28,6 +29,10 @@ export function OverviewTab() {
 
   const sovereigntyScore = getSovereigntyScore(analysisResult);
   const highGaps = getHighSeverityGaps(analysisResult);
+  const remediationPlans = analysisResult.remediationPlans ?? [];
+
+  const highPriorityPlans = remediationPlans.filter((plan) => plan.priority === 'High').length;
+  const openPlans = remediationPlans.filter((plan) => plan.status === 'Open').length;
 
   const kpis = [
     {
@@ -52,34 +57,47 @@ export function OverviewTab() {
       sub: analysisResult.source === 'sample' ? 'Sample package' : 'Uploaded package',
     },
     {
-      label: 'Concentration',
-      value: scenario.readinessScore < 65 ? 'Severe' : 'High',
-      sub: 'Critical dependency',
+      label: 'Remediation',
+      value: String(remediationPlans.length),
+      sub: `${highPriorityPlans} high priority`,
     },
     {
-      label: 'Priority Risks',
-      value: String(analysisResult.boardRisks.length),
-      sub: 'Board-level items',
+      label: 'Open Actions',
+      value: String(openPlans),
+      sub: 'Management follow-up',
+      warning: openPlans > 0,
     },
   ];
 
   return (
     <div className="space-y-5 px-4 py-5 sm:px-6">
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-        {kpis.map(({ label, value, sub, highlight }) => (
+        {kpis.map(({ label, value, sub, highlight, warning }) => (
           <div
             key={label}
             className="rounded-xl border p-3 shadow-sm"
             style={{
-              backgroundColor: highlight ? theme.brand.primaryLight : theme.neutral.surface,
-              borderColor: highlight ? theme.brand.primaryBorder : theme.neutral.border,
+              backgroundColor: warning
+                ? theme.status.warningLight
+                : highlight
+                  ? theme.brand.primaryLight
+                  : theme.neutral.surface,
+              borderColor: warning
+                ? theme.status.warning
+                : highlight
+                  ? theme.brand.primaryBorder
+                  : theme.neutral.border,
             }}
           >
             <p
               style={{
                 fontSize: 'clamp(14px, 2vw, 20px)',
                 fontWeight: 800,
-                color: highlight ? theme.brand.primary : theme.neutral.text,
+                color: warning
+                  ? theme.status.warning
+                  : highlight
+                    ? theme.brand.primary
+                    : theme.neutral.text,
               }}
             >
               {value}
@@ -133,12 +151,13 @@ export function OverviewTab() {
 
         <div className="grid gap-2 sm:grid-cols-2">
           {[
-            `Analysed ${scenario.documents} documents for a ${scenario.industry.toLowerCase()} scenario covering ${scenario.vendors} vendors.`,
+            analysisResult.executiveSummary?.narrative ??
+              `Analysed ${scenario.documents} documents for a ${scenario.industry.toLowerCase()} scenario covering ${scenario.vendors} vendors.`,
             `${scenario.criticalVendors} critical vendors identified across technology, data, infrastructure, and operational services.`,
+            `${remediationPlans.length} remediation plans generated, including ${highPriorityPlans} high-priority actions.`,
             scenario.headlineFinding,
             scenario.mainRisk,
             `Digital sovereignty exposure: ${scenario.regionExposure}.`,
-            `Audit readiness score: ${scenario.readinessScore}/100 — priority remediation recommended before formal review.`,
           ].map((line) => (
             <div key={line} className="flex items-start gap-1.5">
               <span className="mt-0.5 flex-shrink-0" style={{ color: theme.brand.primary }}>
@@ -158,6 +177,98 @@ export function OverviewTab() {
           ))}
         </div>
       </div>
+
+      {remediationPlans.length > 0 && (
+        <div
+          className="rounded-2xl border p-4 shadow-sm"
+          style={{
+            backgroundColor: theme.neutral.surface,
+            borderColor: theme.neutral.border,
+          }}
+        >
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div
+                className="flex h-9 w-9 items-center justify-center rounded-xl"
+                style={{ backgroundColor: theme.brand.primaryLight }}
+              >
+                <CheckCircle2 className="h-4.5 w-4.5" style={{ color: theme.brand.primary }} />
+              </div>
+
+              <div>
+                <p
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    color: theme.neutral.text,
+                  }}
+                >
+                  Remediation Priorities
+                </p>
+
+                <p
+                  style={{
+                    fontSize: '11px',
+                    color: theme.neutral.textSecondary,
+                  }}
+                >
+                  Highest priority management actions generated from findings
+                </p>
+              </div>
+            </div>
+
+            <Badge level={highPriorityPlans > 0 ? 'High' : 'Low'} />
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {remediationPlans.slice(0, 4).map((plan) => (
+              <div
+                key={plan.id}
+                className="rounded-xl border p-3"
+                style={{
+                  backgroundColor: theme.neutral.background,
+                  borderColor: theme.neutral.border,
+                }}
+              >
+                <div className="mb-1 flex items-start justify-between gap-2">
+                  <p
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      color: theme.neutral.text,
+                    }}
+                  >
+                    {plan.findingTitle}
+                  </p>
+
+                  <Badge level={plan.priority} />
+                </div>
+
+                <p
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: theme.brand.primary,
+                  }}
+                >
+                  {plan.owner} · {plan.timeline} · {plan.status}
+                </p>
+
+                <p
+                  style={{
+                    fontSize: '11px',
+                    lineHeight: 1.45,
+                    color: theme.neutral.textSecondary,
+                  }}
+                  className="mt-1"
+                >
+                  {plan.actions[0] ?? plan.objective}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <div
