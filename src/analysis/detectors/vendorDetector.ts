@@ -250,6 +250,7 @@ export function detectVendors(documents: ParsedDocument[]): Vendor[] {
               ? 'High'
               : 'Medium',
         dataType: vendor.dataType,
+        trace: [],
       };
     });
 }
