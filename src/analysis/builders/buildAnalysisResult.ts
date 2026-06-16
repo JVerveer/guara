@@ -268,20 +268,31 @@ function mapRiskFindingToGap(risk: RiskFinding): Finding {
   };
 }
 
+function hasTrace(finding: Finding) {
+  return Boolean(finding.trace && finding.trace.length > 0);
+}
+
 function mergeFindings(baseFindings: Finding[], intelligenceRisks: RiskFinding[]): Finding[] {
   const findingsByKey = new Map<string, Finding>();
 
-  baseFindings.forEach((finding) => {
-    findingsByKey.set(`${finding.title}-${finding.vendor}-${finding.category}`, finding);
-  });
-
-  intelligenceRisks.forEach((risk) => {
-    const finding = mapRiskFindingToGap(risk);
+  const addOrUpgrade = (finding: Finding) => {
     const key = `${finding.title}-${finding.vendor}-${finding.category}`;
+    const existing = findingsByKey.get(key);
 
-    if (!findingsByKey.has(key)) {
+    if (!existing) {
+      findingsByKey.set(key, finding);
+      return;
+    }
+
+    if (!hasTrace(existing) && hasTrace(finding)) {
       findingsByKey.set(key, finding);
     }
+  };
+
+  baseFindings.forEach(addOrUpgrade);
+
+  intelligenceRisks.forEach((risk) => {
+    addOrUpgrade(mapRiskFindingToGap(risk));
   });
 
   return Array.from(findingsByKey.values());
@@ -414,7 +425,7 @@ export function buildAnalysisResultFromDocuments(documents: ParsedDocument[]): A
 
   const legacyGaps = detectGaps(documents, vendors);
   const factBasedGaps = detectGapsFromFacts(facts);
-  const gaps = mergeFindings([...legacyGaps, ...factBasedGaps], intelligenceRisks);
+  const gaps = mergeFindings([...factBasedGaps, ...legacyGaps], intelligenceRisks);
 
   const cloudRisk = buildCloudRisk(vendors);
   const dependencies = buildDependencies(vendors);
