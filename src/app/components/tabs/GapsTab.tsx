@@ -9,11 +9,14 @@ import {
   Globe2,
   ShieldAlert,
 } from 'lucide-react';
+import { useEffect } from 'react';
 import { Badge } from '../Badge';
 import { theme } from '../../../styles/theme';
 import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
 import { getGapSummary, severityColor } from '../../../analysis/selectors';
 import type { Finding, FindingCategory } from '../../../analysis/types';
+
+const SHOW_MISSING_TRACE_DEBUG = true;
 
 function CategoryIcon({ category }: { category: FindingCategory }) {
   const iconStyle = { color: theme.brand.primary };
@@ -59,8 +62,47 @@ function categoryStyle(category: FindingCategory): React.CSSProperties {
 }
 
 function FindingTraceBlock({ finding }: { finding: Finding }) {
-  if (!finding.trace || finding.trace.length === 0) {
-    return null;
+  const trace = finding.trace ?? [];
+
+  if (trace.length === 0) {
+    if (!SHOW_MISSING_TRACE_DEBUG) {
+      return null;
+    }
+
+    return (
+      <div
+        className="mt-3 rounded-xl border p-3"
+        style={{
+          backgroundColor: theme.neutral.background,
+          borderColor: theme.neutral.border,
+        }}
+      >
+        <div className="mb-1 flex items-center gap-1.5">
+          <FileSearch className="h-3.5 w-3.5" style={{ color: theme.neutral.textMuted }} />
+
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 800,
+              color: theme.neutral.text,
+            }}
+          >
+            Source trace
+          </span>
+        </div>
+
+        <p
+          style={{
+            fontSize: '11px',
+            lineHeight: 1.5,
+            color: theme.neutral.textMuted,
+          }}
+        >
+          No source trace attached yet. This means the finding reached the UI, but the analysis
+          result contains <code>trace: []</code> for this finding.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -86,9 +128,9 @@ function FindingTraceBlock({ finding }: { finding: Finding }) {
       </div>
 
       <div className="space-y-2">
-        {finding.trace.slice(0, 3).map((trace, index) => (
+        {trace.slice(0, 3).map((item, index) => (
           <div
-            key={`${trace.document}-${trace.chunkId ?? index}`}
+            key={`${item.document}-${item.chunkId ?? index}`}
             className="rounded-lg border p-2"
             style={{
               backgroundColor: theme.neutral.surface,
@@ -102,9 +144,9 @@ function FindingTraceBlock({ finding }: { finding: Finding }) {
                 color: theme.brand.primary,
               }}
             >
-              {trace.document}
-              {trace.page ? ` · page ${trace.page}` : ''} ·{' '}
-              {Math.round(trace.confidence * 100)}% confidence
+              {item.document}
+              {item.page ? ` · page ${item.page}` : ''} ·{' '}
+              {Math.round(item.confidence * 100)}% confidence
             </p>
 
             <p
@@ -115,7 +157,7 @@ function FindingTraceBlock({ finding }: { finding: Finding }) {
                 color: theme.neutral.textSecondary,
               }}
             >
-              “{trace.excerpt}”
+              “{item.excerpt}”
             </p>
           </div>
         ))}
@@ -128,6 +170,19 @@ export function GapsTab() {
   const analysisResult = useAnalysisResult();
   const { scenario } = analysisResult;
   const summary = getGapSummary(analysisResult);
+
+  useEffect(() => {
+    console.log(
+      'Guara gap trace debug',
+      analysisResult.gaps.map((gap) => ({
+        title: gap.title,
+        vendor: gap.vendor,
+        category: gap.category,
+        traceCount: gap.trace?.length ?? 0,
+        trace: gap.trace ?? [],
+      }))
+    );
+  }, [analysisResult.gaps]);
 
   const summaryCards = [
     {
