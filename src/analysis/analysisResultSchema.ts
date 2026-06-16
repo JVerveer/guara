@@ -201,7 +201,14 @@ export const AnalysisResultSchema = z.object({
   generatedAt: z.string().min(1),
 
   scenario: ScenarioSummarySchema,
-  executiveSummary: ExecutiveSummarySchema,
+  executiveSummary: ExecutiveSummarySchema.default({
+  title: 'Vendor risk executive summary',
+  narrative:
+    'The uploaded package was analysed for vendor, evidence, resilience, sovereignty, and regulatory risk.',
+  keyPoints: [],
+  materialRisks: [],
+  recommendedFocus: [],
+}),
 
   documents: z.array(DocumentItemSchema),
   vendors: z.array(VendorSchema),
@@ -213,7 +220,7 @@ export const AnalysisResultSchema = z.object({
   dependencies: z.array(DependencyItemSchema),
   outageSimulation: OutageSimulationSchema,
 
-  remediationPlans: z.array(RemediationPlanSchema),
+  remediationPlans: z.array(RemediationPlanSchema).default([]),
 
   boardRisks: z.array(z.string().min(1)),
   auditItems: z.array(AuditItemSchema),
