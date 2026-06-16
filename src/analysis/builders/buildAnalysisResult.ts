@@ -9,7 +9,8 @@ import type {
 import type { ParsedDocument } from '../ingestion/types';
 
 import { detectEvidence as detectEvidenceItems } from '../detectors/evidenceDetector';
-import { detectGaps } from '../detectors/gapDetector';
+import { detectGaps } from '../detectors/gapDetectorWithFacts';
+import { detectGapsFromFacts } from '../detectors/gapDetectorWithFacts';
 import { detectVendors } from '../detectors/vendorDetector';
 import {
   buildCloudRisk,
@@ -21,6 +22,9 @@ import { classifyDocuments } from '../intelligence/classifyDocuments';
 import { detectEvidence as detectEvidenceCoverage } from '../intelligence/detectEvidence';
 import { detectRisks } from '../intelligence/detectRisks';
 import { extractVendors as extractVendorDetections } from '../intelligence/extractVendors';
+
+import { buildFacts } from '../facts/buildFacts';
+
 import type {
   ClassifiedDocument,
   EvidenceCoverage,
@@ -29,7 +33,10 @@ import type {
 } from '../intelligence/types';
 
 function inferIndustry(documents: ParsedDocument[]) {
-  const text = documents.map((doc) => `${doc.fileName} ${doc.text}`).join('\n').toLowerCase();
+  const text = documents
+    .map((doc) => `${doc.fileName} ${doc.text}`)
+    .join('\n')
+    .toLowerCase();
 
   if (text.includes('insurance') || text.includes('claims') || text.includes('policyholder')) {
     return 'Insurance';
@@ -91,7 +98,10 @@ function calculateReadinessScore(args: {
 
   return Math.max(
     35,
-    Math.min(94, base - highFindingPenalty - missingEvidencePenalty - lowEvidencePenalty + vendorBonus)
+    Math.min(
+      94,
+      base - highFindingPenalty - missingEvidencePenalty - lowEvidencePenalty + vendorBonus
+    )
   );
 }
 
@@ -111,10 +121,7 @@ function buildSovereigntyScores(args: {
 }
 
 function buildBoardRisks(mainRisk: string, findings: { title: string }[]) {
-  return [
-    mainRisk,
-    ...findings.slice(0, 3).map((finding) => finding.title),
-  ];
+  return [mainRisk, ...findings.slice(0, 3).map((finding) => finding.title)];
 }
 
 function buildAuditItems() {
@@ -257,6 +264,7 @@ function mapRiskFindingToGap(risk: RiskFinding): Finding {
               ? 'Residency'
               : 'Resilience',
     rec: risk.recommendation,
+    trace: [],
   };
 }
 
@@ -385,9 +393,9 @@ function getDocumentIcon(extension: string) {
   return '📎';
 }
 
-export function buildAnalysisResultFromDocuments(
-  documents: ParsedDocument[]
-): AnalysisResult {
+export function buildAnalysisResultFromDocuments(documents: ParsedDocument[]): AnalysisResult {
+  const facts = buildFacts(documents);
+
   const classifiedDocuments = classifyDocuments(documents);
   const vendorDetections = extractVendorDetections(documents);
   const evidenceCoverage = detectEvidenceCoverage(classifiedDocuments);
@@ -404,8 +412,9 @@ export function buildAnalysisResultFromDocuments(
     evidenceCoverage
   );
 
-  const detectedGaps = detectGaps(documents, vendors);
-  const gaps = mergeFindings(detectedGaps, intelligenceRisks);
+  const legacyGaps = detectGaps(documents, vendors);
+  const factBasedGaps = detectGapsFromFacts(facts);
+  const gaps = mergeFindings([...legacyGaps, ...factBasedGaps], intelligenceRisks);
 
   const cloudRisk = buildCloudRisk(vendors);
   const dependencies = buildDependencies(vendors);

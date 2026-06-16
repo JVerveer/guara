@@ -29,6 +29,14 @@ export const FindingCategorySchema = z.enum([
   'Operational Resilience',
 ]);
 
+export const FindingTraceSchema = z.object({
+  document: z.string().min(1),
+  excerpt: z.string().min(1),
+  page: z.number().int().positive().optional(),
+  chunkId: z.string().optional(),
+  confidence: z.number().min(0).max(1),
+});
+
 export const ScenarioSummarySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -97,6 +105,7 @@ export const FindingSchema = z.object({
   rec: z.string().min(1),
   article: z.string().min(1),
   category: FindingCategorySchema,
+  trace: z.array(FindingTraceSchema).default([]),
 });
 
 export const EvidenceItemSchema = z.object({
@@ -169,7 +178,7 @@ export type Criticality = z.infer<typeof CriticalitySchema>;
 export type EvidenceStatus = z.infer<typeof EvidenceStatusSchema>;
 export type ExposureRegion = z.infer<typeof ExposureRegionSchema>;
 export type FindingCategory = z.infer<typeof FindingCategorySchema>;
-
+export type FindingTrace = z.infer<typeof FindingTraceSchema>;
 export type ScenarioSummary = z.infer<typeof ScenarioSummarySchema>;
 export type DocumentItem = z.infer<typeof DocumentItemSchema>;
 export type Vendor = z.infer<typeof VendorSchema>;
