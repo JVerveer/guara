@@ -7,6 +7,7 @@ import { VendorsTab } from '../components/tabs/VendorsTab';
 import { GapsTab } from '../components/tabs/GapsTab';
 import { EvidenceTab } from '../components/tabs/EvidenceTab';
 import { ConcentrationTab } from '../components/tabs/ConcentrationTab';
+import { RemediationTab } from '../components/tabs/RemediationTab';
 import { AuditTab } from '../components/tabs/AuditTab';
 import { theme } from '../../styles/theme';
 import type { Page } from '../contexts/AppContext';
@@ -19,6 +20,7 @@ const TAB_CONTENT: Partial<Record<Page, React.ComponentType>> = {
   gaps: GapsTab,
   evidence: EvidenceTab,
   concentration: ConcentrationTab,
+  remediation: RemediationTab,
   audit: AuditTab,
 };
 

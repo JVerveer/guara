@@ -8,7 +8,15 @@ import { FAQPage } from './screens/FAQPage';
 import { ProcessingScreen } from './screens/ProcessingScreen';
 import { ResultsDashboard } from './screens/ResultsDashboard';
 
-const RESULT_PAGES = ['overview', 'vendors', 'gaps', 'evidence', 'concentration', 'audit'];
+const RESULT_PAGES = [
+  'overview',
+  'vendors',
+  'gaps',
+  'evidence',
+  'concentration',
+  'remediation',
+  'audit',
+];
 
 function AppShell() {
   const { page } = useApp();

@@ -9,6 +9,7 @@ import {
   TrendingUp,
   Package,
   LayoutDashboard,
+  ClipboardCheck,
   RotateCcw,
   X,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ const RESULTS_ITEMS: NavItem[] = [
   { id: 'gaps', label: 'Findings', icon: AlertTriangle },
   { id: 'evidence', label: 'Evidence Coverage', icon: FileText },
   { id: 'concentration', label: 'Dependencies', icon: TrendingUp },
+  { id: 'remediation', label: 'Remediation', icon: ClipboardCheck },
   { id: 'audit', label: 'Board Package', icon: Package },
 ];
 

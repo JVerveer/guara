@@ -24,6 +24,7 @@ export type Page =
   | 'gaps'
   | 'evidence'
   | 'concentration'
+  | 'remediation'
   | 'audit';
 
 interface AppContextValue {
