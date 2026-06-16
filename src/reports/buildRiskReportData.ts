@@ -1,4 +1,4 @@
-import type { AnalysisResult, FindingTrace } from '../analysis/types';
+import type { AnalysisResult, FindingTrace, RemediationPlan } from '../analysis/types';
 
 function traceCount(items: Array<{ trace?: FindingTrace[] }>) {
   return items.reduce((sum, item) => sum + (item.trace?.length ?? 0), 0);
@@ -6,6 +6,22 @@ function traceCount(items: Array<{ trace?: FindingTrace[] }>) {
 
 function topTrace(trace?: FindingTrace[]) {
   return trace?.[0];
+}
+
+function remediationForFinding(
+  remediationPlans: RemediationPlan[],
+  finding: {
+    title: string;
+    vendor: string;
+    category: string;
+  }
+) {
+  return remediationPlans.find(
+    (plan) =>
+      plan.findingTitle === finding.title &&
+      plan.vendor === finding.vendor &&
+      plan.category === finding.category
+  );
 }
 
 export function buildRiskReportData(analysisResult: AnalysisResult) {
@@ -29,14 +45,23 @@ export function buildRiskReportData(analysisResult: AnalysisResult) {
 
   const totalAuditPages = analysisResult.auditItems.reduce((sum, item) => sum + item.pages, 0);
 
+  const remediationPlans = analysisResult.remediationPlans ?? [];
+
   const tracedFindings = analysisResult.gaps.filter((finding) => (finding.trace?.length ?? 0) > 0);
   const tracedVendors = analysisResult.vendors.filter((vendor) => (vendor.trace?.length ?? 0) > 0);
   const tracedEvidence = analysisResult.evidence.filter((item) => (item.trace?.length ?? 0) > 0);
+
+  const openRemediationPlans = remediationPlans.filter((plan) => plan.status === 'Open');
+  const inProgressRemediationPlans = remediationPlans.filter((plan) => plan.status === 'In Progress');
+  const blockedRemediationPlans = remediationPlans.filter((plan) => plan.status === 'Blocked');
+  const completedRemediationPlans = remediationPlans.filter((plan) => plan.status === 'Completed');
+  const highPriorityRemediationPlans = remediationPlans.filter((plan) => plan.priority === 'High');
 
   return {
     generatedAt: analysisResult.generatedAt,
     source: analysisResult.source,
     scenario: analysisResult.scenario,
+    executiveSummary: analysisResult.executiveSummary,
     documents: analysisResult.documents,
 
     traceability: {
@@ -70,6 +95,7 @@ export function buildRiskReportData(analysisResult: AnalysisResult) {
       evidenceBackedFindings: analysisResult.gaps.map((finding) => ({
         ...finding,
         primaryTrace: topTrace(finding.trace),
+        remediationPlan: remediationForFinding(remediationPlans, finding),
       })),
     },
 
@@ -80,6 +106,20 @@ export function buildRiskReportData(analysisResult: AnalysisResult) {
       expiring: evidenceExpiring,
       coverage: evidenceCoverage,
       traced: tracedEvidence,
+    },
+
+    remediation: {
+      plans: remediationPlans,
+      total: remediationPlans.length,
+      open: openRemediationPlans.length,
+      inProgress: inProgressRemediationPlans.length,
+      blocked: blockedRemediationPlans.length,
+      completed: completedRemediationPlans.length,
+      highPriority: highPriorityRemediationPlans.length,
+      byFinding: analysisResult.gaps.map((finding) => ({
+        finding,
+        plan: remediationForFinding(remediationPlans, finding),
+      })),
     },
 
     concentration: {

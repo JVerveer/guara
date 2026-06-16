@@ -16,6 +16,10 @@ export {
   OutageSimulationSchema,
   AuditItemSchema,
   AnalysisResultSchema,
+  RemediationOwnerSchema,
+  RemediationStatusSchema,
+  ExecutiveSummarySchema,
+  RemediationPlanSchema,
   parseAnalysisResult,
   safeParseAnalysisResult,
 } from './analysisResultSchema';
@@ -38,4 +42,8 @@ export type {
   OutageSimulation,
   AuditItem,
   AnalysisResult,
+  RemediationOwner,
+  RemediationStatus,
+  ExecutiveSummary,
+  RemediationPlan,
 } from './analysisResultSchema';

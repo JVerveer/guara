@@ -29,12 +29,54 @@ export const FindingCategorySchema = z.enum([
   'Operational Resilience',
 ]);
 
+export const RemediationOwnerSchema = z.enum([
+  'Procurement',
+  'Risk',
+  'Compliance',
+  'Security',
+  'IT',
+  'Legal',
+  'Data Protection',
+  'Business Owner',
+]);
+
+export const RemediationStatusSchema = z.enum([
+  'Open',
+  'In Progress',
+  'Blocked',
+  'Completed',
+]);
+
 export const FindingTraceSchema = z.object({
   document: z.string().min(1),
   excerpt: z.string().min(1),
   page: z.number().int().positive().optional(),
   chunkId: z.string().optional(),
   confidence: z.number().min(0).max(1),
+});
+
+export const ExecutiveSummarySchema = z.object({
+  title: z.string().min(1),
+  narrative: z.string().min(1),
+  keyPoints: z.array(z.string().min(1)),
+  materialRisks: z.array(z.string().min(1)),
+  recommendedFocus: z.array(z.string().min(1)),
+});
+
+export const RemediationPlanSchema = z.object({
+  id: z.string().min(1),
+  findingTitle: z.string().min(1),
+  vendor: z.string().min(1),
+  category: FindingCategorySchema,
+  priority: SeveritySchema,
+  owner: RemediationOwnerSchema,
+  timeline: z.string().min(1),
+  status: RemediationStatusSchema.default('Open'),
+  objective: z.string().min(1),
+  actions: z.array(z.string().min(1)),
+  successCriteria: z.array(z.string().min(1)),
+  relatedArticle: z.string().min(1),
+  trace: z.array(FindingTraceSchema).default([]),
 });
 
 export const ScenarioSummarySchema = z.object({
@@ -159,6 +201,7 @@ export const AnalysisResultSchema = z.object({
   generatedAt: z.string().min(1),
 
   scenario: ScenarioSummarySchema,
+  executiveSummary: ExecutiveSummarySchema,
 
   documents: z.array(DocumentItemSchema),
   vendors: z.array(VendorSchema),
@@ -170,6 +213,8 @@ export const AnalysisResultSchema = z.object({
   dependencies: z.array(DependencyItemSchema),
   outageSimulation: OutageSimulationSchema,
 
+  remediationPlans: z.array(RemediationPlanSchema),
+
   boardRisks: z.array(z.string().min(1)),
   auditItems: z.array(AuditItemSchema),
   auditRecommendations: z.array(z.string().min(1)),
@@ -180,7 +225,11 @@ export type Criticality = z.infer<typeof CriticalitySchema>;
 export type EvidenceStatus = z.infer<typeof EvidenceStatusSchema>;
 export type ExposureRegion = z.infer<typeof ExposureRegionSchema>;
 export type FindingCategory = z.infer<typeof FindingCategorySchema>;
+export type RemediationOwner = z.infer<typeof RemediationOwnerSchema>;
+export type RemediationStatus = z.infer<typeof RemediationStatusSchema>;
 export type FindingTrace = z.infer<typeof FindingTraceSchema>;
+export type ExecutiveSummary = z.infer<typeof ExecutiveSummarySchema>;
+export type RemediationPlan = z.infer<typeof RemediationPlanSchema>;
 export type ScenarioSummary = z.infer<typeof ScenarioSummarySchema>;
 export type DocumentItem = z.infer<typeof DocumentItemSchema>;
 export type Vendor = z.infer<typeof VendorSchema>;

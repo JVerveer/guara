@@ -7,7 +7,7 @@ import {
 } from '@react-pdf/renderer';
 import { theme } from '../styles/theme';
 import type { RiskReportData } from './buildRiskReportData';
-import type { FindingTrace } from '../analysis/types';
+import type { FindingTrace, RemediationPlan } from '../analysis/types';
 
 const styles = StyleSheet.create({
   page: {
@@ -60,6 +60,12 @@ const styles = StyleSheet.create({
     fontWeight: 800,
     color: theme.neutral.text,
     marginBottom: 8,
+  },
+  smallTitle: {
+    fontSize: 10,
+    fontWeight: 800,
+    color: theme.neutral.text,
+    marginBottom: 4,
   },
   card: {
     border: `1px solid ${theme.neutral.border}`,
@@ -114,6 +120,25 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 3,
   },
+  remediationCard: {
+    marginTop: 8,
+    padding: 9,
+    borderRadius: 8,
+    backgroundColor: theme.brand.primaryLight,
+    border: `1px solid ${theme.brand.primaryBorder}`,
+  },
+  remediationMetaRow: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 5,
+    marginBottom: 5,
+  },
+  remediationMeta: {
+    flex: 1,
+    fontSize: 8,
+    color: theme.neutral.textSecondary,
+  },
   grid: {
     display: 'flex',
     flexDirection: 'row',
@@ -148,6 +173,11 @@ const styles = StyleSheet.create({
   body: {
     fontSize: 10,
     lineHeight: 1.55,
+    color: theme.neutral.textSecondary,
+  },
+  smallBody: {
+    fontSize: 8,
+    lineHeight: 1.45,
     color: theme.neutral.textSecondary,
   },
   strong: {
@@ -341,6 +371,44 @@ function TraceEvidenceBlock({
   );
 }
 
+function RemediationBlock({ plan }: { plan?: RemediationPlan }) {
+  if (!plan) {
+    return null;
+  }
+
+  return (
+    <View style={styles.remediationCard}>
+      <Text style={styles.smallTitle}>Remediation plan</Text>
+
+      <Text style={styles.smallBody}>{plan.objective}</Text>
+
+      <View style={styles.remediationMetaRow}>
+        <Text style={styles.remediationMeta}>Owner: {plan.owner}</Text>
+        <Text style={styles.remediationMeta}>Timeline: {plan.timeline}</Text>
+        <Text style={styles.remediationMeta}>Status: {plan.status}</Text>
+      </View>
+
+      <Text style={styles.traceLabel}>Actions</Text>
+      {plan.actions.slice(0, 4).map((action, index) => (
+        <Text key={`${plan.id}-action-${index}`} style={styles.smallBody}>
+          {index + 1}. {action}
+        </Text>
+      ))}
+
+      {plan.successCriteria.length > 0 && (
+        <View style={{ marginTop: 5 }}>
+          <Text style={styles.traceLabel}>Success criteria</Text>
+          {plan.successCriteria.slice(0, 3).map((criterion, index) => (
+            <Text key={`${plan.id}-success-${index}`} style={styles.smallBody}>
+              • {criterion}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export function RiskReportPdf({ data }: { data: RiskReportData }) {
   const { scenario } = data;
 
@@ -348,15 +416,15 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
     <Document
       title={`Guara Risk Report - ${scenario.name}`}
       author="Guara"
-      subject="Vendor risk, DORA, evidence, concentration, and audit readiness report"
+      subject="Vendor risk, DORA, evidence, concentration, remediation, and audit readiness report"
     >
       <Page size="A4" style={[styles.page, styles.cover]}>
         <Text style={styles.eyebrow}>Guara Risk Intelligence</Text>
         <Text style={styles.coverTitle}>Board & Audit Risk Report</Text>
         <Text style={styles.coverSubtitle}>
           Generated analysis for {scenario.name}. This report summarises vendor dependency,
-          concentration risk, evidence coverage, DORA gaps, digital sovereignty exposure, and
-          audit-ready outputs.
+          concentration risk, evidence coverage, DORA gaps, digital sovereignty exposure,
+          remediation priorities, and audit-ready outputs.
         </Text>
 
         <View style={styles.grid}>
@@ -367,7 +435,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
             <MetricCard label="Vendors" value={scenario.vendors} sub={`${scenario.criticalVendors} critical`} />
           </View>
           <View style={styles.gridItem}>
-            <MetricCard label="Documents" value={scenario.documents} sub="Analysed package" />
+            <MetricCard label="Remediation" value={data.remediation.total} sub={`${data.remediation.highPriority} high priority`} />
           </View>
         </View>
 
@@ -393,9 +461,9 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
 
       <Page size="A4" style={styles.page}>
         <PageTitle
-          eyebrow="Overview"
-          title="Executive summary"
-          subtitle="High-level view of the scenario, core metrics, and board-level risk interpretation."
+          eyebrow="Executive summary"
+          title={data.executiveSummary.title}
+          subtitle="Board-level narrative generated from findings, evidence, vendors, and remediation priorities."
         />
 
         <View style={styles.grid}>
@@ -406,27 +474,33 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
             <MetricCard label="Sovereignty" value={`${data.overview.sovereigntyScore}/100`} sub={scenario.regionExposure} />
           </View>
           <View style={styles.gridItem}>
-            <MetricCard label="Traceable findings" value={data.traceability.findingsWithTrace} sub={`${data.traceability.totalFindingTraces} source links`} />
+            <MetricCard label="High-priority plans" value={data.remediation.highPriority} sub={`${data.remediation.total} total plans`} />
           </View>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>AI Executive Summary</Text>
-          {[
-            `Analysed ${scenario.documents} documents for a ${scenario.industry.toLowerCase()} scenario covering ${scenario.vendors} vendors.`,
-            `${scenario.criticalVendors} critical vendors identified across technology, data, infrastructure, and operational services.`,
-            scenario.headlineFinding,
-            scenario.mainRisk,
-            `Digital sovereignty exposure: ${scenario.regionExposure}.`,
-          ].map((line) => (
-            <Text key={line} style={styles.body}>• {line}</Text>
-          ))}
+          <Text style={styles.sectionTitle}>Executive narrative</Text>
+          <Text style={styles.body}>{data.executiveSummary.narrative}</Text>
         </View>
 
         <View style={styles.warningCard}>
-          <Text style={styles.sectionTitle}>Board-level priority risks</Text>
-          {data.audit.recommendations.map((item, index) => (
-            <Text key={item} style={styles.body}>{index + 1}. {item}</Text>
+          <Text style={styles.sectionTitle}>Material risks</Text>
+          {data.executiveSummary.materialRisks.map((item, index) => (
+            <Text key={`${item}-${index}`} style={styles.body}>• {item}</Text>
+          ))}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Key observations</Text>
+          {data.executiveSummary.keyPoints.map((item, index) => (
+            <Text key={`${item}-${index}`} style={styles.body}>• {item}</Text>
+          ))}
+        </View>
+
+        <View style={styles.successCard}>
+          <Text style={styles.sectionTitle}>Recommended focus</Text>
+          {data.executiveSummary.recommendedFocus.map((item, index) => (
+            <Text key={`${item}-${index}`} style={styles.body}>{index + 1}. {item}</Text>
           ))}
         </View>
 
@@ -490,7 +564,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
           <Text style={styles.body}>{scenario.headlineFinding} {scenario.mainRisk}</Text>
         </View>
 
-        {data.gaps.findings.slice(0, 10).map((finding) => (
+        {data.gaps.evidenceBackedFindings.slice(0, 10).map((finding) => (
           <View key={`${finding.title}-${finding.vendor}-${finding.category}`} style={styles.card}>
             <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
               <Text style={{ fontSize: 11, fontWeight: 800, color: theme.neutral.text }}>{finding.title}</Text>
@@ -505,6 +579,46 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
 
             <Text style={[styles.traceLabel, { marginTop: 8 }]}>Recommended action</Text>
             <Text style={styles.body}>{finding.rec}</Text>
+
+            <RemediationBlock plan={finding.remediationPlan} />
+          </View>
+        ))}
+
+        <Footer data={data} />
+      </Page>
+
+      <Page size="A4" style={styles.page}>
+        <PageTitle
+          eyebrow="Remediation"
+          title="Action plan"
+          subtitle={`${data.remediation.total} remediation plans generated. ${data.remediation.highPriority} are high priority.`}
+        />
+
+        <View style={styles.grid}>
+          <View style={styles.gridItem}>
+            <MetricCard label="Total plans" value={data.remediation.total} sub="Generated from findings" highlight />
+          </View>
+          <View style={styles.gridItem}>
+            <MetricCard label="Open" value={data.remediation.open} sub="Not yet started" />
+          </View>
+          <View style={styles.gridItem}>
+            <MetricCard label="High priority" value={data.remediation.highPriority} sub="Requires urgent action" />
+          </View>
+        </View>
+
+        {data.remediation.plans.slice(0, 8).map((plan) => (
+          <View key={plan.id} style={styles.card}>
+            <View style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+              <Text style={{ fontSize: 11, fontWeight: 800, color: theme.neutral.text }}>{plan.findingTitle}</Text>
+              <SeverityBadge level={plan.priority} />
+            </View>
+
+            <Text style={[styles.td, { marginBottom: 5 }]}>
+              {plan.category} · {plan.vendor} · {plan.relatedArticle}
+            </Text>
+
+            <RemediationBlock plan={plan} />
+            <TraceEvidenceBlock trace={plan.trace} title="Source evidence" limit={1} />
           </View>
         ))}
 
@@ -520,7 +634,7 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
 
         <View style={styles.grid}>
           <View style={styles.gridItem}>
-            <MetricCard label="Coverage" value={`${data.evidence.coverage}%`} sub="Sample assessment" highlight />
+            <MetricCard label="Coverage" value={`${data.evidence.coverage}%`} sub="Assessment evidence" highlight />
           </View>
           <View style={styles.gridItem}>
             <MetricCard label="Valid" value={data.evidence.valid} sub="Current and accepted" />
@@ -623,8 +737,9 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
         <View style={styles.successCard}>
           <Text style={styles.sectionTitle}>Package generated for review</Text>
           <Text style={styles.body}>
-            This sample package includes supplier registers, evidence inventory, gap analysis,
-            dependency mapping, concentration risk, source traceability, and remediation actions.
+            This package includes supplier registers, evidence inventory, gap analysis,
+            dependency mapping, concentration risk, source traceability, executive summary,
+            and remediation actions.
           </Text>
         </View>
 
