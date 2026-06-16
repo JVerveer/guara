@@ -1,5 +1,5 @@
 import type { AnalysisResult, FindingTrace, RemediationPlan } from '../analysis/types';
-import type { ReportSections } from '../app/contexts/AppContext';
+import type { ReportSections } from '../app/components/ui/ConversionModal'
 
 function traceCount(items: Array<{ trace?: FindingTrace[] }>) {
   return items.reduce((sum, item) => sum + (item.trace?.length ?? 0), 0);

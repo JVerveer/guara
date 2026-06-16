@@ -10,10 +10,9 @@ import { ConcentrationTab } from '../components/tabs/ConcentrationTab';
 import { RemediationTab } from '../components/tabs/RemediationTab';
 import { AuditTab } from '../components/tabs/AuditTab';
 import { theme } from '../../styles/theme';
-import { downloadRiskReportPdf } from '../../reports/downloadRiskReportPdf';
 import type { Page } from '../contexts/AppContext';
 
-type ConversionIntent = 'save' | 'upload';
+type ConversionIntent = 'save' | 'export' | 'upload';
 
 const TAB_CONTENT: Partial<Record<Page, React.ComponentType>> = {
   overview: OverviewTab,
@@ -26,10 +25,9 @@ const TAB_CONTENT: Partial<Record<Page, React.ComponentType>> = {
 };
 
 export function ResultsDashboard() {
-  const { page, activeScenario, analysisResult, reportSections } = useApp();
+  const { page, activeScenario } = useApp();
   const [modalIntent, setModalIntent] = useState<ConversionIntent | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setMounted(true), 50);
@@ -38,17 +36,6 @@ export function ResultsDashboard() {
   }, []);
 
   const TabContent = TAB_CONTENT[page] ?? OverviewTab;
-
-  const selectedSectionCount = Object.values(reportSections).filter(Boolean).length;
-
-  const handleExport = async () => {
-    try {
-      setExporting(true);
-      await downloadRiskReportPdf(analysisResult, reportSections);
-    } finally {
-      setExporting(false);
-    }
-  };
 
   return (
     <div
@@ -122,9 +109,8 @@ export function ResultsDashboard() {
 
           <button
             type="button"
-            onClick={handleExport}
-            disabled={exporting || selectedSectionCount === 0}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => setModalIntent('export')}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-colors"
             style={{
               fontSize: '12px',
               fontWeight: 600,
@@ -134,9 +120,7 @@ export function ResultsDashboard() {
             }}
           >
             <Download className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">
-              {exporting ? 'Exporting…' : `Export PDF (${selectedSectionCount})`}
-            </span>
+            <span className="hidden sm:inline">Export PDF</span>
           </button>
         </div>
       </div>

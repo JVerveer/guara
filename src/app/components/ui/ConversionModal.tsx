@@ -1,14 +1,21 @@
 import {
   ArrowRight,
+  Building2,
   CheckCircle2,
   Download,
   FileText,
+  Globe2,
+  LayoutDashboard,
+  ListChecks,
   LockKeyhole,
   Mail,
+  Package,
+  ShieldAlert,
+  TrendingUp,
   Upload,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '../../contexts/AppContext';
 import { theme } from '../../../styles/theme';
 import { downloadRiskReportPdf } from '../../../reports/downloadRiskReportPdf';
@@ -16,6 +23,85 @@ import { getSampleAnalysisResult } from '../../../analysis/sampleAnalysis';
 import type { AnalysisResult } from '../../../analysis/types';
 
 type ConversionIntent = 'save' | 'export' | 'upload';
+
+type ReportSectionKey =
+  | 'overview'
+  | 'vendors'
+  | 'gaps'
+  | 'evidence'
+  | 'concentration'
+  | 'remediation'
+  | 'audit';
+
+export type ReportSections = Record<ReportSectionKey, boolean>;
+
+const DEFAULT_REPORT_SECTIONS: ReportSections = {
+  overview: true,
+  vendors: true,
+  gaps: true,
+  evidence: true,
+  concentration: true,
+  remediation: true,
+  audit: true,
+};
+
+const REPORT_SECTION_OPTIONS: Array<{
+  id: ReportSectionKey;
+  label: string;
+  description: string;
+  pages: number;
+  icon: React.ElementType;
+}> = [
+  {
+    id: 'overview',
+    label: 'Executive Summary',
+    description: 'Board narrative, key risks, and recommended focus.',
+    pages: 2,
+    icon: LayoutDashboard,
+  },
+  {
+    id: 'vendors',
+    label: 'Vendor Intelligence',
+    description: 'Supplier inventory, criticality, residency, and source traces.',
+    pages: 2,
+    icon: Building2,
+  },
+  {
+    id: 'gaps',
+    label: 'Findings',
+    description: 'Regulatory and technology findings with evidence excerpts.',
+    pages: 3,
+    icon: ShieldAlert,
+  },
+  {
+    id: 'evidence',
+    label: 'Evidence Coverage',
+    description: 'Evidence inventory, missing items, and source traces.',
+    pages: 2,
+    icon: FileText,
+  },
+  {
+    id: 'concentration',
+    label: 'Dependencies',
+    description: 'Cloud concentration, outage impact, and dependency share.',
+    pages: 2,
+    icon: TrendingUp,
+  },
+  {
+    id: 'remediation',
+    label: 'Remediation Plans',
+    description: 'Management actions, owners, timelines, and success criteria.',
+    pages: 3,
+    icon: ListChecks,
+  },
+  {
+    id: 'audit',
+    label: 'Board Package',
+    description: 'Generated audit outputs and recommended next actions.',
+    pages: 2,
+    icon: Package,
+  },
+];
 
 interface ConversionModalProps {
   open: boolean;
@@ -43,9 +129,9 @@ const INTENT_COPY: Record<
   },
   export: {
     icon: Download,
-    title: 'Your board pack is ready',
+    title: 'Create your board pack',
     description:
-      'Download the generated board and audit package, including the dependency map, evidence summary, and risk findings.',
+      'Select the sections you want to include. Deselected sections remain available in the dashboard, but will not appear in the exported PDF.',
     primaryCta: 'Download Board Pack',
     secondaryCta: 'Preview first',
   },
@@ -72,6 +158,14 @@ export function ConversionModal({
   const analysisResult = app.analysisResult ?? getSampleAnalysisResult(activeScenario.id);
 
   const [downloading, setDownloading] = useState(false);
+  const [reportSections, setReportSections] = useState<ReportSections>(DEFAULT_REPORT_SECTIONS);
+
+  const selectedSections = useMemo(
+    () => REPORT_SECTION_OPTIONS.filter((section) => reportSections[section.id]),
+    [reportSections]
+  );
+
+  const estimatedPages = selectedSections.reduce((sum, section) => sum + section.pages, 0);
 
   if (!open) {
     return null;
@@ -80,14 +174,41 @@ export function ConversionModal({
   const copy = INTENT_COPY[intent];
   const Icon = copy.icon;
 
+  const toggleReportSection = (section: ReportSectionKey) => {
+    setReportSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }));
+  };
+
+  const selectAllReportSections = () => {
+    setReportSections(DEFAULT_REPORT_SECTIONS);
+  };
+
+  const clearReportSections = () => {
+    setReportSections({
+      overview: false,
+      vendors: false,
+      gaps: false,
+      evidence: false,
+      concentration: false,
+      remediation: false,
+      audit: false,
+    });
+  };
+
   const handlePrimaryClick = async () => {
     if (intent !== 'export') {
       return;
     }
 
+    if (selectedSections.length === 0) {
+      return;
+    }
+
     try {
       setDownloading(true);
-      await downloadRiskReportPdf(analysisResult);
+      await downloadRiskReportPdf(analysisResult, reportSections);
       onClose();
     } finally {
       setDownloading(false);
@@ -101,12 +222,12 @@ export function ConversionModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg overflow-hidden rounded-3xl shadow-2xl"
+        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl shadow-2xl"
         style={{ backgroundColor: theme.neutral.surface }}
         onClick={(event) => event.stopPropagation()}
       >
         <div
-          className="relative border-b px-6 py-5"
+          className="relative flex-shrink-0 border-b px-6 py-5"
           style={{
             backgroundColor: theme.neutral.background,
             borderColor: theme.neutral.border,
@@ -150,13 +271,13 @@ export function ConversionModal({
               lineHeight: 1.6,
               color: theme.neutral.textSecondary,
             }}
-            className="max-w-md"
+            className="max-w-2xl"
           >
             {copy.description}
           </p>
         </div>
 
-        <div className="px-6 py-5">
+        <div className="overflow-y-auto px-6 py-5">
           <div
             className="mb-4 rounded-2xl border p-4"
             style={{
@@ -256,75 +377,239 @@ export function ConversionModal({
             </div>
           </div>
 
-          <div className="mb-4 space-y-2">
-            {[
-              'Keep the generated analysis and board-ready output.',
-              'Upload your own vendor package when ready.',
-              'No credit card required for the private beta.',
-            ].map((item) => (
-              <div key={item} className="flex items-start gap-2">
-                <CheckCircle2
-                  className="mt-0.5 h-4 w-4 flex-shrink-0"
-                  style={{ color: theme.status.success }}
-                />
+          {intent === 'export' && (
+            <div
+              className="mb-4 rounded-2xl border p-4"
+              style={{
+                backgroundColor: theme.neutral.surface,
+                borderColor: theme.neutral.border,
+              }}
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Globe2 className="h-4 w-4" style={{ color: theme.brand.primary }} />
+                    <p
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 800,
+                        color: theme.neutral.text,
+                      }}
+                    >
+                      Select report sections
+                    </p>
+                  </div>
 
-                <p
-                  style={{
-                    fontSize: '12px',
-                    lineHeight: 1.5,
-                    color: theme.neutral.textSecondary,
-                  }}
-                >
-                  {item}
-                </p>
+                  <p
+                    style={{
+                      fontSize: '11px',
+                      color: theme.neutral.textSecondary,
+                    }}
+                    className="mt-1"
+                  >
+                    {selectedSections.length} selected · approximately {estimatedPages} pages
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllReportSections}
+                    className="rounded-lg border px-2.5 py-1.5"
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      backgroundColor: theme.neutral.background,
+                      borderColor: theme.neutral.border,
+                      color: theme.neutral.textSecondary,
+                    }}
+                  >
+                    Select all
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={clearReportSections}
+                    className="rounded-lg border px-2.5 py-1.5"
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      backgroundColor: theme.neutral.background,
+                      borderColor: theme.neutral.border,
+                      color: theme.neutral.textSecondary,
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
-            ))}
-          </div>
 
-          {intent !== 'export' && (
-            <div className="mb-3">
-              <label
-                htmlFor="conversion-email"
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  color: theme.neutral.textSecondary,
-                }}
-                className="mb-1.5 block"
-              >
-                Work email
-              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {REPORT_SECTION_OPTIONS.map((section) => {
+                  const selected = reportSections[section.id];
+                  const SectionIcon = section.icon;
 
-              <div
-                className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
-                style={{
-                  backgroundColor: theme.neutral.surface,
-                  borderColor: theme.neutral.border,
-                }}
-              >
-                <Mail
-                  className="h-4 w-4 flex-shrink-0"
-                  style={{ color: theme.neutral.textMuted }}
-                />
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => toggleReportSection(section.id)}
+                      className="rounded-xl border p-3 text-left transition-all"
+                      style={{
+                        backgroundColor: selected
+                          ? theme.brand.primaryLight
+                          : theme.neutral.background,
+                        borderColor: selected
+                          ? theme.brand.primaryBorder
+                          : theme.neutral.border,
+                        opacity: selected ? 1 : 0.58,
+                      }}
+                    >
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="flex h-7 w-7 items-center justify-center rounded-lg"
+                            style={{ backgroundColor: theme.neutral.surface }}
+                          >
+                            <SectionIcon
+                              className="h-3.5 w-3.5"
+                              style={{
+                                color: selected
+                                  ? theme.brand.primary
+                                  : theme.neutral.textMuted,
+                              }}
+                            />
+                          </div>
 
-                <input
-                  id="conversion-email"
-                  type="email"
-                  placeholder="you@company.com"
-                  className="w-full bg-transparent outline-none"
-                  style={{
-                    fontSize: '14px',
-                    color: theme.neutral.text,
-                  }}
-                />
+                          <div>
+                            <p
+                              style={{
+                                fontSize: '12px',
+                                fontWeight: 800,
+                                color: theme.neutral.text,
+                              }}
+                            >
+                              {section.label}
+                            </p>
+
+                            <p
+                              style={{
+                                fontSize: '10px',
+                                color: theme.neutral.textMuted,
+                              }}
+                            >
+                              ~{section.pages} pages
+                            </p>
+                          </div>
+                        </div>
+
+                        <span
+                          className="rounded-full border px-2 py-0.5"
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            backgroundColor: selected
+                              ? theme.neutral.surface
+                              : theme.neutral.background,
+                            borderColor: selected
+                              ? theme.brand.primaryBorder
+                              : theme.neutral.border,
+                            color: selected
+                              ? theme.brand.primary
+                              : theme.neutral.textMuted,
+                          }}
+                        >
+                          {selected ? 'Included' : 'Excluded'}
+                        </span>
+                      </div>
+
+                      <p
+                        style={{
+                          fontSize: '11px',
+                          lineHeight: 1.45,
+                          color: theme.neutral.textSecondary,
+                        }}
+                      >
+                        {section.description}
+                      </p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
+          )}
+
+          {intent !== 'export' && (
+            <>
+              <div className="mb-4 space-y-2">
+                {[
+                  'Keep the generated analysis and board-ready output.',
+                  'Upload your own vendor package when ready.',
+                  'No credit card required for the private beta.',
+                ].map((item) => (
+                  <div key={item} className="flex items-start gap-2">
+                    <CheckCircle2
+                      className="mt-0.5 h-4 w-4 flex-shrink-0"
+                      style={{ color: theme.status.success }}
+                    />
+
+                    <p
+                      style={{
+                        fontSize: '12px',
+                        lineHeight: 1.5,
+                        color: theme.neutral.textSecondary,
+                      }}
+                    >
+                      {item}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mb-3">
+                <label
+                  htmlFor="conversion-email"
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: theme.neutral.textSecondary,
+                  }}
+                  className="mb-1.5 block"
+                >
+                  Work email
+                </label>
+
+                <div
+                  className="flex items-center gap-2 rounded-xl border px-3 py-2.5"
+                  style={{
+                    backgroundColor: theme.neutral.surface,
+                    borderColor: theme.neutral.border,
+                  }}
+                >
+                  <Mail
+                    className="h-4 w-4 flex-shrink-0"
+                    style={{ color: theme.neutral.textMuted }}
+                  />
+
+                  <input
+                    id="conversion-email"
+                    type="email"
+                    placeholder="you@company.com"
+                    className="w-full bg-transparent outline-none"
+                    style={{
+                      fontSize: '14px',
+                      color: theme.neutral.text,
+                    }}
+                  />
+                </div>
+              </div>
+            </>
           )}
 
           <button
             type="button"
             onClick={handlePrimaryClick}
-            disabled={downloading}
+            disabled={downloading || (intent === 'export' && selectedSections.length === 0)}
             className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
             style={{
               fontSize: '14px',

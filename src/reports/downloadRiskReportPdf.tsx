@@ -1,6 +1,6 @@
 import { pdf } from '@react-pdf/renderer';
 import type { AnalysisResult } from '../analysis/types';
-import type { ReportSections } from '../app/contexts/AppContext';
+import type { ReportSections } from '../app/components/ui/ConversionModal';
 import { buildRiskReportData } from './buildRiskReportData';
 import { RiskReportPdf } from './RiskReportPdf';
 
