@@ -22,8 +22,20 @@ const EVIDENCE_PATTERNS: EvidencePattern[] = [
   { evidenceType: 'Contract', terms: ['agreement', 'master services', 'contract'] },
 ];
 
-function detectStatus(text: string): EvidenceFact['status'] {
-  const lower = text.toLowerCase();
+function cleanExcerpt(excerpt: string) {
+  const normalized = excerpt.replace(/\s+/g, ' ').trim();
+
+  const sentenceStart = normalized.search(/[A-Z][^.!?]{10,}/);
+
+  if (sentenceStart > 0 && sentenceStart < 80) {
+    return normalized.slice(sentenceStart).trim();
+  }
+
+  return normalized;
+}
+
+function detectStatusFromExcerpt(excerpt: string): EvidenceFact['status'] {
+  const lower = excerpt.toLowerCase();
 
   if (
     includesAny(lower, [
@@ -85,14 +97,15 @@ export function extractEvidenceFacts(documents: ParsedDocument[]): EvidenceFact[
         return;
       }
 
-      const excerpt = findBestExcerpt(text, pattern.terms);
+      const rawExcerpt = findBestExcerpt(text, pattern.terms);
+      const excerpt = cleanExcerpt(rawExcerpt);
 
       facts.push({
         id: createFactId('evidence', [pattern.evidenceType, document.fileName]),
         type: 'evidence',
         evidenceType: pattern.evidenceType,
         vendorName: detectVendorName(text),
-        status: detectStatus(text),
+        status: detectStatusFromExcerpt(excerpt),
         source: makeSource({
           document: document.fileName,
           excerpt,

@@ -1,6 +1,6 @@
 import type { ParsedDocument } from '../ingestion/types';
 import type { VendorFact } from './types';
-import { createFactId, findBestExcerpt, makeSource } from './factUtils';
+import { createFactId, findBestExcerpt, includesAny, makeSource } from './factUtils';
 
 type KnownVendor = {
   canonicalName: string;
@@ -28,24 +28,71 @@ const KNOWN_VENDORS: KnownVendor[] = [
   { canonicalName: 'MuleSoft', aliases: ['mulesoft'], category: 'SaaS', service: 'Integration Platform' },
 ];
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsAlias(text: string, alias: string) {
+  const escaped = escapeRegExp(alias.toLowerCase());
+
+  if (/^[a-z0-9 ]+$/i.test(alias)) {
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(text);
+  }
+
+  return text.includes(alias.toLowerCase());
+}
+
+function cleanExcerpt(excerpt: string) {
+  const normalized = excerpt.replace(/\s+/g, ' ').trim();
+  const firstSentenceStart = normalized.search(/[A-Z][^.!?]{10,}/);
+
+  if (firstSentenceStart > 0 && firstSentenceStart < 80) {
+    return normalized.slice(firstSentenceStart).trim();
+  }
+
+  return normalized;
+}
+
+function scoreVendorDocument(document: ParsedDocument, vendor: KnownVendor, matchedAliases: string[]) {
+  const value = `${document.fileName}\n${document.text}`.toLowerCase();
+
+  let score = 0;
+
+  score += matchedAliases.length * 4;
+
+  if (includesAny(value, ['agreement', 'services', 'summary', 'contract'])) score += 4;
+  if (includesAny(value, ['critical', 'production', 'primary', 'dependency'])) score += 4;
+  if (includesAny(value, ['vendor inventory', 'vendor,service,criticality', 'register'])) score -= 2;
+
+  if (vendor.category === 'Cloud' && includesAny(value, ['primary cloud', 'application hosting'])) {
+    score += 3;
+  }
+
+  return score;
+}
+
 export function extractVendorFacts(documents: ParsedDocument[]): VendorFact[] {
-  const factsByKey = new Map<string, VendorFact>();
+  const bestFactByVendor = new Map<string, VendorFact>();
 
-  documents.forEach((document) => {
-    const text = `${document.fileName}\n${document.text}`;
-    const lower = text.toLowerCase();
+  KNOWN_VENDORS.forEach((vendor) => {
+    let bestScore = -Infinity;
+    let bestFact: VendorFact | null = null;
 
-    KNOWN_VENDORS.forEach((vendor) => {
-      const matchedAliases = vendor.aliases.filter((alias) => lower.includes(alias.toLowerCase()));
+    documents.forEach((document) => {
+      const text = `${document.fileName}\n${document.text}`;
+      const lower = text.toLowerCase();
+
+      const matchedAliases = vendor.aliases.filter((alias) => containsAlias(lower, alias));
 
       if (matchedAliases.length === 0) {
         return;
       }
 
-      const key = `${vendor.canonicalName}-${document.fileName}`;
-      const excerpt = findBestExcerpt(text, matchedAliases);
+      const rawExcerpt = findBestExcerpt(text, matchedAliases);
+      const excerpt = cleanExcerpt(rawExcerpt);
+      const score = scoreVendorDocument(document, vendor, matchedAliases);
 
-      factsByKey.set(key, {
+      const fact: VendorFact = {
         id: createFactId('vendor', [vendor.canonicalName, document.fileName]),
         type: 'vendor',
         vendorName: vendor.canonicalName,
@@ -55,11 +102,20 @@ export function extractVendorFacts(documents: ParsedDocument[]): VendorFact[] {
         source: makeSource({
           document: document.fileName,
           excerpt,
-          confidence: matchedAliases.length > 1 ? 0.9 : 0.78,
+          confidence: matchedAliases.length > 1 ? 0.9 : 0.8,
         }),
-      });
+      };
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestFact = fact;
+      }
     });
+
+    if (bestFact) {
+      bestFactByVendor.set(vendor.canonicalName, bestFact);
+    }
   });
 
-  return Array.from(factsByKey.values());
+  return Array.from(bestFactByVendor.values());
 }

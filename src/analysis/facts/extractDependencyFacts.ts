@@ -38,6 +38,46 @@ function inferBusinessImpact(category: VendorFact['category']) {
   return 'Critical business workflow dependency';
 }
 
+function cleanExcerpt(excerpt: string) {
+  const normalized = excerpt.replace(/\s+/g, ' ').trim();
+
+  const firstSentenceStart = normalized.search(/[A-Z][^.!?]{10,}/);
+
+  if (firstSentenceStart > 0 && firstSentenceStart < 80) {
+    return normalized.slice(firstSentenceStart).trim();
+  }
+
+  return normalized;
+}
+
+function scoreDocumentForDependency(document: ParsedDocument, vendorFact: VendorFact) {
+  const value = `${document.fileName}\n${document.text}`.toLowerCase();
+  const vendor = vendorFact.vendorName.toLowerCase();
+
+  let score = 0;
+
+  if (value.includes(vendor)) score += 5;
+  if (vendorFact.aliases?.some((alias) => value.includes(alias.toLowerCase()))) score += 5;
+
+  if (includesAny(value, ['agreement', 'services', 'summary', 'contract'])) score += 4;
+  if (includesAny(value, ['critical', 'production', 'primary', 'dependency'])) score += 4;
+  if (includesAny(value, ['vendor inventory', 'register'])) score -= 2;
+
+  return score;
+}
+
+function findBestDependencyDocument(
+  documents: ParsedDocument[],
+  vendorFact: VendorFact
+): ParsedDocument | undefined {
+  return [...documents]
+    .sort(
+      (a, b) =>
+        scoreDocumentForDependency(b, vendorFact) -
+        scoreDocumentForDependency(a, vendorFact)
+    )[0];
+}
+
 export function extractDependencyFacts(
   documents: ParsedDocument[],
   vendorFacts: VendorFact[]
@@ -45,11 +85,17 @@ export function extractDependencyFacts(
   const factsByKey = new Map<string, DependencyFact>();
 
   vendorFacts.forEach((vendorFact) => {
-    const sourceDocument = documents.find((document) => document.fileName === vendorFact.source.document);
-    const combinedText = `${sourceDocument?.fileName ?? vendorFact.source.document}\n${sourceDocument?.text ?? vendorFact.source.excerpt}`;
+    const sourceDocument =
+      findBestDependencyDocument(documents, vendorFact) ??
+      documents.find((document) => document.fileName === vendorFact.source.document);
 
-    const excerpt = findBestExcerpt(combinedText, [
+    const combinedText = `${
+      sourceDocument?.fileName ?? vendorFact.source.document
+    }\n${sourceDocument?.text ?? vendorFact.source.excerpt}`;
+
+    const rawExcerpt = findBestExcerpt(combinedText, [
       vendorFact.vendorName,
+      ...(vendorFact.aliases ?? []),
       'critical',
       'production',
       'primary',
@@ -57,10 +103,13 @@ export function extractDependencyFacts(
       'service',
     ]);
 
-    const key = `${vendorFact.vendorName}-${vendorFact.source.document}`;
+    const excerpt = cleanExcerpt(rawExcerpt);
+    const sourceDocumentName = sourceDocument?.fileName ?? vendorFact.source.document;
+
+    const key = `${vendorFact.vendorName}-${sourceDocumentName}`;
 
     factsByKey.set(key, {
-      id: createFactId('dependency', [vendorFact.vendorName, vendorFact.source.document]),
+      id: createFactId('dependency', [vendorFact.vendorName, sourceDocumentName]),
       type: 'dependency',
       vendorName: vendorFact.vendorName,
       dependencyType: dependencyTypeFromCategory(vendorFact.category),
@@ -68,9 +117,9 @@ export function extractDependencyFacts(
       businessImpact: inferBusinessImpact(vendorFact.category),
       criticality: inferCriticality(combinedText),
       source: makeSource({
-        document: vendorFact.source.document,
+        document: sourceDocumentName,
         excerpt,
-        confidence: vendorFact.source.confidence,
+        confidence: Math.max(vendorFact.source.confidence, 0.82),
       }),
     });
   });

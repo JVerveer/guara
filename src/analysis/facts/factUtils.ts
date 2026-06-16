@@ -20,28 +20,81 @@ export function makeSource(args: {
 }): FactSource {
   return {
     document: args.document,
-    excerpt: args.excerpt.trim().slice(0, 500),
+    excerpt: cleanExcerpt(args.excerpt).slice(0, 500),
     page: args.page,
     chunkId: args.chunkId,
     confidence: confidence(args.confidence ?? 0.75),
   };
 }
 
-export function findBestExcerpt(text: string, terms: string[], radius = 120) {
+export function cleanExcerpt(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function findSentenceStart(text: string, index: number) {
+  const before = text.slice(0, index);
+
+  const sentenceBoundary = Math.max(
+    before.lastIndexOf('. '),
+    before.lastIndexOf('! '),
+    before.lastIndexOf('? '),
+    before.lastIndexOf('\n')
+  );
+
+  if (sentenceBoundary >= 0) {
+    return sentenceBoundary + 1;
+  }
+
+  const whitespaceBoundary = before.lastIndexOf(' ');
+
+  if (whitespaceBoundary >= 0) {
+    return whitespaceBoundary + 1;
+  }
+
+  return 0;
+}
+
+function findSentenceEnd(text: string, index: number) {
+  const after = text.slice(index);
+
+  const candidates = [
+    after.indexOf('. '),
+    after.indexOf('! '),
+    after.indexOf('? '),
+    after.indexOf('\n'),
+  ].filter((value) => value >= 0);
+
+  if (candidates.length > 0) {
+    return index + Math.min(...candidates) + 1;
+  }
+
+  const nextSpace = text.indexOf(' ', index + 220);
+
+  if (nextSpace >= 0) {
+    return nextSpace;
+  }
+
+  return Math.min(text.length, index + 300);
+}
+
+export function findBestExcerpt(text: string, terms: string[], radius = 160) {
   const lower = text.toLowerCase();
 
   for (const term of terms) {
     const index = lower.indexOf(term.toLowerCase());
 
     if (index >= 0) {
-      const start = Math.max(0, index - radius);
-      const end = Math.min(text.length, index + term.length + radius);
+      const roughStart = Math.max(0, index - radius);
+      const roughEnd = Math.min(text.length, index + term.length + radius);
 
-      return text.slice(start, end).replace(/\s+/g, ' ').trim();
+      const start = findSentenceStart(text, roughStart);
+      const end = findSentenceEnd(text, roughEnd);
+
+      return cleanExcerpt(text.slice(start, end));
     }
   }
 
-  return text.slice(0, 300).replace(/\s+/g, ' ').trim();
+  return cleanExcerpt(text.slice(0, 300));
 }
 
 export function includesAny(text: string, terms: string[]) {

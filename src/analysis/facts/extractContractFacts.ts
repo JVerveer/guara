@@ -8,20 +8,97 @@ type ClausePattern = {
 };
 
 const CLAUSE_PATTERNS: ClausePattern[] = [
-  { clauseType: 'AuditRights', terms: ['right to audit', 'audit rights', 'audit access'] },
-  { clauseType: 'ExitAssistance', terms: ['exit assistance', 'termination assistance', 'transition assistance', 'data portability'] },
-  { clauseType: 'Termination', terms: ['termination', 'terminate', 'termination for cause'] },
-  { clauseType: 'Subprocessor', terms: ['subprocessor', 'sub-processor', 'subcontractor'] },
-  { clauseType: 'DataLocation', terms: ['data location', 'processing location', 'data residency', 'cross-border'] },
-  { clauseType: 'BusinessContinuity', terms: ['business continuity', 'disaster recovery', 'recovery time objective', 'rto', 'rpo'] },
-  { clauseType: 'Security', terms: ['security controls', 'information security', 'encryption', 'access controls'] },
+  {
+    clauseType: 'AuditRights',
+    terms: ['right to audit', 'audit rights', 'audit access'],
+  },
+  {
+    clauseType: 'ExitAssistance',
+    terms: [
+      'exit assistance',
+      'termination assistance',
+      'transition assistance',
+      'data portability',
+      'exit strategy',
+      'exit plan',
+      'tested migration',
+      'migration plan',
+      'substitutability',
+    ],
+  },
+  {
+    clauseType: 'Termination',
+    terms: ['termination', 'terminate', 'termination for cause'],
+  },
+  {
+    clauseType: 'Subprocessor',
+    terms: ['subprocessor', 'sub-processor', 'subcontractor'],
+  },
+  {
+    clauseType: 'DataLocation',
+    terms: ['data location', 'processing location', 'data residency', 'cross-border'],
+  },
+  {
+    clauseType: 'BusinessContinuity',
+    terms: [
+      'business continuity',
+      'disaster recovery',
+      'recovery time objective',
+      'rto',
+      'rpo',
+      'outage simulation',
+      'provider outage',
+    ],
+  },
+  {
+    clauseType: 'Security',
+    terms: ['security controls', 'information security', 'encryption', 'access controls'],
+  },
 ];
 
-function detectVendorName(text: string) {
-  const vendors = ['AWS', 'Microsoft Azure', 'Google Cloud Platform', 'Stripe', 'OpenAI', 'Snowflake', 'Okta', 'Salesforce', 'Twilio', 'Datadog'];
-  const lower = text.toLowerCase();
+function cleanExcerpt(excerpt: string) {
+  const normalized = excerpt.replace(/\s+/g, ' ').trim();
 
-  return vendors.find((vendor) => lower.includes(vendor.toLowerCase()));
+  const firstSentenceStart = normalized.search(/[A-Z][^.!?]{10,}/);
+
+  if (firstSentenceStart > 0 && firstSentenceStart < 80) {
+    return normalized.slice(firstSentenceStart).trim();
+  }
+
+  return normalized;
+}
+
+function detectVendorName(text: string) {
+  const vendors = [
+    'AWS',
+    'Amazon Web Services',
+    'Microsoft Azure',
+    'Azure',
+    'Google Cloud Platform',
+    'Google Cloud',
+    'Stripe',
+    'OpenAI',
+    'Snowflake',
+    'Okta',
+    'Salesforce',
+    'Twilio',
+    'Datadog',
+  ];
+
+  const lower = text.toLowerCase();
+  const vendor = vendors.find((item) => lower.includes(item.toLowerCase()));
+
+  if (vendor === 'Amazon Web Services') return 'AWS';
+  if (vendor === 'Azure') return 'Microsoft Azure';
+  if (vendor === 'Google Cloud') return 'Google Cloud Platform';
+
+  return vendor;
+}
+
+function confidenceForClause(clauseType: ContractFact['clauseType']) {
+  if (clauseType === 'ExitAssistance') return 0.82;
+  if (clauseType === 'BusinessContinuity') return 0.8;
+  return 0.78;
 }
 
 export function extractContractFacts(documents: ParsedDocument[]): ContractFact[] {
@@ -36,6 +113,9 @@ export function extractContractFacts(documents: ParsedDocument[]): ContractFact[
         return;
       }
 
+      const rawExcerpt = findBestExcerpt(text, pattern.terms);
+      const excerpt = cleanExcerpt(rawExcerpt);
+
       facts.push({
         id: createFactId('contract', [pattern.clauseType, document.fileName]),
         type: 'contract',
@@ -43,8 +123,8 @@ export function extractContractFacts(documents: ParsedDocument[]): ContractFact[
         clauseType: pattern.clauseType,
         source: makeSource({
           document: document.fileName,
-          excerpt: findBestExcerpt(text, pattern.terms),
-          confidence: 0.78,
+          excerpt,
+          confidence: confidenceForClause(pattern.clauseType),
         }),
       });
     });
