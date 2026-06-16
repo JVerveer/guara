@@ -22,6 +22,55 @@ type ParsedDocument = {
 type Severity = 'High' | 'Medium' | 'Low';
 type Criticality = 'Critical' | 'Important' | 'Standard' | 'Low';
 
+type FindingCategory =
+  | 'DORA'
+  | 'Data Residency'
+  | 'AI Act'
+  | 'Digital Sovereignty'
+  | 'Operational Resilience';
+
+type FindingTrace = {
+  document: string;
+  excerpt: string;
+  page?: number;
+  chunkId?: string;
+  confidence: number;
+};
+
+type Finding = {
+  title: string;
+  severity: Severity;
+  vendor: string;
+  category: FindingCategory;
+  article: string;
+  rec: string;
+  trace: FindingTrace[];
+};
+
+type EvidenceItem = {
+  name: string;
+  vendor: string;
+  type: string;
+  status: 'Valid' | 'Missing' | 'Expiring';
+  expires: string;
+  trace: FindingTrace[];
+};
+
+type VendorItem = {
+  name: string;
+  service: string;
+  criticality: Criticality;
+  risk: Severity;
+  score: number;
+  country: string;
+  spend: string;
+  category: string;
+  exposure: 'EU' | 'US' | 'Global';
+  dependency: 'Critical' | 'High' | 'Medium' | 'Low';
+  dataType: string;
+  trace: FindingTrace[];
+};
+
 const SUPPORTED_EXTENSIONS = [
   'pdf',
   'docx',
@@ -105,7 +154,7 @@ const KNOWN_VENDORS = [
     service: 'Monitoring & Observability',
     exposure: 'US',
   },
-];
+] as const;
 
 function getExtension(fileName: string) {
   return fileName.split('.').pop()?.toLowerCase() ?? '';
@@ -289,7 +338,65 @@ function detectIndustry(text: string) {
   return 'Uploaded Analysis';
 }
 
-function detectVendors(text: string) {
+function cleanExcerpt(value: string) {
+  return value.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function findBestExcerpt(text: string, terms: string[], radius = 180) {
+  const lower = text.toLowerCase();
+
+  for (const term of terms) {
+    const index = lower.indexOf(term.toLowerCase());
+
+    if (index >= 0) {
+      const start = Math.max(0, index - radius);
+      const end = Math.min(text.length, index + term.length + radius);
+
+      return cleanExcerpt(text.slice(start, end));
+    }
+  }
+
+  return cleanExcerpt(text.slice(0, 300));
+}
+
+function makeTrace(args: {
+  document: string;
+  excerpt: string;
+  confidence?: number;
+}): FindingTrace {
+  return {
+    document: args.document,
+    excerpt: cleanExcerpt(args.excerpt),
+    confidence: Math.max(0, Math.min(1, args.confidence ?? 0.75)),
+  };
+}
+
+function findTraceForTerms(
+  documents: ParsedDocument[],
+  terms: string[],
+  confidence = 0.78
+): FindingTrace[] {
+  const matchingDocument = documents.find((document) => {
+    const value = `${document.fileName}\n${document.text}`.toLowerCase();
+    return terms.some((term) => value.includes(term.toLowerCase()));
+  });
+
+  if (!matchingDocument) {
+    return [];
+  }
+
+  const sourceText = `${matchingDocument.fileName}\n${matchingDocument.text}`;
+
+  return [
+    makeTrace({
+      document: matchingDocument.fileName,
+      excerpt: findBestExcerpt(sourceText, terms),
+      confidence,
+    }),
+  ];
+}
+
+function detectVendors(documents: ParsedDocument[], text: string): VendorItem[] {
   return KNOWN_VENDORS.filter((vendor) =>
     vendor.aliases.some((alias) => text.includes(alias))
   ).map((vendor) => {
@@ -333,42 +440,72 @@ function detectVendors(text: string) {
               : vendor.category === 'Identity'
                 ? 'Identity data'
                 : 'Business data',
+      trace: findTraceForTerms(documents, [vendor.name, ...vendor.aliases], 0.82),
     };
   });
 }
 
-function detectEvidence(documents: ParsedDocument[], text: string) {
-  const evidence = [];
+function detectEvidence(documents: ParsedDocument[], text: string): EvidenceItem[] {
+  const evidence: EvidenceItem[] = [];
 
   for (const document of documents) {
     const documentText = `${document.fileName} ${document.text}`.toLowerCase();
 
     let type: string | null = null;
+    let terms: string[] = [];
 
-    if (documentText.includes('soc 2') || documentText.includes('soc2')) type = 'SOC Report';
-    else if (documentText.includes('iso 27001') || documentText.includes('iso27001')) type = 'Certificate';
-    else if (documentText.includes('data processing agreement') || documentText.includes('dpa')) type = 'DPA';
-    else if (documentText.includes('business continuity') || documentText.includes('bcp')) type = 'Business Continuity';
-    else if (documentText.includes('exit strategy') || documentText.includes('exit plan')) type = 'Exit Strategy';
-    else if (documentText.includes('vendor register') || documentText.includes('third-party register')) type = 'Register';
-    else if (documentText.includes('risk assessment')) type = 'Risk Assessment';
-    else if (documentText.includes('agreement') || documentText.includes('contract')) type = 'Contract';
+    if (documentText.includes('soc 2') || documentText.includes('soc2')) {
+      type = 'SOC Report';
+      terms = ['soc 2', 'soc2'];
+    } else if (documentText.includes('iso 27001') || documentText.includes('iso27001')) {
+      type = 'Certificate';
+      terms = ['iso 27001', 'iso27001'];
+    } else if (documentText.includes('data processing agreement') || documentText.includes('dpa')) {
+      type = 'DPA';
+      terms = ['data processing agreement', 'dpa'];
+    } else if (documentText.includes('business continuity') || documentText.includes('bcp')) {
+      type = 'Business Continuity';
+      terms = ['business continuity', 'bcp'];
+    } else if (documentText.includes('exit strategy') || documentText.includes('exit plan')) {
+      type = 'Exit Strategy';
+      terms = ['exit strategy', 'exit plan'];
+    } else if (documentText.includes('vendor register') || documentText.includes('third-party register')) {
+      type = 'Register';
+      terms = ['vendor register', 'third-party register'];
+    } else if (documentText.includes('risk assessment')) {
+      type = 'Risk Assessment';
+      terms = ['risk assessment'];
+    } else if (documentText.includes('agreement') || documentText.includes('contract')) {
+      type = 'Contract';
+      terms = ['agreement', 'contract'];
+    }
 
     if (!type) {
       continue;
     }
 
+    const status: EvidenceItem['status'] =
+      documentText.includes('missing') ||
+      documentText.includes('unsigned') ||
+      documentText.includes('not documented') ||
+      documentText.includes('does not include') ||
+      documentText.includes('no validated')
+        ? 'Missing'
+        : 'Valid';
+
     evidence.push({
       name: document.fileName,
       vendor: 'Multiple / Unknown',
       type,
-      status:
-        documentText.includes('missing') ||
-        documentText.includes('unsigned') ||
-        documentText.includes('not documented')
-          ? 'Missing'
-          : 'Valid',
-      expires: 'Review required',
+      status,
+      expires: status === 'Missing' ? '—' : 'Review required',
+      trace: [
+        makeTrace({
+          document: document.fileName,
+          excerpt: findBestExcerpt(`${document.fileName}\n${document.text}`, terms.length > 0 ? terms : [type]),
+          confidence: 0.82,
+        }),
+      ],
     });
   }
 
@@ -389,6 +526,7 @@ function detectEvidence(documents: ParsedDocument[], text: string) {
         type: item.type,
         status: 'Missing',
         expires: '—',
+        trace: [],
       });
     }
   });
@@ -396,8 +534,13 @@ function detectEvidence(documents: ParsedDocument[], text: string) {
   return evidence;
 }
 
-function detectGaps(text: string, vendors: ReturnType<typeof detectVendors>, evidence: ReturnType<typeof detectEvidence>) {
-  const gaps = [];
+function detectGaps(
+  text: string,
+  vendors: VendorItem[],
+  evidence: EvidenceItem[],
+  documents: ParsedDocument[]
+): Finding[] {
+  const gaps: Finding[] = [];
 
   const hasCloud = vendors.some((vendor) => vendor.category === 'Cloud');
   const hasAI = vendors.some((vendor) => vendor.category === 'AI');
@@ -413,6 +556,11 @@ function detectGaps(text: string, vendors: ReturnType<typeof detectVendors>, evi
       category: 'DORA',
       article: 'DORA',
       rec: 'Document and test a provider exit strategy, including data portability, substitutability, recovery timelines, and ownership.',
+      trace: findTraceForTerms(
+        documents,
+        ['exit strategy', 'exit plan', 'not documented', 'no validated', 'does not include', 'migration plan'],
+        0.84
+      ),
     });
   }
 
@@ -424,6 +572,7 @@ function detectGaps(text: string, vendors: ReturnType<typeof detectVendors>, evi
       category: 'Digital Sovereignty',
       article: 'Concentration',
       rec: 'Assess substitutability and document mitigation for critical cloud dependency.',
+      trace: findTraceForTerms(documents, ['primary cloud', 'production workloads', 'aws', 'azure', 'cloud infrastructure'], 0.8),
     });
   }
 
@@ -435,6 +584,7 @@ function detectGaps(text: string, vendors: ReturnType<typeof detectVendors>, evi
       category: 'AI Act',
       article: 'AI Inventory',
       rec: 'Create an AI supplier inventory covering models, use cases, data inputs, risk classification, and human oversight responsibilities.',
+      trace: findTraceForTerms(documents, ['ai inventory', 'model inventory', 'human oversight', 'risk classification', 'openai'], 0.8),
     });
   }
 
@@ -446,6 +596,7 @@ function detectGaps(text: string, vendors: ReturnType<typeof detectVendors>, evi
       category: 'Data Residency',
       article: 'Residency',
       rec: 'Confirm processing regions and document cross-border transfer safeguards for regulated, personal, or sensitive data.',
+      trace: findTraceForTerms(documents, ['united states', 'cross-border', 'non-eu', 'global support', 'us provider'], 0.82),
     });
   }
 
@@ -457,6 +608,7 @@ function detectGaps(text: string, vendors: ReturnType<typeof detectVendors>, evi
       category: 'Operational Resilience',
       article: 'Resilience',
       rec: 'Collect and validate business continuity and disaster recovery evidence for critical suppliers.',
+      trace: findTraceForTerms(documents, ['business continuity', 'disaster recovery', 'bcp', 'missing'], 0.78),
     });
   }
 
@@ -468,6 +620,15 @@ function detectGaps(text: string, vendors: ReturnType<typeof detectVendors>, evi
       category: 'DORA',
       article: 'Review',
       rec: 'Continue validating critical supplier evidence and ownership.',
+      trace: documents[0]
+        ? [
+            makeTrace({
+              document: documents[0].fileName,
+              excerpt: documents[0].text,
+              confidence: 0.55,
+            }),
+          ]
+        : [],
     });
   }
 
@@ -483,9 +644,9 @@ function createId(value: string) {
 
 function buildExecutiveSummary(args: {
   documents: ParsedDocument[];
-  vendors: ReturnType<typeof detectVendors>;
-  gaps: ReturnType<typeof detectGaps>;
-  evidence: ReturnType<typeof detectEvidence>;
+  vendors: VendorItem[];
+  gaps: Finding[];
+  evidence: EvidenceItem[];
   industry: string;
 }) {
   const highGaps = args.gaps.filter((gap) => gap.severity === 'High');
@@ -504,7 +665,7 @@ function buildExecutiveSummary(args: {
   };
 }
 
-function buildRemediationPlans(gaps: ReturnType<typeof detectGaps>) {
+function buildRemediationPlans(gaps: Finding[]) {
   return gaps.map((gap) => ({
     id: `remediation-${createId(`${gap.title}-${gap.vendor}`)}`,
     findingTitle: gap.title,
@@ -536,16 +697,16 @@ function buildRemediationPlans(gaps: ReturnType<typeof detectGaps>) {
       'Finding status can be re-assessed with source traceability.',
     ],
     relatedArticle: gap.article,
-    trace: 'trace' in gap ? gap.trace ?? [] : [],
+    trace: gap.trace ?? [],
   }));
 }
 
 function buildAnalysisResult(documents: ParsedDocument[]) {
   const text = getCombinedText(documents);
   const industry = detectIndustry(text);
-  const vendors = detectVendors(text);
+  const vendors = detectVendors(documents, text);
   const evidence = detectEvidence(documents, text);
-  const gaps = detectGaps(text, vendors, evidence);
+  const gaps = detectGaps(text, vendors, evidence, documents);
 
   const executiveSummary = buildExecutiveSummary({
     documents,
@@ -626,10 +787,8 @@ function buildAnalysisResult(documents: ParsedDocument[]) {
             : industry === 'Payments'
               ? 'Uploaded Payments Risk Package'
               : 'Uploaded Vendor Package',
-      executiveSummary,
       industry,
       documents: documents.length,
-      remediationPlans,
       vendors: vendors.length,
       criticalVendors,
       readinessScore,
@@ -637,6 +796,7 @@ function buildAnalysisResult(documents: ParsedDocument[]) {
       headlineFinding,
       regionExposure: hasUS ? 'US provider dependency detected' : 'No major non-EU exposure detected',
     },
+    executiveSummary,
     documents: documents.map((document) => ({
       name: document.fileName,
       size: `${(document.size / 1024 / 1024).toFixed(2)} MB`,
@@ -668,6 +828,7 @@ function buildAnalysisResult(documents: ParsedDocument[]) {
         : '5–10 days depending on backup provider readiness',
       recommendation: 'Define exit options and test service recovery for critical technology dependencies.',
     },
+    remediationPlans,
     boardRisks: [
       mainRisk,
       ...gaps.slice(0, 3).map((gap) => gap.title),
