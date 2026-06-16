@@ -421,10 +421,34 @@ export function RiskReportPdf({ data }: { data: RiskReportData }) {
               <Text style={{ fontSize: 11, fontWeight: 800, color: theme.neutral.text }}>{finding.title}</Text>
               <SeverityBadge level={finding.severity} />
             </View>
+
             <Text style={[styles.td, { marginBottom: 4 }]}>
               {finding.category} · {finding.vendor} · {finding.article}
             </Text>
+
             <Text style={styles.body}>{finding.rec}</Text>
+
+            {finding.trace?.slice(0, 2).map((trace, index) => (
+              <View
+                key={`${trace.document}-${trace.chunkId ?? index}`}
+                style={{
+                  marginTop: 6,
+                  padding: 8,
+                  borderRadius: 6,
+                  backgroundColor: theme.neutral.background,
+                  border: `1px solid ${theme.neutral.border}`,
+                }}
+              >
+                <Text style={{ fontSize: 8, fontWeight: 800, color: theme.brand.primary, marginBottom: 3 }}>
+                  Source: {trace.document}
+                  {trace.page ? ` · page ${trace.page}` : ''} · {Math.round(trace.confidence * 100)}% confidence
+                </Text>
+
+                <Text style={{ fontSize: 8, lineHeight: 1.4, color: theme.neutral.textSecondary }}>
+                  “{trace.excerpt}”
+                </Text>
+              </View>
+            ))}
           </View>
         ))}
 

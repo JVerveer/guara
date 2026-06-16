@@ -4,6 +4,7 @@ import {
   Cloud,
   Database,
   Download,
+  FileSearch,
   FileWarning,
   Globe2,
   ShieldAlert,
@@ -12,7 +13,7 @@ import { Badge } from '../Badge';
 import { theme } from '../../../styles/theme';
 import { useAnalysisResult } from '../../../hooks/useAnalysisResult';
 import { getGapSummary, severityColor } from '../../../analysis/selectors';
-import type { FindingCategory } from '../../../analysis/types';
+import type { Finding, FindingCategory } from '../../../analysis/types';
 
 function CategoryIcon({ category }: { category: FindingCategory }) {
   const iconStyle = { color: theme.brand.primary };
@@ -55,6 +56,72 @@ function categoryStyle(category: FindingCategory): React.CSSProperties {
     borderColor: theme.neutral.border,
     color: theme.neutral.textSecondary,
   };
+}
+
+function FindingTraceBlock({ finding }: { finding: Finding }) {
+  if (!finding.trace || finding.trace.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mt-3 rounded-xl border p-3"
+      style={{
+        backgroundColor: theme.neutral.background,
+        borderColor: theme.neutral.border,
+      }}
+    >
+      <div className="mb-2 flex items-center gap-1.5">
+        <FileSearch className="h-3.5 w-3.5" style={{ color: theme.brand.primary }} />
+
+        <span
+          style={{
+            fontSize: '11px',
+            fontWeight: 800,
+            color: theme.neutral.text,
+          }}
+        >
+          Why was this detected?
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {finding.trace.slice(0, 3).map((trace, index) => (
+          <div
+            key={`${trace.document}-${trace.chunkId ?? index}`}
+            className="rounded-lg border p-2"
+            style={{
+              backgroundColor: theme.neutral.surface,
+              borderColor: theme.neutral.border,
+            }}
+          >
+            <p
+              style={{
+                fontSize: '10px',
+                fontWeight: 800,
+                color: theme.brand.primary,
+              }}
+            >
+              {trace.document}
+              {trace.page ? ` · page ${trace.page}` : ''} ·{' '}
+              {Math.round(trace.confidence * 100)}% confidence
+            </p>
+
+            <p
+              className="mt-1"
+              style={{
+                fontSize: '11px',
+                lineHeight: 1.5,
+                color: theme.neutral.textSecondary,
+              }}
+            >
+              “{trace.excerpt}”
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function GapsTab() {
@@ -252,6 +319,8 @@ export function GapsTab() {
               <p style={{ fontSize: '12px', lineHeight: 1.6, color: theme.neutral.textSecondary }}>
                 {finding.rec}
               </p>
+
+              <FindingTraceBlock finding={finding} />
             </div>
           </div>
         ))}

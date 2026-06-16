@@ -9,7 +9,7 @@ import type {
 import type { ParsedDocument } from '../ingestion/types';
 
 import { detectEvidence as detectEvidenceItems } from '../detectors/evidenceDetector';
-import { detectGaps } from '../detectors/gapDetectorWithFacts';
+import { detectGaps } from '../detectors/gapDetector';
 import { detectGapsFromFacts } from '../detectors/gapDetectorWithFacts';
 import { detectVendors } from '../detectors/vendorDetector';
 import {
