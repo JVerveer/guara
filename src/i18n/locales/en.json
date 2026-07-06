@@ -1,0 +1,220 @@
+{
+  "common": {
+    "search": "Search",
+    "searchEverything": "Search everything…",
+    "settings": "Settings",
+    "save": "Save",
+    "cancel": "Cancel",
+    "back": "Back",
+    "close": "Close",
+    "copy": "Copy",
+    "copied": "Copied",
+    "export": "Export",
+    "metadata": "Metadata",
+    "openApi": "Open API",
+    "citation": "Citation",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "filter": "Filter",
+    "lastUpdated": "Last updated",
+    "loading": "Loading…",
+    "viewAll": "View all",
+    "learnMore": "Learn more",
+    "live": "Live",
+    "shortcutHint": "⌘K"
+  },
+  "nav": {
+    "atlas": "Atlas",
+    "newResearch": "New Research",
+    "recent": "Recent",
+    "savedReports": "Saved Reports",
+    "datasetExplorer": "Dataset Explorer",
+    "sourceBrowser": "Source Browser",
+    "researchGraph": "Research Graph",
+    "collections": "Collections",
+    "settings": "Settings"
+  },
+  "research": {
+    "platformLabel": "AI Research Platform",
+    "heading": "Explore Dutch public data",
+    "searchPlaceholder": "Ask anything about Dutch public data…",
+    "searchButton": "Search",
+    "tryAsking": "Try asking",
+    "exampleQuestions": {
+      "housing": "Why are house prices rising faster in Utrecht?",
+      "unemployment": "Compare unemployment in Rotterdam and Amsterdam",
+      "aging": "Which municipalities are aging fastest?",
+      "inequality": "Show income inequality since 2005"
+    },
+    "quickAccess": {
+      "datasets": "Datasets",
+      "sources": "Sources",
+      "graph": "Graph"
+    },
+    "resultHeading": "Why are house prices rising faster in Utrecht?",
+    "sourcesAndConfidence": "{{count}} sources · {{confidence}}% confidence",
+    "generatedJustNow": "Generated just now",
+    "sourcesSection": "Sources",
+    "exploreFurther": "Explore further",
+    "researchGraph": "Research Graph",
+    "references": "References",
+    "exportReport": "Export report",
+    "saveToCollection": "Save to collection",
+    "generateCitation": "Generate citation",
+    "useInResearch": "Use in research",
+    "confidence": "Confidence",
+    "usedVariables": "Used variables",
+    "evidenceDescription": "This dataset was used to derive population trends and housing correlations at the municipal level. Coverage: 2010–2024. Methodology: linear regression with control variables for income and migration flow.",
+    "emptyState": {
+      "title": "Start your research",
+      "description": "Ask a question about Dutch public data to get started."
+    },
+    "charts": {
+      "housePrices": {
+        "title": "Average House Prices — Major Cities",
+        "subtitle": "€000s · 2015–2024 · Source: Kadaster"
+      },
+      "aging": {
+        "title": "Municipalities Aging Fastest",
+        "subtitle": "Share of population aged 65+ · Source: CBS 2023"
+      },
+      "agingTooltip": "65+ population"
+    },
+    "followUpQuestions": [
+      "How does Utrecht compare to other Randstad cities?",
+      "What role does student housing play in Utrecht's market?",
+      "Which neighborhoods within Utrecht have seen the most growth?",
+      "How did COVID-19 affect price trajectories?"
+    ],
+    "answer": {
+      "intro": "House prices in Utrecht have risen by <bold>131% since 2015</bold> — the sharpest relative increase of any major Dutch city, outpacing Amsterdam's 96% and Rotterdam's 108%.<cite>[1]</cite> Several structural forces converge to explain this trend.",
+      "supplyTitle": "Supply constraints.",
+      "supplyBody": "Utrecht's historic inner city fundamentally limits outward expansion. Building permits issued in Utrecht fell 23% between 2018 and 2023, while population density continued rising. Strong institutional demand from Utrecht University's 36,000 students further compresses available housing stock.",
+      "accessTitle": "Accessibility premium.",
+      "accessBody": "Utrecht Centraal connects Amsterdam, Rotterdam, Den Haag and Eindhoven within 30–45 minutes, positioning it as the functional hub of the Randstad. Commuters displaced by Amsterdam's even higher prices increasingly chose Utrecht as a primary base — a pattern CBS data confirms as a net inflow since 2018.",
+      "incomeTitle": "Income convergence.",
+      "incomeBody": "Average disposable household income in Utrecht Province exceeded the Amsterdam metropolitan area for the first time in 2021. This shifted Utrecht from an \"affordable alternative\" to a primary high-demand market with its own purchasing power dynamics."
+    }
+  },
+  "datasets": {
+    "title": "Dataset Explorer",
+    "browseDescription": "Browse {{total}}+ datasets from {{sources}} trusted sources",
+    "searchPlaceholder": "Search datasets, topics, or variables…",
+    "exploreDataset": "Explore",
+    "viewDataset": "View Dataset",
+    "count_one": "{{count}} dataset",
+    "count_other": "{{count}} datasets",
+    "resultsCount_one": "{{count}} dataset found",
+    "resultsCount_other": "{{count}} datasets found",
+    "noResults": "No datasets match your search. Try different keywords.",
+    "provider": "Provider",
+    "updated": "Updated",
+    "stats": {
+      "records": "Records",
+      "topics": "Topics",
+      "variables": "Variables",
+      "period": "Period",
+      "format": "Format",
+      "reliability": "Reliability"
+    },
+    "tabs": {
+      "preview": "Preview",
+      "metadata": "Metadata",
+      "variables": "Variables",
+      "api": "API"
+    },
+    "table": {
+      "municipality": "Municipality",
+      "year": "Year",
+      "population": "Population",
+      "avgIncome": "Avg. Income",
+      "avgWoz": "Avg. WOZ Value"
+    },
+    "showingRecords": "Showing 5 of {{total}} records. Download the full dataset or use the API endpoint.",
+    "api": {
+      "endpoint": "API Endpoint",
+      "exampleTitle": "AI-Generated Example — Python",
+      "suggestedJoins": "Suggested Joins",
+      "downloadCsv": "Download full dataset (CSV)"
+    },
+    "metadata": {
+      "datasetId": "Dataset ID",
+      "publisher": "Publisher",
+      "language": "Language",
+      "spatialCoverage": "Spatial coverage",
+      "temporalCoverage": "Temporal coverage",
+      "license": "License",
+      "updateFrequency": "Update frequency",
+      "format": "Format",
+      "catalogUrl": "Catalog URL"
+    },
+    "tags": {
+      "Population": "Population",
+      "Housing": "Housing",
+      "Economy": "Economy",
+      "Health": "Health",
+      "Climate": "Climate",
+      "EU": "EU",
+      "Demographics": "Demographics",
+      "Prices": "Prices",
+      "Real Estate": "Real Estate",
+      "Weather": "Weather",
+      "Environment": "Environment",
+      "Comparative": "Comparative",
+      "Development": "Development",
+      "Global": "Global",
+      "Policy": "Policy",
+      "Education": "Education",
+      "Transport": "Transport",
+      "Vehicles": "Vehicles",
+      "Government": "Government",
+      "Law": "Law",
+      "Local": "Local",
+      "Services": "Services",
+      "Land": "Land"
+    }
+  },
+  "sources": {
+    "title": "Source Browser",
+    "headerDescription": "{{providers}} connected providers · {{total}} total datasets · All sources verified",
+    "datasets": "Datasets",
+    "coverage": "Coverage",
+    "lastSynchronized": "Last sync",
+    "reliability": "Reliability",
+    "live": "Live",
+    "verified": "Verified"
+  },
+  "graph": {
+    "title": "Knowledge Graph",
+    "statsDescription": "{{topics}} topics · {{connections}} connections · {{datasets}} linked datasets",
+    "hoverHint": "Hover a node to explore connections",
+    "nodeTypes": "Node types",
+    "nodeActive": "Active / connected",
+    "nodeDefault": "Topic node",
+    "filters": {
+      "all": "All",
+      "economy": "Economy",
+      "society": "Society",
+      "environment": "Environment"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "appearance": "Appearance",
+    "language": "Language",
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode",
+    "languages": {
+      "en": "English",
+      "nl": "Nederlands"
+    }
+  },
+  "errors": {
+    "notFound": "Not found",
+    "generic": "Something went wrong. Please try again.",
+    "retry": "Try again",
+    "noDatasets": "No datasets match your search. Try different keywords.",
+    "noSources": "No sources connected.",
+    "loadingFailed": "Failed to load data. Check your connection and try again."
+  }
+}

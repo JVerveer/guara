@@ -1,0 +1,220 @@
+{
+  "common": {
+    "search": "Zoeken",
+    "searchEverything": "Doorzoek alles…",
+    "settings": "Instellingen",
+    "save": "Opslaan",
+    "cancel": "Annuleren",
+    "back": "Terug",
+    "close": "Sluiten",
+    "copy": "Kopiëren",
+    "copied": "Gekopieerd",
+    "export": "Exporteren",
+    "metadata": "Metadata",
+    "openApi": "Open API",
+    "citation": "Citaat",
+    "expand": "Uitklappen",
+    "collapse": "Inklappen",
+    "filter": "Filter",
+    "lastUpdated": "Laatste update",
+    "loading": "Laden…",
+    "viewAll": "Alles weergeven",
+    "learnMore": "Meer informatie",
+    "live": "Live",
+    "shortcutHint": "⌘K"
+  },
+  "nav": {
+    "atlas": "Atlas",
+    "newResearch": "Nieuw onderzoek",
+    "recent": "Recent",
+    "savedReports": "Opgeslagen rapporten",
+    "datasetExplorer": "Gegevensverkenner",
+    "sourceBrowser": "Bronnenverkenner",
+    "researchGraph": "Onderzoeksgraph",
+    "collections": "Collecties",
+    "settings": "Instellingen"
+  },
+  "research": {
+    "platformLabel": "AI-onderzoeksplatform",
+    "heading": "Verken Nederlandse publieke data",
+    "searchPlaceholder": "Stel een vraag over Nederlandse publieke data…",
+    "searchButton": "Zoeken",
+    "tryAsking": "Probeer te vragen",
+    "exampleQuestions": {
+      "housing": "Waarom stijgen huizenprijzen sneller in Utrecht?",
+      "unemployment": "Vergelijk werkloosheid in Rotterdam en Amsterdam",
+      "aging": "Welke gemeenten vergrijzen het snelst?",
+      "inequality": "Toon inkomensgelijkheid sinds 2005"
+    },
+    "quickAccess": {
+      "datasets": "Datasets",
+      "sources": "Bronnen",
+      "graph": "Graaf"
+    },
+    "resultHeading": "Waarom stijgen huizenprijzen sneller in Utrecht?",
+    "sourcesAndConfidence": "{{count}} bronnen · {{confidence}}% betrouwbaarheid",
+    "generatedJustNow": "Zojuist gegenereerd",
+    "sourcesSection": "Bronnen",
+    "exploreFurther": "Verder verkennen",
+    "researchGraph": "Onderzoeksgraph",
+    "references": "Referenties",
+    "exportReport": "Rapport exporteren",
+    "saveToCollection": "Opslaan in collectie",
+    "generateCitation": "Citaat genereren",
+    "useInResearch": "Gebruik in onderzoek",
+    "confidence": "Betrouwbaarheid",
+    "usedVariables": "Gebruikte variabelen",
+    "evidenceDescription": "Deze dataset is gebruikt om populatietrends en woningcorrelaties op gemeentelijk niveau af te leiden. Dekking: 2010–2024. Methode: lineaire regressie met controlevariabelen voor inkomen en migratiestroom.",
+    "emptyState": {
+      "title": "Begin uw onderzoek",
+      "description": "Stel een vraag over Nederlandse publieke data om te beginnen."
+    },
+    "charts": {
+      "housePrices": {
+        "title": "Gemiddelde huizenprijzen — grote steden",
+        "subtitle": "€000 · 2015–2024 · Bron: Kadaster"
+      },
+      "aging": {
+        "title": "Snelst vergrijzende gemeenten",
+        "subtitle": "Aandeel bevolking 65+ · Bron: CBS 2023"
+      },
+      "agingTooltip": "65+ bevolking"
+    },
+    "followUpQuestions": [
+      "Hoe verhoudt Utrecht zich tot andere Randstadsteden?",
+      "Welke rol speelt studentenhuisvesting op de Utrechtse markt?",
+      "Welke wijken in Utrecht zijn het meest gestegen?",
+      "Hoe heeft COVID-19 de prijsontwikkeling beïnvloed?"
+    ],
+    "answer": {
+      "intro": "De huizenprijzen in Utrecht zijn gestegen met <bold>131% sinds 2015</bold> — de scherpste relatieve stijging van alle grote Nederlandse steden, meer dan Amsterdam (96%) en Rotterdam (108%).<cite>[1]</cite> Verschillende structurele factoren verklaren deze trend.",
+      "supplyTitle": "Aanbodbeperking.",
+      "supplyBody": "Utrechts historische binnenstad beperkt verdere uitbreiding fundamenteel. Het aantal verleende bouwvergunningen in Utrecht daalde met 23% tussen 2018 en 2023, terwijl de bevolkingsdichtheid bleef stijgen. De grote vraag van 36.000 studenten van de Universiteit Utrecht vergroot de druk op de woningmarkt verder.",
+      "accessTitle": "Bereikbaarheidspremie.",
+      "accessBody": "Utrecht Centraal verbindt Amsterdam, Rotterdam, Den Haag en Eindhoven binnen 30–45 minuten, waardoor het de functionele kern van de Randstad vormt. Forensen die door de hoge Amsterdamse prijzen worden verdrongen, kiezen steeds vaker voor Utrecht als primaire woonplaats — een patroon dat CBS-data bevestigt als netto-instroom sinds 2018.",
+      "incomeTitle": "Inkomen convergeert.",
+      "incomeBody": "Het gemiddeld besteedbaar huishoudinkomen in de provincie Utrecht oversteeg voor het eerst in 2021 dat van de Amsterdamse metropoolregio. Dit verschoof Utrecht van een 'betaalbaar alternatief' naar een primaire markt met hoge vraag en eigen koopkrachtdynamiek."
+    }
+  },
+  "datasets": {
+    "title": "Gegevensverkenner",
+    "browseDescription": "Verken {{total}}+ datasets van {{sources}} betrouwbare bronnen",
+    "searchPlaceholder": "Zoek datasets, onderwerpen of variabelen…",
+    "exploreDataset": "Verkennen",
+    "viewDataset": "Dataset bekijken",
+    "count_one": "{{count}} dataset",
+    "count_other": "{{count}} datasets",
+    "resultsCount_one": "{{count}} dataset gevonden",
+    "resultsCount_other": "{{count}} datasets gevonden",
+    "noResults": "Geen datasets gevonden voor uw zoekopdracht. Probeer andere zoektermen.",
+    "provider": "Aanbieder",
+    "updated": "Bijgewerkt",
+    "stats": {
+      "records": "Records",
+      "topics": "Onderwerpen",
+      "variables": "Variabelen",
+      "period": "Periode",
+      "format": "Formaat",
+      "reliability": "Betrouwbaarheid"
+    },
+    "tabs": {
+      "preview": "Voorbeeld",
+      "metadata": "Metadata",
+      "variables": "Variabelen",
+      "api": "API"
+    },
+    "table": {
+      "municipality": "Gemeente",
+      "year": "Jaar",
+      "population": "Bevolking",
+      "avgIncome": "Gem. inkomen",
+      "avgWoz": "Gem. WOZ-waarde"
+    },
+    "showingRecords": "5 van {{total}} records weergegeven. Download de volledige dataset of gebruik het API-eindpunt.",
+    "api": {
+      "endpoint": "API-eindpunt",
+      "exampleTitle": "AI-gegenereerd voorbeeld — Python",
+      "suggestedJoins": "Aanbevolen koppelingen",
+      "downloadCsv": "Volledige dataset downloaden (CSV)"
+    },
+    "metadata": {
+      "datasetId": "Dataset-ID",
+      "publisher": "Uitgever",
+      "language": "Taal",
+      "spatialCoverage": "Ruimtelijke dekking",
+      "temporalCoverage": "Temporele dekking",
+      "license": "Licentie",
+      "updateFrequency": "Updatefrequentie",
+      "format": "Formaat",
+      "catalogUrl": "Catalogus-URL"
+    },
+    "tags": {
+      "Population": "Bevolking",
+      "Housing": "Wonen",
+      "Economy": "Economie",
+      "Health": "Gezondheid",
+      "Climate": "Klimaat",
+      "EU": "EU",
+      "Demographics": "Demografie",
+      "Prices": "Prijzen",
+      "Real Estate": "Vastgoed",
+      "Weather": "Weer",
+      "Environment": "Milieu",
+      "Comparative": "Vergelijkend",
+      "Development": "Ontwikkeling",
+      "Global": "Wereldwijd",
+      "Policy": "Beleid",
+      "Education": "Onderwijs",
+      "Transport": "Vervoer",
+      "Vehicles": "Voertuigen",
+      "Government": "Overheid",
+      "Law": "Recht",
+      "Local": "Lokaal",
+      "Services": "Diensten",
+      "Land": "Grond"
+    }
+  },
+  "sources": {
+    "title": "Bronnenverkenner",
+    "headerDescription": "{{providers}} verbonden aanbieders · {{total}} datasets in totaal · Alle bronnen geverifieerd",
+    "datasets": "Datasets",
+    "coverage": "Dekking",
+    "lastSynchronized": "Laatste sync",
+    "reliability": "Betrouwbaarheid",
+    "live": "Live",
+    "verified": "Geverifieerd"
+  },
+  "graph": {
+    "title": "Kennisgraaf",
+    "statsDescription": "{{topics}} onderwerpen · {{connections}} verbindingen · {{datasets}} gekoppelde datasets",
+    "hoverHint": "Beweeg over een knoop om verbindingen te verkennen",
+    "nodeTypes": "Knooptypes",
+    "nodeActive": "Actief / verbonden",
+    "nodeDefault": "Onderwerpknoop",
+    "filters": {
+      "all": "Alle",
+      "economy": "Economie",
+      "society": "Samenleving",
+      "environment": "Milieu"
+    }
+  },
+  "settings": {
+    "title": "Instellingen",
+    "appearance": "Weergave",
+    "language": "Taal",
+    "lightMode": "Lichte modus",
+    "darkMode": "Donkere modus",
+    "languages": {
+      "en": "English",
+      "nl": "Nederlands"
+    }
+  },
+  "errors": {
+    "notFound": "Niet gevonden",
+    "generic": "Er is iets misgegaan. Probeer het opnieuw.",
+    "retry": "Probeer opnieuw",
+    "noDatasets": "Geen datasets gevonden. Probeer andere zoektermen.",
+    "noSources": "Geen bronnen verbonden.",
+    "loadingFailed": "Laden mislukt. Controleer uw verbinding en probeer het opnieuw."
+  }
+}
