@@ -15,6 +15,7 @@ export function TopNav({ screen, setScreen }: TopNavProps) {
     result: t("research.resultHeading"),
     datasets: t("nav.datasetExplorer"),
     sources: t("nav.sourceBrowser"),
+    map: t("nav.mapExplorer"),
     graph: t("graph.title"),
     "dataset-detail": t("datasets.tabs.metadata"),
   };

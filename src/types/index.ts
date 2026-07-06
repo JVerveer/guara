@@ -6,5 +6,6 @@ export type Screen =
   | "result"
   | "datasets"
   | "sources"
+  | "map"
   | "graph"
   | "dataset-detail";

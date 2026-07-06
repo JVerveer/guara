@@ -5,6 +5,7 @@ import { DatasetExplorerScreen } from "@/pages/DatasetExplorerScreen";
 import { SourceBrowserScreen } from "@/pages/SourceBrowserScreen";
 import { GraphScreen } from "@/pages/GraphScreen";
 import { DatasetDetailScreen } from "@/pages/DatasetDetailScreen";
+import { MapExplorerScreen } from "@/pages/MapExplorerScreen";
 
 interface RouteProps {
   setScreen: (s: Screen) => void;
@@ -27,6 +28,8 @@ export function renderRoute(screen: Screen, setScreen: (s: Screen) => void): Rea
       return <DatasetExplorerScreen {...props} />;
     case "sources":
       return <SourceBrowserScreen />;
+    case "map":
+      return <MapExplorerScreen />;
     case "graph":
       return <GraphScreen />;
     case "dataset-detail":
