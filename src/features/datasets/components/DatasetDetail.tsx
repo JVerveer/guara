@@ -19,27 +19,15 @@ type Tab = "preview" | "metadata" | "variables" | "api";
 
 const API_ENDPOINT = "https://opendata.cbs.nl/ODataApi/odata/85039NED/TypedDataSet";
 
-const CODE_SNIPPET = `import cbsodata
-
-# Fetch kerncijfers for Amsterdam (GM0363)
-data = cbsodata.get_data(
-    '85039NED',
-    filters="RegioS eq 'GM0363'",
-    select=[
-        'BevolkingAantalInwoners',
-        'GemiddeldinkomenperpersoonEuro',
-    ]
-)`;
-
 const METADATA_KEYS = [
-  { labelKey: "datasets.metadata.datasetId", value: "85039NED" },
+  { labelKey: "datasets.metadata.datasetId", value: "CBS StatLine" },
   { labelKey: "datasets.metadata.publisher", value: "Centraal Bureau voor de Statistiek (CBS)" },
   { labelKey: "datasets.metadata.language", value: "Dutch (NL)" },
   { labelKey: "datasets.metadata.spatialCoverage", value: "Netherlands — all municipalities, wijken and buurten" },
-  { labelKey: "datasets.metadata.temporalCoverage", value: "2015–2023 (annual)" },
+  { labelKey: "datasets.metadata.temporalCoverage", value: "Provided by CBS metadata" },
   { labelKey: "datasets.metadata.license", value: "Creative Commons Attribution 4.0 (CC BY 4.0)" },
-  { labelKey: "datasets.metadata.updateFrequency", value: "Annual" },
-  { labelKey: "datasets.metadata.format", value: "JSON, CSV, Excel" },
+  { labelKey: "datasets.metadata.updateFrequency", value: "Provided by CBS metadata" },
+  { labelKey: "datasets.metadata.format", value: "JSON" },
   { labelKey: "datasets.metadata.catalogUrl", value: "opendata.cbs.nl" },
 ] as const;
 
@@ -51,12 +39,19 @@ const TABLE_HEADER_KEYS = [
   "datasets.table.avgWoz",
 ] as const;
 
-export function DatasetDetail() {
+interface DatasetDetailProps {
+  datasetId: string;
+}
+
+export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>("preview");
   const [copied, setCopied] = useState(false);
   const [previewRows, setPreviewRows] = useState<DatasetPreviewRow[]>([]);
   const [variables, setVariables] = useState<DatasetVariable[]>([]);
+  const [datasetTitle, setDatasetTitle] = useState("CBS StatLine dataset");
+  const [datasetDescription, setDatasetDescription] = useState("Live CBS StatLine data loaded from the Open Data v3 API.");
+  const [apiEndpoint, setApiEndpoint] = useState(API_ENDPOINT);
   const [isLoadingApiData, setIsLoadingApiData] = useState(true);
 
   const locale = i18n.language.startsWith("nl") ? "nl-NL" : "en-GB";
@@ -69,6 +64,9 @@ export function DatasetDetail() {
     }).format(n);
 
   const suggestedJoins = datasetService.getDetailSuggestedJoins();
+  const codeSnippet = `fetch("${apiEndpoint}?$format=json&$top=5")
+  .then((response) => response.json())
+  .then((data) => console.log(data.value));`;
   const statsKeys = [
     { key: "datasets.stats.records", value: String(previewRows.length) },
     { key: "datasets.stats.topics", value: String(variables.length) },
@@ -82,11 +80,21 @@ export function DatasetDetail() {
     let cancelled = false;
     setIsLoadingApiData(true);
 
-    Promise.all([datasetService.getDetailPreviewRows(), datasetService.getDetailVariables()])
-      .then(([rows, nextVariables]) => {
+    Promise.allSettled([
+      datasetService.getDatasetById(datasetId),
+      datasetService.getDetailPreviewRows(datasetId),
+      datasetService.getDetailVariables(datasetId),
+    ])
+      .then(([datasetResult, rowsResult, variablesResult]) => {
         if (cancelled) return;
+        const dataset = datasetResult.status === "fulfilled" ? datasetResult.value : undefined;
+        const rows = rowsResult.status === "fulfilled" ? rowsResult.value : [];
+        const nextVariables = variablesResult.status === "fulfilled" ? variablesResult.value : [];
+        setDatasetTitle(dataset?.title ?? datasetId);
+        setDatasetDescription(dataset?.description ?? "Live CBS StatLine data loaded from the Open Data v3 API.");
         setPreviewRows(rows);
         setVariables(nextVariables);
+        setApiEndpoint(`https://opendata.cbs.nl/ODataApi/odata/${datasetId}/TypedDataSet`);
       })
       .finally(() => {
         if (!cancelled) setIsLoadingApiData(false);
@@ -95,7 +103,7 @@ export function DatasetDetail() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [datasetId]);
 
   const TABS: { id: Tab; labelKey: string }[] = [
     { id: "preview", labelKey: "datasets.tabs.preview" },
@@ -105,7 +113,7 @@ export function DatasetDetail() {
   ];
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(API_ENDPOINT);
+    navigator.clipboard.writeText(apiEndpoint);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -129,11 +137,10 @@ export function DatasetDetail() {
                 className="text-[28px] text-foreground leading-tight"
                 style={{ fontFamily: fonts.display, fontWeight: 400 }}
               >
-                Kerncijfers wijken en buurten
+                {datasetTitle}
               </h1>
               <p className="text-[14px] text-muted-foreground leading-relaxed max-w-2xl">
-                Live CBS StatLine data for Dutch municipalities, neighborhoods (wijken) and
-                districts (buurten), loaded from the Open Data v3 API.
+                {datasetDescription}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -239,7 +246,9 @@ export function DatasetDetail() {
                 <span className="text-[12px] font-medium text-muted-foreground w-48 flex-shrink-0 pt-0.5">
                   {t(labelKey)}
                 </span>
-                <span className="text-[13px] text-foreground">{value}</span>
+                <span className="text-[13px] text-foreground">
+                  {labelKey === "datasets.metadata.datasetId" ? datasetId : value}
+                </span>
               </div>
             ))}
           </div>
@@ -285,7 +294,7 @@ export function DatasetDetail() {
                   className="flex-1 text-[12px] text-foreground truncate"
                   style={{ fontFamily: fonts.mono }}
                 >
-                  {API_ENDPOINT}
+                  {apiEndpoint}
                 </code>
                 <button
                   onClick={handleCopy}
@@ -315,7 +324,7 @@ export function DatasetDetail() {
                   className="px-5 py-4 text-[12.5px] text-green-300/90 overflow-x-auto leading-6"
                   style={{ fontFamily: fonts.mono }}
                 >
-                  {CODE_SNIPPET}
+                  {codeSnippet}
                 </pre>
               </div>
             </div>

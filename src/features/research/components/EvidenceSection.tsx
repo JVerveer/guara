@@ -1,27 +1,15 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EvidenceCard } from "./EvidenceCard";
-import { researchService } from "../services/researchService";
 import type { EvidenceSource } from "../types";
 import type { Screen } from "@/types";
 
 interface EvidenceSectionProps {
   setScreen: (s: Screen) => void;
+  sources: EvidenceSource[];
 }
 
-export function EvidenceSection({ setScreen }: EvidenceSectionProps) {
+export function EvidenceSection({ setScreen, sources }: EvidenceSectionProps) {
   const { t } = useTranslation();
-  const [sources, setSources] = useState<EvidenceSource[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    researchService.getEvidenceSources().then((nextSources) => {
-      if (!cancelled) setSources(nextSources);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   return (
     <div>

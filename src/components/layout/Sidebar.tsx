@@ -18,13 +18,6 @@ import { useTheme } from "@/app/providers/ThemeProvider";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import type { Screen } from "@/types";
 
-const RECENT_ITEMS = [
-  "Housing prices Utrecht analysis",
-  "Unemployment by municipality",
-  "Energy poverty distribution",
-  "Income inequality 2005–2024",
-] as const;
-
 interface NavItemProps {
   label: string;
   icon: React.ReactNode;
@@ -87,33 +80,7 @@ export function Sidebar({ screen, setScreen }: SidebarProps) {
         </button>
       </div>
 
-      {/* Recent */}
-      <div className="px-3 py-2">
-        <p className="px-3 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider" id="recent-label">
-          {t("nav.recent")}
-        </p>
-        <ul aria-labelledby="recent-label" className="space-y-0.5 list-none">
-          {RECENT_ITEMS.map((item, i) => (
-            <li key={i}>
-              <button
-                type="button"
-                onClick={() => setScreen("result")}
-                aria-current={i === 0 && screen === "result" ? "page" : undefined}
-                className={cn(
-                  "w-full text-left px-3 py-1.5 rounded-lg text-[12.5px] transition-colors duration-150 truncate",
-                  i === 0 && screen === "result"
-                    ? "bg-accent text-accent-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                )}
-              >
-                {item}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="h-px bg-sidebar-border mx-3 my-2" aria-hidden="true" />
+      <div className="h-px bg-sidebar-border mx-3 my-4" aria-hidden="true" />
 
       {/* Main nav */}
       <ul className="px-3 space-y-0.5 list-none">

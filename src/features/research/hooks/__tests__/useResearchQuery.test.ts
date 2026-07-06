@@ -21,10 +21,13 @@ vi.mock("../../services/researchService", () => ({
 import { researchService } from "../../services/researchService";
 
 const MOCK_RESULT: ResearchQuery = {
-  question: "Why are house prices rising faster in Utrecht?",
-  sourceCount: 3,
-  confidenceScore: 95,
+  question: "Kerncijfers wijken en buurten",
+  sourceCount: 1,
+  confidenceScore: 100,
   evidenceSources: [],
+  answerTitle: "CBS StatLine results",
+  answerSummary: "Live CBS StatLine catalog result.",
+  answerBullets: ["85039NED: Kerncijfers wijken en buurten 2021"],
 };
 
 describe("useResearchQuery", () => {

@@ -42,17 +42,17 @@
     "searchButton": "Zoeken",
     "tryAsking": "Probeer te vragen",
     "exampleQuestions": {
-      "housing": "Waarom stijgen huizenprijzen sneller in Utrecht?",
-      "unemployment": "Vergelijk werkloosheid in Rotterdam en Amsterdam",
-      "aging": "Welke gemeenten vergrijzen het snelst?",
-      "inequality": "Toon inkomensgelijkheid sinds 2005"
+      "housing": "Kerncijfers wijken en buurten",
+      "unemployment": "Bevolking gemeente Utrecht",
+      "aging": "Gemiddelde WOZ-waarde gemeenten",
+      "inequality": "Regionale kerncijfers Nederland"
     },
     "quickAccess": {
       "datasets": "Datasets",
       "sources": "Bronnen",
       "graph": "Graaf"
     },
-    "resultHeading": "Waarom stijgen huizenprijzen sneller in Utrecht?",
+    "resultHeading": "Onderzoeksresultaat",
     "sourcesAndConfidence": "{{count}} bronnen · {{confidence}}% betrouwbaarheid",
     "generatedJustNow": "Zojuist gegenereerd",
     "sourcesSection": "Bronnen",

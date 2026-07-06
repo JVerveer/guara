@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { datasetService } from "../services/datasetService";
 import type { Dataset } from "../types";
 
@@ -37,8 +37,10 @@ export function useDatasets(): UseDatasetsResult {
     setIsLoading(true);
     setError(null);
 
+    const tags = activeTag ? [activeTag] : [];
+
     datasetService
-      .getAllDatasets()
+      .searchDatasets(query, tags)
       .then((data) => {
         if (!cancelled) setDatasets(data);
       })
@@ -54,26 +56,13 @@ export function useDatasets(): UseDatasetsResult {
     return () => {
       cancelled = true;
     };
-  }, [fetchKey]);
-
-  const filtered = useMemo(
-    () =>
-      datasets.filter((d) => {
-        const matchSearch =
-          !query ||
-          d.title.toLowerCase().includes(query.toLowerCase()) ||
-          d.description.toLowerCase().includes(query.toLowerCase());
-        const matchTag = !activeTag || d.tags.includes(activeTag);
-        return matchSearch && matchTag;
-      }),
-    [datasets, query, activeTag]
-  );
+  }, [activeTag, fetchKey, query]);
 
   const retry = () => setFetchKey((k) => k + 1);
 
   return {
     datasets,
-    filtered,
+    filtered: datasets,
     query,
     setQuery,
     activeTag,

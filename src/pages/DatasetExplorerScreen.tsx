@@ -18,9 +18,10 @@ const FILTER_TAG_KEYS = ["Population", "Housing", "Economy", "Health", "Climate"
 
 interface DatasetExplorerScreenProps {
   setScreen: (s: Screen) => void;
+  setSelectedDatasetId: (id: string) => void;
 }
 
-export function DatasetExplorerScreen({ setScreen }: DatasetExplorerScreenProps) {
+export function DatasetExplorerScreen({ setScreen, setSelectedDatasetId }: DatasetExplorerScreenProps) {
   const { t } = useTranslation();
   const { formatCompact } = useLocale();
   const { filtered, query, setQuery, activeTag, setActiveTag, hasActiveFilters, isLoading, error, retry } =
@@ -129,7 +130,7 @@ export function DatasetExplorerScreen({ setScreen }: DatasetExplorerScreenProps)
           <ul className="grid grid-cols-2 gap-4 list-none">
             {filtered.map((dataset) => (
               <li key={dataset.id}>
-                <DatasetCard dataset={dataset} setScreen={setScreen} />
+                <DatasetCard dataset={dataset} setScreen={setScreen} setSelectedDatasetId={setSelectedDatasetId} />
               </li>
             ))}
           </ul>

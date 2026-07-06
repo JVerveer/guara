@@ -11,21 +11,28 @@ interface RouteProps {
   setScreen: (s: Screen) => void;
 }
 
+export interface RouteState {
+  selectedDatasetId: string;
+  setSelectedDatasetId: (id: string) => void;
+  researchQuestion: string;
+  setResearchQuestion: (question: string) => void;
+}
+
 /**
  * Renders the active screen based on the current navigation state.
  * Replaces a router for this single-page app.
  * Swap for react-router or TanStack Router when adding URL-based routing.
  */
-export function renderRoute(screen: Screen, setScreen: (s: Screen) => void): React.ReactNode {
+export function renderRoute(screen: Screen, setScreen: (s: Screen) => void, state: RouteState): React.ReactNode {
   const props: RouteProps = { setScreen };
 
   switch (screen) {
     case "home":
-      return <HomeScreen {...props} />;
+      return <HomeScreen {...props} setResearchQuestion={state.setResearchQuestion} />;
     case "result":
-      return <ResultScreen {...props} />;
+      return <ResultScreen {...props} question={state.researchQuestion} />;
     case "datasets":
-      return <DatasetExplorerScreen {...props} />;
+      return <DatasetExplorerScreen {...props} setSelectedDatasetId={state.setSelectedDatasetId} />;
     case "sources":
       return <SourceBrowserScreen />;
     case "map":
@@ -33,6 +40,6 @@ export function renderRoute(screen: Screen, setScreen: (s: Screen) => void): Rea
     case "graph":
       return <GraphScreen />;
     case "dataset-detail":
-      return <DatasetDetailScreen />;
+      return <DatasetDetailScreen datasetId={state.selectedDatasetId} />;
   }
 }

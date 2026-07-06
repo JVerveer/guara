@@ -42,17 +42,17 @@
     "searchButton": "Search",
     "tryAsking": "Try asking",
     "exampleQuestions": {
-      "housing": "Why are house prices rising faster in Utrecht?",
-      "unemployment": "Compare unemployment in Rotterdam and Amsterdam",
-      "aging": "Which municipalities are aging fastest?",
-      "inequality": "Show income inequality since 2005"
+      "housing": "Kerncijfers wijken en buurten",
+      "unemployment": "Bevolking gemeente Utrecht",
+      "aging": "Gemiddelde WOZ-waarde gemeenten",
+      "inequality": "Regionale kerncijfers Nederland"
     },
     "quickAccess": {
       "datasets": "Datasets",
       "sources": "Sources",
       "graph": "Graph"
     },
-    "resultHeading": "Why are house prices rising faster in Utrecht?",
+    "resultHeading": "Research result",
     "sourcesAndConfidence": "{{count}} sources · {{confidence}}% confidence",
     "generatedJustNow": "Generated just now",
     "sourcesSection": "Sources",

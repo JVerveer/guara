@@ -24,6 +24,9 @@ export interface ResearchQuery {
   sourceCount: number;
   confidenceScore: number;
   evidenceSources: EvidenceSource[];
+  answerTitle: string;
+  answerSummary: string;
+  answerBullets: string[];
 }
 
 export interface HousePriceDataPoint {

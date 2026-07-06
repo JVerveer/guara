@@ -8,9 +8,10 @@ import type { Screen } from "@/types";
 interface DatasetCardProps {
   dataset: Dataset;
   setScreen: (s: Screen) => void;
+  setSelectedDatasetId?: (id: string) => void;
 }
 
-export function DatasetCard({ dataset: d, setScreen }: DatasetCardProps) {
+export function DatasetCard({ dataset: d, setScreen, setSelectedDatasetId }: DatasetCardProps) {
   const { t } = useTranslation();
 
   return (
@@ -48,7 +49,10 @@ export function DatasetCard({ dataset: d, setScreen }: DatasetCardProps) {
           </span>
         </div>
         <button
-          onClick={() => setScreen("dataset-detail")}
+          onClick={() => {
+            setSelectedDatasetId?.(d.id);
+            setScreen("dataset-detail");
+          }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium text-primary hover:bg-accent transition-colors"
         >
           {t("datasets.exploreDataset")}

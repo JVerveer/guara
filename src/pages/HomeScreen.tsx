@@ -9,9 +9,10 @@ const EXAMPLE_QUESTION_KEYS = ["housing", "unemployment", "aging", "inequality"]
 
 interface HomeScreenProps {
   setScreen: (s: Screen) => void;
+  setResearchQuestion: (question: string) => void;
 }
 
-export function HomeScreen({ setScreen }: HomeScreenProps) {
+export function HomeScreen({ setScreen, setResearchQuestion }: HomeScreenProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
 
@@ -37,12 +38,21 @@ export function HomeScreen({ setScreen }: HomeScreenProps) {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && setScreen("result")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && query.trim()) {
+                  setResearchQuestion(query.trim());
+                  setScreen("result");
+                }
+              }}
               placeholder={t("research.searchPlaceholder")}
               className="w-full bg-transparent pl-11 pr-28 py-4 text-[15px] text-foreground placeholder:text-muted-foreground outline-none rounded-2xl"
             />
             <button
-              onClick={() => setScreen("result")}
+              onClick={() => {
+                if (!query.trim()) return;
+                setResearchQuestion(query.trim());
+                setScreen("result");
+              }}
               className="absolute right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
             >
               <ArrowUpRight size={13} />
@@ -59,7 +69,12 @@ export function HomeScreen({ setScreen }: HomeScreenProps) {
             {EXAMPLE_QUESTION_KEYS.map((key) => (
               <button
                 key={key}
-                onClick={() => setScreen("result")}
+                onClick={() => {
+                  const question = t(`research.exampleQuestions.${key}`);
+                  setQuery(question);
+                  setResearchQuestion(question);
+                  setScreen("result");
+                }}
                 className="flex items-start gap-2.5 text-left px-4 py-3 bg-card border border-border rounded-xl hover:bg-accent hover:border-primary/30 hover:text-accent-foreground transition-all duration-150 group"
               >
                 <ArrowUpRight

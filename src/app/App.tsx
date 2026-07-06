@@ -8,6 +8,8 @@ import type { Screen } from "@/types";
 
 function Shell() {
   const [screen, setScreen] = useState<Screen>("home");
+  const [selectedDatasetId, setSelectedDatasetId] = useState("85039NED");
+  const [researchQuestion, setResearchQuestion] = useState("");
 
   return (
     <div
@@ -19,7 +21,12 @@ function Shell() {
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <TopNav screen={screen} setScreen={setScreen} />
         <main className="flex-1 overflow-hidden flex flex-col">
-          {renderRoute(screen, setScreen)}
+          {renderRoute(screen, setScreen, {
+            selectedDatasetId,
+            setSelectedDatasetId,
+            researchQuestion,
+            setResearchQuestion,
+          })}
         </main>
       </div>
     </div>
