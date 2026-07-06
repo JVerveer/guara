@@ -4,6 +4,7 @@ import { useResearchGraph } from "@/features/graph/hooks/useResearchGraph";
 import { KnowledgeGraph } from "@/features/graph/components/KnowledgeGraph";
 import { GraphToolbar, type FilterKey } from "@/features/graph/components/GraphToolbar";
 import { GraphLegend, GraphHint } from "@/features/graph/components/GraphLegend";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { ErrorState } from "@/components/ui/ErrorState";
 
@@ -26,6 +27,16 @@ export function GraphScreen() {
   }
 
   if (!graph) return null;
+
+  if (graph.nodes.length === 0) {
+    return (
+      <EmptyState
+        title="No live graph API connected"
+        description="Connect a graph API before rendering research graph data."
+        className="flex-1"
+      />
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">

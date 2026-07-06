@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Bookmark,
   Check,
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { fonts } from "@/theme/tokens";
 import { ProviderBadge } from "@/components/ui/ProviderBadge";
 import { datasetService } from "../services/datasetService";
+import type { DatasetPreviewRow, DatasetVariable } from "../types";
 
 type Tab = "preview" | "metadata" | "variables" | "api";
 
@@ -42,15 +43,6 @@ const METADATA_KEYS = [
   { labelKey: "datasets.metadata.catalogUrl", value: "opendata.cbs.nl" },
 ] as const;
 
-const STATS_KEYS = [
-  { key: "datasets.stats.records", value: "87,432" },
-  { key: "datasets.stats.topics", value: "24" },
-  { key: "datasets.stats.variables", value: "148" },
-  { key: "datasets.stats.period", value: "2015–2023" },
-  { key: "datasets.stats.format", value: "JSON / CSV" },
-  { key: "datasets.stats.reliability", value: "98%" },
-] as const;
-
 const TABLE_HEADER_KEYS = [
   "datasets.table.municipality",
   "datasets.table.year",
@@ -63,6 +55,9 @@ export function DatasetDetail() {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>("preview");
   const [copied, setCopied] = useState(false);
+  const [previewRows, setPreviewRows] = useState<DatasetPreviewRow[]>([]);
+  const [variables, setVariables] = useState<DatasetVariable[]>([]);
+  const [isLoadingApiData, setIsLoadingApiData] = useState(true);
 
   const locale = i18n.language.startsWith("nl") ? "nl-NL" : "en-GB";
   const formatInt = (n: number) => new Intl.NumberFormat(locale).format(n);
@@ -73,9 +68,34 @@ export function DatasetDetail() {
       maximumFractionDigits: 0,
     }).format(n);
 
-  const previewRows = datasetService.getDetailPreviewRows();
-  const variables = datasetService.getDetailVariables();
   const suggestedJoins = datasetService.getDetailSuggestedJoins();
+  const statsKeys = [
+    { key: "datasets.stats.records", value: String(previewRows.length) },
+    { key: "datasets.stats.topics", value: String(variables.length) },
+    { key: "datasets.stats.variables", value: String(variables.length) },
+    { key: "datasets.stats.period", value: "2021" },
+    { key: "datasets.stats.format", value: "JSON" },
+    { key: "datasets.stats.reliability", value: "CBS API" },
+  ] as const;
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingApiData(true);
+
+    Promise.all([datasetService.getDetailPreviewRows(), datasetService.getDetailVariables()])
+      .then(([rows, nextVariables]) => {
+        if (cancelled) return;
+        setPreviewRows(rows);
+        setVariables(nextVariables);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingApiData(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const TABS: { id: Tab; labelKey: string }[] = [
     { id: "preview", labelKey: "datasets.tabs.preview" },
@@ -99,7 +119,7 @@ export function DatasetDetail() {
             <div className="space-y-2">
               <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
                 <ProviderBadge name="CBS" />
-                <span>{t("common.lastUpdated")}: Jan 15, 2024</span>
+                <span>{t("common.lastUpdated")}: CBS API</span>
                 <span>·</span>
                 <span>{t("sources.coverage")}: All 342 municipalities</span>
                 <span>·</span>
@@ -109,12 +129,11 @@ export function DatasetDetail() {
                 className="text-[28px] text-foreground leading-tight"
                 style={{ fontFamily: fonts.display, fontWeight: 400 }}
               >
-                Kerncijfers wijken en buurten 2023
+                Kerncijfers wijken en buurten
               </h1>
               <p className="text-[14px] text-muted-foreground leading-relaxed max-w-2xl">
-                Comprehensive key figures for all Dutch municipalities, neighborhoods (wijken) and
-                districts (buurten). Includes population, demographics, income, housing, safety,
-                health and environmental indicators for 2023.
+                Live CBS StatLine data for Dutch municipalities, neighborhoods (wijken) and
+                districts (buurten), loaded from the Open Data v3 API.
               </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -131,7 +150,7 @@ export function DatasetDetail() {
 
           {/* Stats strip */}
           <div className="grid grid-cols-6 gap-4 p-4 bg-muted rounded-xl">
-            {STATS_KEYS.map(({ key, value }) => (
+            {statsKeys.map(({ key, value }) => (
               <div key={key}>
                 <p className="text-[10px] text-muted-foreground">{t(key)}</p>
                 <p className="text-[14px] font-semibold text-foreground tabular-nums">{value}</p>
@@ -178,7 +197,14 @@ export function DatasetDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {previewRows.map((r, i) => (
+                  {isLoadingApiData && (
+                    <tr>
+                      <td className="px-4 py-3 text-muted-foreground" colSpan={TABLE_HEADER_KEYS.length}>
+                        {t("common.loading")}
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoadingApiData && previewRows.map((r, i) => (
                     <tr
                       key={i}
                       className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors"
@@ -200,7 +226,7 @@ export function DatasetDetail() {
               </table>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              {t("datasets.showingRecords", { total: "87,432" })}
+              {t("datasets.showingRecords", { total: formatInt(previewRows.length) })}
             </p>
           </div>
         )}

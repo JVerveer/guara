@@ -7,9 +7,8 @@ import { LoadingState } from "@/components/ui/LoadingState";
 import type { MiniResearchGraph } from "@/features/graph/types";
 
 const REFERENCES = [
-  { n: 1, label: "CBS Kerncijfers 2023", sub: "kerncijfers-wijken-buurten" },
-  { n: 2, label: "Kadaster WOZ-waarden", sub: "Q4 2023 release" },
-  { n: 3, label: "KNMI Klimaatdata", sub: "historisch · 1950–2024" },
+  { n: 1, label: "CBS 70072NED", sub: "Regionale kerncijfers Nederland" },
+  { n: 2, label: "CBS 85039NED", sub: "Kerncijfers wijken en buurten" },
 ] as const;
 
 const ACTIONS = [

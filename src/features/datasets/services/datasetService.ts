@@ -1,55 +1,50 @@
 /**
  * Dataset service — API contract for fetching and searching datasets.
  *
- * All methods return Promises. Swap the mock implementations for real
- * API calls without touching the callers.
- *
- * API integration points are marked with TODO comments.
  */
 
-import {
-  allDatasets,
-  datasetDetailPreviewRows,
-  datasetDetailSuggestedJoins,
-  datasetDetailVariables,
-  variableDescriptions,
-} from "../data/datasets";
+import { cbsStatLineClient } from "@/data/bronze/clients/cbsStatLineClient";
+import type { CbsCatalogTable, CbsDataProperty, CbsWijkBuurtRecord } from "@/data/bronze/schema/cbs";
 import type { Dataset } from "../types";
 
+const CBS_TAGS = ["Population", "Housing", "Economy"];
+
+function compactNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", { notation: "compact" }).format(value);
+}
+
+function mapTable(table: CbsCatalogTable): Dataset {
+  return {
+    id: table.Identifier,
+    title: table.ShortTitle || table.Title,
+    provider: "CBS",
+    description: table.ShortDescription?.trim() || table.Title,
+    tags: CBS_TAGS,
+    updated: table.Updated ? new Date(table.Updated).toLocaleDateString("en-US", { dateStyle: "medium" }) : "CBS API",
+    records: table.Period ?? "StatLine",
+    topics: 0,
+  };
+}
+
 export const datasetService = {
-  /**
-   * Returns all available datasets.
-   *
-   * TODO: Replace with real API call:
-   * ```
-   * return apiClient.get<Dataset[]>('/datasets');
-   * ```
-   */
   async getAllDatasets(): Promise<Dataset[]> {
-    return Promise.resolve(allDatasets);
+    const tables = await cbsStatLineClient.getTables({
+      $select: ["Identifier", "Title", "ShortTitle", "ShortDescription", "Updated", "Period", "Language", "Catalog"],
+      $filter: "Language eq 'nl'",
+      $top: 60,
+    });
+    return tables.map(mapTable);
   },
 
-  /**
-   * Returns a single dataset by ID.
-   *
-   * TODO: Replace with real API call:
-   * ```
-   * return apiClient.get<Dataset>(`/datasets/${id}`);
-   * ```
-   */
   async getDatasetById(id: string): Promise<Dataset | undefined> {
-    return Promise.resolve(allDatasets.find((d) => d.id === id));
+    const tables = await cbsStatLineClient.getTables({
+      $select: ["Identifier", "Title", "ShortTitle", "ShortDescription", "Updated", "Period", "Language", "Catalog"],
+      $filter: `Identifier eq '${id.replace(/'/g, "''")}'`,
+      $top: 1,
+    });
+    return tables[0] ? mapTable(tables[0]) : undefined;
   },
 
-  /**
-   * Filters datasets by full-text query and tag list.
-   * In production this becomes a server-side search endpoint.
-   *
-   * TODO: Replace with real API call:
-   * ```
-   * return apiClient.get<Dataset[]>('/datasets/search', { params: { q: query, tags } });
-   * ```
-   */
   async searchDatasets(query: string, tags: string[]): Promise<Dataset[]> {
     const all = await this.getAllDatasets();
     return all.filter((d) => {
@@ -62,21 +57,46 @@ export const datasetService = {
     });
   },
 
-  // ── Detail-level data for the featured dataset (CBS-wijken) ────────────────
-
-  getDetailPreviewRows() {
-    return datasetDetailPreviewRows;
+  async getDetailPreviewRows() {
+    const rows = await cbsStatLineClient.getWijkBuurtMunicipalityFacts({
+      municipalityCodes: ["GM0363", "GM0599", "GM0344", "GM0518", "GM0772"],
+      select: [
+        "ID",
+        "WijkenEnBuurten",
+        "Gemeentenaam_1",
+        "AantalInwoners_5",
+        "GemiddeldeWOZWaardeVanWoningen_35",
+        "GemiddeldInkomenPerInwoner_72",
+      ],
+    });
+    return rows.map((row: CbsWijkBuurtRecord) => ({
+      muni: row.Gemeentenaam_1.trim(),
+      year: 2021,
+      pop: row.AantalInwoners_5 ?? 0,
+      income: Math.round((row.GemiddeldInkomenPerInwoner_72 ?? 0) * 1000),
+      woz: (row.GemiddeldeWOZWaardeVanWoningen_35 ?? 0) * 1000,
+    }));
   },
 
-  getDetailVariables() {
-    return datasetDetailVariables;
+  async getDetailVariables() {
+    const properties = await cbsStatLineClient.getDataProperties("85039NED", {
+      $select: ["Key", "Title", "Datatype", "Description"],
+    });
+    return properties
+      .filter((property: CbsDataProperty) => property.Key)
+      .slice(0, 16)
+      .map((property: CbsDataProperty) => ({
+        name: property.Key,
+        type: property.Datatype === "String" ? "String" as const : "Float" as const,
+        descKey: property.Description || property.Title,
+      }));
   },
 
   getDetailSuggestedJoins() {
-    return datasetDetailSuggestedJoins;
+    return [];
   },
 
   getVariableDescription(key: string): string {
-    return variableDescriptions[key] ?? key;
+    return key;
   },
 };

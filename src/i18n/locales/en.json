@@ -73,7 +73,7 @@
     "charts": {
       "housePrices": {
         "title": "Average House Prices — Major Cities",
-        "subtitle": "€000s · 2015–2024 · Source: Kadaster"
+        "subtitle": "€000s · 2015–2024 · Source: CBS 70072NED"
       },
       "aging": {
         "title": "Municipalities Aging Fastest",

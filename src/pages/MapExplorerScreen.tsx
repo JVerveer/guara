@@ -1,18 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ComparisonPanel } from "@/features/maps/components/ComparisonPanel";
 import { MapToolbar } from "@/features/maps/components/MapToolbar";
 import { MunicipalityMap } from "@/features/maps/components/MunicipalityMap";
 import { MunicipalitySidebar } from "@/features/maps/components/MunicipalitySidebar";
-import {
-  datasetValues,
-  demoMunicipalities,
-  municipalityMetadata,
-  populationLegend,
-} from "@/features/maps/data/municipalityMapData";
-import type { ActiveFilters, Municipality } from "@/features/maps/types";
+import { populationLegend } from "@/features/maps/data/municipalityMapData";
+import { getCbsMunicipalityMapSnapshot } from "@/features/maps/services/cbsMunicipalityService";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { LoadingState } from "@/components/ui/LoadingState";
+import type { ActiveFilters, DatasetValue, Municipality, MunicipalityMetadata } from "@/features/maps/types";
 
 const defaultFilters: ActiveFilters = {
-  datasetId: "cbs-population",
+  datasetId: "cbs-70072ned",
   year: 2024,
   indicator: "population",
   compareMode: false,
@@ -21,16 +19,47 @@ const defaultFilters: ActiveFilters = {
 
 export function MapExplorerScreen() {
   const [filters, setFilters] = useState<ActiveFilters>(defaultFilters);
-  const [selectedMunicipalityId, setSelectedMunicipalityId] = useState<string | null>("gm0599");
+  const [municipalities, setMunicipalities] = useState<Municipality[]>([]);
+  const [metadataById, setMetadataById] = useState<Record<string, MunicipalityMetadata>>({});
+  const [datasetValues, setDatasetValues] = useState<DatasetValue[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [selectedMunicipalityId, setSelectedMunicipalityId] = useState<string | null>(null);
   const [comparedMunicipalityIds, setComparedMunicipalityIds] = useState<string[]>([]);
+  const [fetchKey, setFetchKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    getCbsMunicipalityMapSnapshot()
+      .then((snapshot) => {
+        if (cancelled) return;
+        setMunicipalities(snapshot.municipalities);
+        setMetadataById(snapshot.metadataById);
+        setDatasetValues(snapshot.datasetValues);
+        setSelectedMunicipalityId(snapshot.municipalities[0]?.id ?? null);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchKey]);
 
   const selectedMunicipality = useMemo(
-    () => demoMunicipalities.find((municipality) => municipality.id === selectedMunicipalityId) ?? null,
-    [selectedMunicipalityId]
+    () => municipalities.find((municipality) => municipality.id === selectedMunicipalityId) ?? null,
+    [municipalities, selectedMunicipalityId]
   );
 
   const comparedMunicipalities = comparedMunicipalityIds
-    .map((id) => demoMunicipalities.find((municipality) => municipality.id === id))
+    .map((id) => municipalities.find((municipality) => municipality.id === id))
     .filter((municipality): municipality is Municipality => Boolean(municipality));
 
   const activeDatasetValues = datasetValues.filter(
@@ -76,10 +105,22 @@ export function MapExplorerScreen() {
     setComparedMunicipalityIds([]);
   };
 
+  if (isLoading) return <LoadingState message="Loading CBS and PDOK municipality data..." className="flex-1" />;
+  if (error) {
+    return (
+      <ErrorState
+        message={error.message}
+        onRetry={() => setFetchKey((current) => current + 1)}
+        retryLabel="Retry"
+        className="flex-1"
+      />
+    );
+  }
+
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-background">
       <MapToolbar
-        municipalities={demoMunicipalities}
+        municipalities={municipalities}
         filters={filters}
         onFiltersChange={setFilters}
         onReset={handleReset}
@@ -88,8 +129,8 @@ export function MapExplorerScreen() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="relative flex min-w-0 flex-1">
           <MunicipalityMap
-            municipalities={demoMunicipalities}
-            metadataById={municipalityMetadata}
+            municipalities={municipalities}
+            metadataById={metadataById}
             datasetValues={datasetValues}
             selectedMunicipalityId={selectedMunicipalityId}
             comparedMunicipalityIds={comparedMunicipalityIds}
@@ -102,7 +143,7 @@ export function MapExplorerScreen() {
           {filters.compareMode && (
             <ComparisonPanel
               municipalities={comparedMunicipalities}
-              metadataById={municipalityMetadata}
+              metadataById={metadataById}
               formatNumber={formatNumber}
               formatCurrency={formatCurrency}
               onRemove={(municipalityId) =>
@@ -113,7 +154,7 @@ export function MapExplorerScreen() {
         </div>
         <MunicipalitySidebar
           municipality={selectedMunicipality}
-          metadata={selectedMunicipality ? municipalityMetadata[selectedMunicipality.id] : undefined}
+          metadata={selectedMunicipality ? metadataById[selectedMunicipality.id] : undefined}
           formatNumber={formatNumber}
           formatCurrency={formatCurrency}
         />

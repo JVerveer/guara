@@ -1,24 +1,36 @@
 /**
- * Connector service — delegates to the Gold connector model.
- *
- * All connector data flows: Gold model → this service → useConnectors hook → UI.
- * No feature component or hook imports from src/data/gold directly.
  */
 
-import { getConnectors } from "../data/sources";
+import { cbsStatLineClient } from "@/data/bronze/clients/cbsStatLineClient";
 import type { Connector } from "../types";
 
+let cachedConnectors: Connector[] | null = null;
+
 export const connectorService = {
-  /**
-   * Returns all registered data connectors from the Gold model.
-   *
-   * TODO: When the backend is ready, replace getConnectors() with:
-   * ```
-   * return apiClient.get<Connector[]>('/connectors');
-   * ```
-   */
   async getAllConnectors(): Promise<Connector[]> {
-    return Promise.resolve(getConnectors());
+    if (cachedConnectors) return cachedConnectors;
+
+    const tables = await cbsStatLineClient.getTables({
+      $select: ["Identifier"],
+      $filter: "Language eq 'nl'",
+    });
+
+    cachedConnectors = [
+      {
+        id: "cbs",
+        name: "CBS",
+        fullName: "Centraal Bureau voor de Statistiek",
+        abbr: "CBS",
+        datasets: tables.length,
+        lastSync: new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
+        coverage: "Netherlands",
+        reliability: 100,
+        tags: ["Demographics", "Economy", "Housing"],
+        brandColor: "#1C3D8F",
+      },
+    ];
+
+    return cachedConnectors;
   },
 
   async getConnectorById(id: string): Promise<Connector | undefined> {
@@ -26,11 +38,13 @@ export const connectorService = {
     return all.find((c) => c.id === id);
   },
 
-  getTotalDatasetCount(): number {
-    return getConnectors().reduce((sum, c) => sum + c.datasets, 0);
+  async getTotalDatasetCount(): Promise<number> {
+    const connectors = await this.getAllConnectors();
+    return connectors.reduce((sum, c) => sum + c.datasets, 0);
   },
 
-  getConnectorCount(): number {
-    return getConnectors().length;
+  async getConnectorCount(): Promise<number> {
+    const connectors = await this.getAllConnectors();
+    return connectors.length;
   },
 };

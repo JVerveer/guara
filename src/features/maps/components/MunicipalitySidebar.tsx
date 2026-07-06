@@ -50,8 +50,7 @@ export function MunicipalitySidebar({ municipality, metadata, formatNumber, form
             <dl className="grid grid-cols-2 gap-3">
               {[
                 ["Population", formatNumber(metadata.population)],
-                ["Median age", metadata.medianAge.toFixed(1)],
-                ["Income", formatCurrency(metadata.income)],
+                ["65+ share", `${metadata.medianAge.toFixed(1)}%`],
                 ["House price", formatCurrency(metadata.housePrice)],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg bg-muted p-3">
@@ -80,13 +79,15 @@ export function MunicipalitySidebar({ municipality, metadata, formatNumber, form
             </ul>
           </Section>
 
-          <Section icon={<FileText size={14} aria-hidden="true" />} title="Recent research">
-            <ul className="space-y-2 text-sm text-foreground">
-              {metadata.recentResearch.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </Section>
+          {metadata.recentResearch.length > 0 && (
+            <Section icon={<FileText size={14} aria-hidden="true" />} title="Recent research">
+              <ul className="space-y-2 text-sm text-foreground">
+                {metadata.recentResearch.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </Section>
+          )}
 
           <Section icon={<Lightbulb size={14} aria-hidden="true" />} title="AI suggested questions">
             <div className="space-y-2">

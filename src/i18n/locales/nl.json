@@ -73,7 +73,7 @@
     "charts": {
       "housePrices": {
         "title": "Gemiddelde huizenprijzen — grote steden",
-        "subtitle": "€000 · 2015–2024 · Bron: Kadaster"
+        "subtitle": "€000 · 2015–2024 · Bron: CBS 70072NED"
       },
       "aging": {
         "title": "Snelst vergrijzende gemeenten",

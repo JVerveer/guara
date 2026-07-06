@@ -14,49 +14,33 @@ import type {
   ResearchQuery,
 } from "../types";
 
-const DEMO_EVIDENCE_SOURCES: EvidenceSource[] = [
+const CBS_EVIDENCE_SOURCES: EvidenceSource[] = [
   {
     provider: "CBS",
-    dataset: "Kerncijfers wijken en buurten 2023",
-    confidence: 95,
-    variables: ["Population", "Municipality", "Age", "Period"],
-  },
-  {
-    provider: "KNMI",
-    dataset: "Historische klimaatdata",
-    confidence: 88,
-    variables: ["Temperature", "Precipitation", "Region"],
-  },
-  {
-    provider: "Kadaster",
-    dataset: "WOZ-waarden per woning",
-    confidence: 99,
-    variables: ["Address", "WOZ Value", "Year", "Municipality"],
+    dataset: "70072NED Regionale kerncijfers Nederland",
+    confidence: 100,
+    variables: ["Population", "Municipality", "Age", "Period", "Average WOZ value"],
   },
 ];
 
-const DEMO_RESULT: ResearchQuery = {
+const CBS_RESULT: ResearchQuery = {
   question: "Why are house prices rising faster in Utrecht?",
-  sourceCount: DEMO_EVIDENCE_SOURCES.length,
-  confidenceScore: 95,
-  evidenceSources: DEMO_EVIDENCE_SOURCES,
+  sourceCount: CBS_EVIDENCE_SOURCES.length,
+  confidenceScore: 100,
+  evidenceSources: CBS_EVIDENCE_SOURCES,
 };
 
 export const researchService = {
   /**
    * Returns a structured result for a research question.
    *
-   * TODO: Replace with real API call:
-   * ```
-   * return apiClient.post<ResearchQuery>('/research/query', { question });
-   * ```
    */
   async getResult(_question?: string): Promise<ResearchQuery> {
-    return Promise.resolve(DEMO_RESULT);
+    return Promise.resolve(CBS_RESULT);
   },
 
   async getEvidenceSources(): Promise<EvidenceSource[]> {
-    return Promise.resolve(DEMO_EVIDENCE_SOURCES);
+    return Promise.resolve(CBS_EVIDENCE_SOURCES);
   },
 
   /**

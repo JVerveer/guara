@@ -1,4 +1,5 @@
 import { Search, Filter } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocale } from "@/i18n/hooks/useLocale";
 import { fonts } from "@/theme/tokens";
@@ -24,9 +25,21 @@ export function DatasetExplorerScreen({ setScreen }: DatasetExplorerScreenProps)
   const { formatCompact } = useLocale();
   const { filtered, query, setQuery, activeTag, setActiveTag, hasActiveFilters, isLoading, error, retry } =
     useDatasets();
+  const [catalogStats, setCatalogStats] = useState({ totalDatasets: 0, sourceCount: 0 });
 
-  const totalDatasets = connectorService.getTotalDatasetCount();
-  const sourceCount = connectorService.getConnectorCount();
+  useEffect(() => {
+    let cancelled = false;
+
+    Promise.all([connectorService.getTotalDatasetCount(), connectorService.getConnectorCount()]).then(
+      ([totalDatasets, sourceCount]) => {
+        if (!cancelled) setCatalogStats({ totalDatasets, sourceCount });
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (isLoading) return <LoadingState message={t("common.loading")} className="flex-1" />;
 
@@ -53,8 +66,8 @@ export function DatasetExplorerScreen({ setScreen }: DatasetExplorerScreenProps)
           </h1>
           <p className="text-sm text-muted-foreground">
             {t("datasets.browseDescription", {
-              total: formatCompact(totalDatasets),
-              sources: sourceCount,
+              total: formatCompact(catalogStats.totalDatasets),
+              sources: catalogStats.sourceCount,
             })}
           </p>
         </header>

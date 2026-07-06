@@ -35,11 +35,9 @@ export function MunicipalityTooltip({
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
         <dt className="text-muted-foreground">Population</dt>
         <dd className="text-right font-medium text-foreground">{formatNumber(metadata.population)}</dd>
-        <dt className="text-muted-foreground">Median age</dt>
-        <dd className="text-right font-medium text-foreground">{metadata.medianAge.toFixed(1)}</dd>
-        <dt className="text-muted-foreground">Income</dt>
-        <dd className="text-right font-medium text-foreground">{formatCurrency(metadata.income)}</dd>
-        <dt className="text-muted-foreground">House price</dt>
+        <dt className="text-muted-foreground">65+ share</dt>
+        <dd className="text-right font-medium text-foreground">{metadata.medianAge.toFixed(1)}%</dd>
+        <dt className="text-muted-foreground">Avg. WOZ value</dt>
         <dd className="text-right font-medium text-foreground">{formatCurrency(metadata.housePrice)}</dd>
         <dt className="text-muted-foreground">Data available</dt>
         <dd className="text-right font-medium text-foreground">{metadata.dataAvailable} datasets</dd>

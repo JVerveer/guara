@@ -65,6 +65,95 @@ export interface CbsODataResponse<TRecord> {
   value: TRecord[];
 }
 
+// ── CBS Open Data v3 catalog and metadata tables ─────────────────────────────
+
+export interface CbsCatalogTable {
+  ID: number;
+  Identifier: string;
+  Title: string;
+  ShortTitle: string;
+  ShortDescription: string;
+  Summary?: string;
+  Modified?: string;
+  Updated?: string;
+  ReasonDelivery?: string;
+  ExplanatoryText?: string;
+  Language: string;
+  Catalog: string;
+  Frequency?: string;
+  Period?: string;
+}
+
+export interface CbsDataProperty {
+  "odata.type"?: string;
+  ID: number;
+  Position: number | null;
+  ParentID: number | null;
+  Type:
+    | "Dimension"
+    | "GeoDimension"
+    | "GeoDetail"
+    | "TimeDimension"
+    | "Topic"
+    | "TopicGroup"
+    | string;
+  Key: string;
+  Title: string;
+  Description: string | null;
+  Datatype?: string;
+  Unit?: string;
+  Decimals?: number;
+  Default?: string;
+  PresentationType?: string;
+  MapYear?: number | null;
+  ReleasePolicy?: boolean;
+}
+
+/**
+ * Dataset 85039NED as CBS returns it today: one record per 2021 municipality,
+ * wijk, or buurt. This shape intentionally preserves the source field names.
+ */
+export interface CbsWijkBuurtRecord {
+  ID: number;
+  WijkenEnBuurten: string;
+  Gemeentenaam_1: string;
+  SoortRegio_2?: string;
+  Codering_3?: string;
+  AantalInwoners_5: number | null;
+  k_0Tot15Jaar_8?: number | null;
+  k_15Tot25Jaar_9?: number | null;
+  k_25Tot45Jaar_10?: number | null;
+  k_45Tot65Jaar_11?: number | null;
+  k_65JaarOfOuder_12?: number | null;
+  GemiddeldeWOZWaardeVanWoningen_35: number | null;
+  GemiddeldInkomenPerInwoner_72?: number | null;
+}
+
+/**
+ * Minimal regional core record from 70072NED. The StatLine v3 JavaScript
+ * examples use this table for period/region filtering and thematic maps.
+ */
+export interface CbsRegionalCoreRecord {
+  ID: number;
+  Perioden: string;
+  RegioS: string;
+  TotaleBevolking_1: number | null;
+  Mannen_2?: number | null;
+  Vrouwen_3?: number | null;
+  JongerDan5Jaar_4?: number | null;
+  k_5Tot10Jaar_5?: number | null;
+  k_10Tot15Jaar_6?: number | null;
+  k_15Tot20Jaar_7?: number | null;
+  k_20Tot25Jaar_8?: number | null;
+  k_25Tot45Jaar_9?: number | null;
+  k_45Tot65Jaar_10?: number | null;
+  k_65Tot80Jaar_11?: number | null;
+  k_80JaarOfOuder_12?: number | null;
+  GemiddeldeWOZWaardeVanWoningen_98?: number | null;
+  Bevolkingsdichtheid_57?: number | null;
+  VoertuigenMetBromfietskenteken_208?: number | null;
+}
+
 // ── Dataset 70072NED — Regionale kerncijfers ─────────────────────────────────
 
 /**
