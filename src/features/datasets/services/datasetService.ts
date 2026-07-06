@@ -4,8 +4,8 @@
  */
 
 import { cbsStatLineClient } from "@/data/bronze/clients/cbsStatLineClient";
-import type { CbsCatalogTable, CbsDataProperty, CbsWijkBuurtRecord } from "@/data/bronze/schema/cbs";
-import type { Dataset, DatasetPreviewRow } from "../types";
+import type { CbsCatalogTable, CbsDataProperty } from "@/data/bronze/schema/cbs";
+import type { Dataset, DatasetPreview, DatasetPreviewColumn, DatasetVariable } from "../types";
 
 const CBS_TAGS = ["Population", "Housing", "Economy"];
 
@@ -49,6 +49,38 @@ function rankDatasets(datasets: Dataset[], query: string): Dataset[] {
 
     return score(b) - score(a);
   });
+}
+
+function isFieldProperty(property: CbsDataProperty): boolean {
+  return Boolean(property.Key) && property.Type !== "TopicGroup";
+}
+
+function mapDatatype(datatype?: string): DatasetVariable["type"] {
+  if (datatype === "String") return "String";
+  if (datatype === "Boolean") return "Boolean";
+  if (datatype === "DateTime") return "Date";
+  if (datatype === "Long" || datatype === "Integer") return "Integer";
+  return "Float";
+}
+
+function toPreviewColumns(properties: CbsDataProperty[]): DatasetPreviewColumn[] {
+  const fields = properties.filter(isFieldProperty);
+  const dimensions = fields.filter((property) => property.Type.includes("Dimension") || property.Type.includes("Geo"));
+  const topics = fields.filter((property) => property.Type === "Topic");
+  const selected = [...dimensions, ...topics].slice(0, 10);
+
+  return selected.map((property) => ({
+    key: property.Key,
+    title: property.Title || property.Key,
+    type: property.Datatype ?? property.Type,
+    unit: property.Unit,
+  }));
+}
+
+function normalizeCell(value: unknown): string | number | boolean | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  return String(value);
 }
 
 export const datasetService = {
@@ -119,47 +151,36 @@ export const datasetService = {
     });
   },
 
-  async getDetailPreviewRows(datasetId = "85039NED"): Promise<DatasetPreviewRow[]> {
-    if (datasetId !== "85039NED") {
-      const response = await cbsStatLineClient.getTypedDataSet<Record<string, unknown>>(datasetId, { $top: 5 });
-      return response.value.map((row, index) => ({
-        muni: String(row.RegioS ?? row.WijkenEnBuurten ?? row.Gemeente ?? row.ID ?? `Record ${index + 1}`),
-        year: Number(String(row.Perioden ?? "0").slice(0, 4)) || 0,
-        pop: Number(row.TotaleBevolking_1 ?? row.AantalInwoners_5 ?? 0),
-        income: 0,
-        woz: 0,
-      }));
-    }
-
-    const rows = await cbsStatLineClient.getWijkBuurtMunicipalityFacts({
-      municipalityCodes: ["GM0363", "GM0599", "GM0344", "GM0518", "GM0772"],
-      select: [
-        "ID",
-        "WijkenEnBuurten",
-        "Gemeentenaam_1",
-        "AantalInwoners_5",
-        "GemiddeldeWOZWaardeVanWoningen_35",
-        "GemiddeldInkomenPerInwoner_72",
-      ],
+  async getDetailPreview(datasetId = "85039NED"): Promise<DatasetPreview> {
+    const properties = await cbsStatLineClient.getDataProperties(datasetId);
+    const columns = toPreviewColumns(properties);
+    const response = await cbsStatLineClient.getTypedDataSet<Record<string, unknown>>(datasetId, {
+      $select: columns.map((column) => column.key),
+      $top: 8,
     });
-    return rows.map((row: CbsWijkBuurtRecord) => ({
-      muni: row.Gemeentenaam_1.trim(),
-      year: 2021,
-      pop: row.AantalInwoners_5 ?? 0,
-      income: Math.round((row.GemiddeldInkomenPerInwoner_72 ?? 0) * 1000),
-      woz: (row.GemiddeldeWOZWaardeVanWoningen_35 ?? 0) * 1000,
-    }));
+
+    return {
+      columns,
+      rows: response.value.map((row) =>
+        columns.reduce<Record<string, string | number | boolean | null>>((acc, column) => {
+          acc[column.key] = normalizeCell(row[column.key]);
+          return acc;
+        }, {})
+      ),
+    };
   },
 
-  async getDetailVariables(datasetId = "85039NED") {
+  async getDetailVariables(datasetId = "85039NED"): Promise<DatasetVariable[]> {
     const properties = await cbsStatLineClient.getDataProperties(datasetId);
     return properties
-      .filter((property: CbsDataProperty) => property.Key)
-      .slice(0, 16)
+      .filter(isFieldProperty)
       .map((property: CbsDataProperty) => ({
         name: property.Key,
-        type: property.Datatype === "String" ? "String" as const : "Float" as const,
+        title: property.Title,
+        type: mapDatatype(property.Datatype),
         descKey: property.Description || property.Title,
+        unit: property.Unit,
+        role: property.Type,
       }));
   },
 

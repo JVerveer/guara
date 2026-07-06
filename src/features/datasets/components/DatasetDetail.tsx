@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { fonts } from "@/theme/tokens";
 import { ProviderBadge } from "@/components/ui/ProviderBadge";
 import { datasetService } from "../services/datasetService";
-import type { DatasetPreviewRow, DatasetVariable } from "../types";
+import type { DatasetPreview, DatasetVariable } from "../types";
 
 type Tab = "preview" | "metadata" | "variables" | "api";
 
@@ -31,14 +31,6 @@ const METADATA_KEYS = [
   { labelKey: "datasets.metadata.catalogUrl", value: "opendata.cbs.nl" },
 ] as const;
 
-const TABLE_HEADER_KEYS = [
-  "datasets.table.municipality",
-  "datasets.table.year",
-  "datasets.table.population",
-  "datasets.table.avgIncome",
-  "datasets.table.avgWoz",
-] as const;
-
 interface DatasetDetailProps {
   datasetId: string;
 }
@@ -47,7 +39,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>("preview");
   const [copied, setCopied] = useState(false);
-  const [previewRows, setPreviewRows] = useState<DatasetPreviewRow[]>([]);
+  const [preview, setPreview] = useState<DatasetPreview>({ columns: [], rows: [] });
   const [variables, setVariables] = useState<DatasetVariable[]>([]);
   const [datasetTitle, setDatasetTitle] = useState("CBS StatLine dataset");
   const [datasetDescription, setDatasetDescription] = useState("Live CBS StatLine data loaded from the Open Data v3 API.");
@@ -55,23 +47,22 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const [isLoadingApiData, setIsLoadingApiData] = useState(true);
 
   const locale = i18n.language.startsWith("nl") ? "nl-NL" : "en-GB";
-  const formatInt = (n: number) => new Intl.NumberFormat(locale).format(n);
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency: "EUR",
-      maximumFractionDigits: 0,
-    }).format(n);
+  const formatCell = (value: string | number | boolean | null) => {
+    if (value === null) return "—";
+    if (typeof value === "number") return new Intl.NumberFormat(locale).format(value);
+    if (typeof value === "boolean") return value ? "true" : "false";
+    return value.trim?.() || value;
+  };
 
   const suggestedJoins = datasetService.getDetailSuggestedJoins();
   const codeSnippet = `fetch("${apiEndpoint}?$format=json&$top=5")
   .then((response) => response.json())
   .then((data) => console.log(data.value));`;
   const statsKeys = [
-    { key: "datasets.stats.records", value: String(previewRows.length) },
+    { key: "datasets.stats.records", value: String(preview.rows.length) },
     { key: "datasets.stats.topics", value: String(variables.length) },
     { key: "datasets.stats.variables", value: String(variables.length) },
-    { key: "datasets.stats.period", value: "2021" },
+    { key: "datasets.stats.period", value: "CBS metadata" },
     { key: "datasets.stats.format", value: "JSON" },
     { key: "datasets.stats.reliability", value: "CBS API" },
   ] as const;
@@ -82,17 +73,17 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
 
     Promise.allSettled([
       datasetService.getDatasetById(datasetId),
-      datasetService.getDetailPreviewRows(datasetId),
+      datasetService.getDetailPreview(datasetId),
       datasetService.getDetailVariables(datasetId),
     ])
-      .then(([datasetResult, rowsResult, variablesResult]) => {
+      .then(([datasetResult, previewResult, variablesResult]) => {
         if (cancelled) return;
         const dataset = datasetResult.status === "fulfilled" ? datasetResult.value : undefined;
-        const rows = rowsResult.status === "fulfilled" ? rowsResult.value : [];
+        const nextPreview = previewResult.status === "fulfilled" ? previewResult.value : { columns: [], rows: [] };
         const nextVariables = variablesResult.status === "fulfilled" ? variablesResult.value : [];
         setDatasetTitle(dataset?.title ?? datasetId);
         setDatasetDescription(dataset?.description ?? "Live CBS StatLine data loaded from the Open Data v3 API.");
-        setPreviewRows(rows);
+        setPreview(nextPreview);
         setVariables(nextVariables);
         setApiEndpoint(`https://opendata.cbs.nl/ODataApi/odata/${datasetId}/TypedDataSet`);
       })
@@ -193,12 +184,13 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50">
-                    {TABLE_HEADER_KEYS.map((key) => (
+                    {preview.columns.map((column) => (
                       <th
-                        key={key}
+                        key={column.key}
                         className="px-4 py-3 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide"
+                        title={column.key}
                       >
-                        {t(key)}
+                        {column.title}
                       </th>
                     ))}
                   </tr>
@@ -206,34 +198,41 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                 <tbody>
                   {isLoadingApiData && (
                     <tr>
-                      <td className="px-4 py-3 text-muted-foreground" colSpan={TABLE_HEADER_KEYS.length}>
+                      <td className="px-4 py-3 text-muted-foreground" colSpan={Math.max(preview.columns.length, 1)}>
                         {t("common.loading")}
                       </td>
                     </tr>
                   )}
-                  {!isLoadingApiData && previewRows.map((r, i) => (
+                  {!isLoadingApiData && preview.rows.length === 0 && (
+                    <tr>
+                      <td className="px-4 py-3 text-muted-foreground" colSpan={Math.max(preview.columns.length, 1)}>
+                        No preview rows returned by the CBS API for this table.
+                      </td>
+                    </tr>
+                  )}
+                  {!isLoadingApiData && preview.rows.map((row, i) => (
                     <tr
                       key={i}
                       className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors"
                     >
-                      <td className="px-4 py-3 font-medium text-foreground">{r.muni}</td>
-                      <td className="px-4 py-3 text-muted-foreground tabular-nums">{r.year}</td>
-                      <td className="px-4 py-3 text-muted-foreground tabular-nums">
-                        {formatInt(r.pop)}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground tabular-nums">
-                        {formatCurrency(r.income)}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground tabular-nums">
-                        {formatCurrency(r.woz)}
-                      </td>
+                      {preview.columns.map((column, columnIndex) => (
+                        <td
+                          key={column.key}
+                          className={cn(
+                            "px-4 py-3 text-muted-foreground tabular-nums",
+                            columnIndex === 0 && "font-medium text-foreground"
+                          )}
+                        >
+                          {formatCell(row[column.key])}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              {t("datasets.showingRecords", { total: formatInt(previewRows.length) })}
+              Showing {preview.rows.length} rows and {preview.columns.length} fields selected from CBS DataProperties.
             </p>
           </div>
         )}
@@ -274,8 +273,16 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                 >
                   {v.type}
                 </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-accent text-accent-foreground flex-shrink-0">
+                  {v.role}
+                </span>
+                {v.unit && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0">
+                    {v.unit}
+                  </span>
+                )}
                 <span className="text-[12px] text-muted-foreground truncate">
-                  {datasetService.getVariableDescription(v.descKey)}
+                  {v.title ? `${v.title} — ` : ""}{datasetService.getVariableDescription(v.descKey)}
                 </span>
               </div>
             ))}

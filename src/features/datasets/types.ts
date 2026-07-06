@@ -13,14 +13,21 @@ export interface DatasetVariable {
   name: string;
   type: "Integer" | "Float" | "String" | "Boolean" | "Date";
   descKey: string;
+  title?: string;
+  unit?: string;
+  role?: string;
 }
 
-export interface DatasetPreviewRow {
-  muni: string;
-  year: number;
-  pop: number;
-  income: number;
-  woz: number;
+export interface DatasetPreviewColumn {
+  key: string;
+  title: string;
+  type: string;
+  unit?: string;
+}
+
+export interface DatasetPreview {
+  columns: DatasetPreviewColumn[];
+  rows: Array<Record<string, string | number | boolean | null>>;
 }
 
 export interface SuggestedJoin {
