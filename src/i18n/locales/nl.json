@@ -36,8 +36,8 @@
     "settings": "Instellingen"
   },
   "research": {
-    "platformLabel": "AI-onderzoeksplatform",
-    "heading": "Verken Nederlandse publieke data",
+    "platformLabel": "Onderzoekswerkruimte",
+    "heading": "Start een onderzoek",
     "searchPlaceholder": "Stel een vraag over Nederlandse publieke data…",
     "searchButton": "Zoeken",
     "tryAsking": "Probeer te vragen",

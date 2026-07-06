@@ -12,6 +12,8 @@ export function TopNav({ screen, setScreen }: TopNavProps) {
 
   const SCREEN_LABELS: Record<Screen, string> = {
     home: "",
+    planning: "Research plan",
+    workspace: "Investigation Workspace",
     result: t("research.resultHeading"),
     datasets: t("nav.datasetExplorer"),
     sources: t("nav.sourceBrowser"),

@@ -36,8 +36,8 @@
     "settings": "Settings"
   },
   "research": {
-    "platformLabel": "AI Research Platform",
-    "heading": "Explore Dutch public data",
+    "platformLabel": "Investigation Workspace",
+    "heading": "Start an investigation",
     "searchPlaceholder": "Ask anything about Dutch public data…",
     "searchButton": "Search",
     "tryAsking": "Try asking",

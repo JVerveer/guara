@@ -5,11 +5,13 @@ import { TopNav } from "@/components/layout/TopNav";
 import { renderRoute } from "./routes";
 import { fonts } from "@/theme/tokens";
 import type { Screen } from "@/types";
+import type { ResearchPlan } from "@/features/investigation/types";
 
 function Shell() {
   const [screen, setScreen] = useState<Screen>("home");
   const [selectedDatasetId, setSelectedDatasetId] = useState("85039NED");
   const [researchQuestion, setResearchQuestion] = useState("");
+  const [researchPlan, setResearchPlan] = useState<ResearchPlan | null>(null);
 
   return (
     <div
@@ -26,6 +28,8 @@ function Shell() {
             setSelectedDatasetId,
             researchQuestion,
             setResearchQuestion,
+            researchPlan,
+            setResearchPlan,
           })}
         </main>
       </div>

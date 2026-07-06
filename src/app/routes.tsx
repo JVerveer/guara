@@ -6,6 +6,9 @@ import { SourceBrowserScreen } from "@/pages/SourceBrowserScreen";
 import { GraphScreen } from "@/pages/GraphScreen";
 import { DatasetDetailScreen } from "@/pages/DatasetDetailScreen";
 import { MapExplorerScreen } from "@/pages/MapExplorerScreen";
+import { PlanningScreen } from "@/pages/PlanningScreen";
+import { InvestigationWorkspaceScreen } from "@/pages/InvestigationWorkspaceScreen";
+import type { ResearchPlan } from "@/features/investigation/types";
 
 interface RouteProps {
   setScreen: (s: Screen) => void;
@@ -16,6 +19,8 @@ export interface RouteState {
   setSelectedDatasetId: (id: string) => void;
   researchQuestion: string;
   setResearchQuestion: (question: string) => void;
+  researchPlan: ResearchPlan | null;
+  setResearchPlan: (plan: ResearchPlan) => void;
 }
 
 /**
@@ -29,6 +34,16 @@ export function renderRoute(screen: Screen, setScreen: (s: Screen) => void, stat
   switch (screen) {
     case "home":
       return <HomeScreen {...props} setResearchQuestion={state.setResearchQuestion} />;
+    case "planning":
+      return (
+        <PlanningScreen
+          question={state.researchQuestion}
+          setScreen={setScreen}
+          setResearchPlan={state.setResearchPlan}
+        />
+      );
+    case "workspace":
+      return <InvestigationWorkspaceScreen plan={state.researchPlan} setScreen={setScreen} />;
     case "result":
       return <ResultScreen {...props} question={state.researchQuestion} />;
     case "datasets":

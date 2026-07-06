@@ -3,6 +3,8 @@
 
 export type Screen =
   | "home"
+  | "planning"
+  | "workspace"
   | "result"
   | "datasets"
   | "sources"
