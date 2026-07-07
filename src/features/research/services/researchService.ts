@@ -38,7 +38,7 @@ export const researchService = {
       answerTitle: `CBS StatLine results for "${normalizedQuestion}"`,
       answerSummary:
         evidenceSources.length > 0
-          ? `The answer below is based only on live CBS StatLine catalog results. Atlas found ${matches.length} matching CBS datasets and listed the strongest matches as evidence.`
+          ? `The answer below is based only on live CBS StatLine catalog results. Guara found ${matches.length} matching CBS datasets and listed the strongest matches as evidence.`
           : "CBS StatLine did not return matching datasets for this query. Try a Dutch CBS term such as bevolking, inkomen, woningen, gemeente, wijken, or buurten.",
       answerBullets: matches.slice(0, 5).map((dataset) => `${dataset.id}: ${dataset.title}`),
     };

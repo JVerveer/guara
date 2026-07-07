@@ -22,6 +22,7 @@ const EMPTY_PREVIEW: DatasetPreview = {
   columns: [],
   rows: [],
   geographySummary: { municipality: 0, province: 0, country: 0, other: 0 },
+  totalRecordCount: 0,
 };
 
 const METADATA_KEYS = [
@@ -58,17 +59,18 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
     if (typeof value === "boolean") return value ? "true" : "false";
     return value.trim?.() || value;
   };
+  const formatNumber = (value: number) => new Intl.NumberFormat(locale).format(value);
 
   const suggestedJoins = datasetService.getDetailSuggestedJoins();
   const codeSnippet = `fetch("${apiEndpoint}?$format=json&$top=5")
   .then((response) => response.json())
   .then((data) => console.log(data.value));`;
   const statsKeys = [
-    { key: "datasets.stats.records", value: String(preview.rows.length) },
+    { key: "datasets.stats.records", value: preview.totalRecordCount ? formatNumber(preview.totalRecordCount) : "CBS API" },
+    { key: "datasets.stats.previewRows", value: String(preview.rows.length) },
     { key: "Municipality", value: String(preview.geographySummary.municipality) },
     { key: "Province", value: String(preview.geographySummary.province) },
     { key: "Country", value: String(preview.geographySummary.country) },
-    { key: "datasets.stats.period", value: "CBS metadata" },
     { key: "datasets.stats.variables", value: String(variables.length) },
   ] as const;
 
@@ -228,7 +230,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                             columnIndex === 0 && "font-medium text-foreground"
                           )}
                         >
-                          {column.key === "__atlasGeographicLevel" ? (
+                          {column.key === "__guaraGeographicLevel" ? (
                             <span className="inline-flex rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-accent-foreground">
                               {formatCell(row[column.key])}
                             </span>
@@ -243,7 +245,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
               </table>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Showing {preview.rows.length} rows qualified by CBS geography metadata as municipality, province, or country where available.
+              Showing a capped preview of {preview.rows.length} rows from {preview.totalRecordCount ? formatNumber(preview.totalRecordCount) : "the CBS API"} total records.
             </p>
           </div>
         )}

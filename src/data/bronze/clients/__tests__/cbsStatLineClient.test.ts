@@ -28,6 +28,16 @@ describe("CbsStatLineClient", () => {
     expect(url).toContain("%24top=10");
   });
 
+  it("fetches CBS Open Data v3 TypedDataSet record counts", async () => {
+    const fetcher = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(
+      new Response("17681", { status: 200, headers: { "Content-Type": "text/plain" } })
+    );
+    const client = new CbsStatLineClient({ fetcher });
+
+    await expect(client.getTypedDataSetCount("85039NED")).resolves.toBe(17681);
+    expect(fetcher).toHaveBeenCalledWith("https://opendata.cbs.nl/ODataApi/odata/85039NED/TypedDataSet/$count");
+  });
+
   it("pads 85039NED municipality codes and parses municipality facts", async () => {
     const fetcher = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(
       response<CbsWijkBuurtRecord>([

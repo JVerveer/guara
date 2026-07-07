@@ -103,7 +103,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
     const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "atlas-investigation.md";
+    anchor.download = "guara-investigation.md";
     anchor.click();
     URL.revokeObjectURL(url);
   };
@@ -157,7 +157,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
         <div className="min-h-0 space-y-3 overflow-y-auto">
           <Panel title="AI Research Summary" icon={<BookOpen size={14} />}>
             <p className="text-sm leading-6 text-muted-foreground">
-              Atlas found {plan.datasets.length} live CBS datasets for this investigation. The workspace is synchronized around
+              Guara found {plan.datasets.length} live CBS datasets for this investigation. The workspace is synchronized around
               {selectedMunicipality ? ` ${selectedMunicipality.name}` : " the selected municipality"} and
               {selectedDataset ? ` ${selectedDataset.id}` : " the selected dataset"}.
             </p>

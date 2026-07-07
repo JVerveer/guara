@@ -38,11 +38,11 @@ export function KnowledgeGraph({ graph }: KnowledgeGraphProps) {
       style={{ fontFamily: "'Inter', sans-serif" }}
     >
       <defs>
-        <pattern id="atlasGrid" width="32" height="32" patternUnits="userSpaceOnUse">
+        <pattern id="guaraGrid" width="32" height="32" patternUnits="userSpaceOnUse">
           <path d="M 32 0 L 0 0 0 32" fill="none" stroke={g.gridStroke} strokeWidth="1" />
         </pattern>
       </defs>
-      <rect width="1000" height="640" fill="url(#atlasGrid)" />
+      <rect width="1000" height="640" fill="url(#guaraGrid)" />
 
       {/* Edges */}
       {edges.map((edge, i) => {

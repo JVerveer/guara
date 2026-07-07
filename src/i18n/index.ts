@@ -11,7 +11,7 @@ i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    // Supported locales — add more here as Atlas expands
+    // Supported locales — add more here as Guara expands
     supportedLngs: SUPPORTED_LANGUAGES,
     fallbackLng: "en",
 
@@ -19,7 +19,7 @@ i18n
     detection: {
       order: ["localStorage", "navigator"],
       caches: ["localStorage"],
-      lookupLocalStorage: "atlas-language",
+      lookupLocalStorage: "guara-language",
     },
 
     resources: {

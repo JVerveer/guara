@@ -16,7 +16,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 function getInitialTheme(): Theme {
   try {
-    const stored = localStorage.getItem("atlas-theme");
+    const stored = localStorage.getItem("guara-theme");
     if (stored === "dark" || stored === "light") return stored;
     if (window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
   } catch {
@@ -31,7 +31,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
     try {
-      localStorage.setItem("atlas-theme", theme);
+      localStorage.setItem("guara-theme", theme);
     } catch {
       // ignore write errors
     }

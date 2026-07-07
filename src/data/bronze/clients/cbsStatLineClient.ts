@@ -105,6 +105,10 @@ export class CbsStatLineClient {
     return `${this.odataBaseUrl}/${normalizeTableId(tableId)}/TypedDataSet?${buildQuery(query)}`;
   }
 
+  getTypedDataSetCountUrl(tableId: string): string {
+    return `${this.odataBaseUrl}/${normalizeTableId(tableId)}/TypedDataSet/$count`;
+  }
+
   getUntypedDataSetUrl(tableId: string, query: ODataQuery = {}): string {
     return `${this.odataBaseUrl}/${normalizeTableId(tableId)}/UntypedDataSet?${buildQuery(query)}`;
   }
@@ -135,6 +139,18 @@ export class CbsStatLineClient {
     const endpoint = this.getTypedDataSetUrl(tableId, query);
     const response = await this.fetcher(endpoint);
     return parseODataResponse<TRecord>(response, endpoint);
+  }
+
+  async getTypedDataSetCount(tableId: string): Promise<number> {
+    const endpoint = this.getTypedDataSetCountUrl(tableId);
+    const response = await this.fetcher(endpoint);
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`CBS StatLine API count error ${response.status} for ${endpoint}${body ? `: ${body}` : ""}`);
+    }
+
+    const count = Number(await response.text());
+    return Number.isFinite(count) ? count : 0;
   }
 
   async getUntypedDataSet<TRecord>(tableId: string, query: ODataQuery = {}): Promise<CbsODataResponse<TRecord>> {

@@ -117,6 +117,6 @@ export function buildEvidenceFromPlan(plan: ResearchPlan): EvidenceItem[] {
     api: cbsStatLineClient.getTypedDataSetUrl(dataset.id, { $top: 5 }),
     lastUpdated: dataset.updated,
     license: "Creative Commons Attribution 4.0",
-    provenance: `CBS ODataCatalog/Tables -> Atlas research plan -> Investigation Workspace`,
+    provenance: `CBS ODataCatalog/Tables -> Guara research plan -> Investigation Workspace`,
   }));
 }

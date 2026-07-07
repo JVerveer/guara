@@ -9,11 +9,11 @@
  * - The data is already clean and structured — no field mapping is needed
  * - Lineage is recorded to maintain the Bronze→Gold audit trail
  *
- * When the Atlas backend exposes a /connectors endpoint, this model will
+ * When the Guara backend exposes a /connectors endpoint, this model will
  * fetch from that API. The BronzeProvenance documents where each entry came from.
  *
  * Gold → Bronze direct access justification (per data architecture rules):
- *   "Connector metadata is configuration data owned by the Atlas platform,
+ *   "Connector metadata is configuration data owned by the Guara platform,
  *    not sourced from a third-party API that requires normalization.
  *    The static registry IS the bronze source for this domain."
  */
@@ -25,12 +25,12 @@ import type { CalculationLog, GoldLineage, GoldModel } from "../types";
 const MODEL_VERSION = "connectorModel@1.0.0";
 
 // ── Bronze provenance for the connector registry ──────────────────────────────
-// The connector list is maintained in Atlas's own configuration — the
+// The connector list is maintained in Guara's own configuration — the
 // "API endpoint" points to where the real connector catalog will be served.
 const REGISTRY_PROVENANCE: BronzeProvenance = {
-  sourceId: "atlas-internal",
+  sourceId: "guara-internal",
   datasetId: "connector-registry-v1",
-  apiEndpoint: "https://api.atlas.app/v1/connectors",
+  apiEndpoint: "https://api.guara.app/v1/connectors",
   queryParams: { version: "1.0.0" },
   retrievedAt: "2024-03-01T00:00:00.000Z",
   responseStatus: 200,
@@ -74,7 +74,7 @@ const CALCULATIONS: CalculationLog[] = [
     bronzeInputsDirect: [
       {
         field: "connector-registry-v1.reliability",
-        reason: "Reliability is an Atlas-assigned score, not computed from source data",
+        reason: "Reliability is a Guara-assigned score, not computed from source data",
       },
     ],
   },

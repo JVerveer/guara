@@ -28,11 +28,11 @@ function flag(key: string, fallback = false): boolean {
 }
 
 export const config = {
-  /** Base URL for the Atlas REST API. */
+  /** Base URL for the Guara REST API. */
   apiBaseUrl: optional("VITE_API_BASE_URL", "http://localhost:8000/api/v1"),
 
   /** Display name of the application. */
-  appName: optional("VITE_APP_NAME", "Atlas"),
+  appName: optional("VITE_APP_NAME", "Guara"),
 
   /** Semantic version string, injected at build time. */
   appVersion: optional("VITE_APP_VERSION", "0.1.0"),

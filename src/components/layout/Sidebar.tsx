@@ -64,7 +64,7 @@ export function Sidebar({ screen, setScreen }: SidebarProps) {
           className="text-[15px] font-semibold tracking-tight text-sidebar-foreground"
           style={{ fontFamily: fonts.display }}
         >
-          {t("nav.atlas")}
+          {t("nav.guara")}
         </span>
       </div>
 

@@ -2,7 +2,7 @@
  * Domain types for the Research feature.
  *
  * A ResearchQuery represents a user's research session — the question they
- * asked and the structured result Atlas produced (sources, confidence, etc.).
+ * asked and the structured result Guara produced (sources, confidence, etc.).
  */
 
 export interface EvidenceSource {

@@ -24,7 +24,7 @@
     "shortcutHint": "⌘K"
   },
   "nav": {
-    "atlas": "Atlas",
+    "guara": "Guara",
     "newResearch": "New Research",
     "recent": "Recent",
     "savedReports": "Saved Reports",
@@ -112,6 +112,7 @@
     "updated": "Updated",
     "stats": {
       "records": "Records",
+      "previewRows": "Preview rows",
       "topics": "Topics",
       "variables": "Variables",
       "period": "Period",

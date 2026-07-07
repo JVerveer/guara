@@ -24,7 +24,7 @@
     "shortcutHint": "⌘K"
   },
   "nav": {
-    "atlas": "Atlas",
+    "guara": "Guara",
     "newResearch": "Nieuw onderzoek",
     "recent": "Recent",
     "savedReports": "Opgeslagen rapporten",
@@ -112,6 +112,7 @@
     "updated": "Bijgewerkt",
     "stats": {
       "records": "Records",
+      "previewRows": "Voorbeeldrijen",
       "topics": "Onderwerpen",
       "variables": "Variabelen",
       "period": "Periode",

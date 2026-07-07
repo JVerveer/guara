@@ -33,7 +33,7 @@ export function TopNav({ screen, setScreen }: TopNavProps) {
               onClick={() => setScreen("home")}
               className="hover:text-foreground transition-colors flex-shrink-0"
             >
-              {t("nav.atlas")}
+              {t("nav.guara")}
             </button>
             <ChevronRight size={12} className="flex-shrink-0" />
             <span className="text-foreground font-medium truncate">{label}</span>

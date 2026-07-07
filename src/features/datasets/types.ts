@@ -31,6 +31,7 @@ export interface DatasetPreview {
   columns: DatasetPreviewColumn[];
   rows: Array<Record<string, string | number | boolean | null>>;
   geographySummary: Record<GeographicLevel, number>;
+  totalRecordCount: number;
 }
 
 export interface SuggestedJoin {

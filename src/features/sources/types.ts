@@ -2,7 +2,7 @@
  * Domain types for the Connectors feature.
  *
  * A Connector represents an external data provider (CBS, Eurostat, etc.)
- * that Atlas connects to in order to surface datasets and APIs.
+ * that Guara connects to in order to surface datasets and APIs.
  * The term "Connector" is used throughout the codebase instead of the generic
  * word "Source" to express that these are active integration points.
  */

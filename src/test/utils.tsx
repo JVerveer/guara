@@ -16,7 +16,7 @@ export { userEvent };
 
 /**
  * Render a component wrapped in the minimal set of providers
- * needed for Atlas components (theme, i18n).
+ * needed for Guara components (theme, i18n).
  *
  * i18next is mocked in setup.ts — no real provider is needed.
  * ThemeProvider is omitted because the CSS variables it toggles
