@@ -1,6 +1,7 @@
 import type {
   CbsCatalogTable,
   CbsDataProperty,
+  CbsDimensionValue,
   CbsODataResponse,
   CbsRegionalCoreRecord,
   CbsWijkBuurtRecord,
@@ -54,6 +55,10 @@ function normalizeTableId(tableId: string): string {
 function asODataValue(value: ODataPrimitive): string {
   if (typeof value === "string") return `'${value.replace(/'/g, "''")}'`;
   return String(value);
+}
+
+export function toODataString(value: string): string {
+  return asODataValue(value);
 }
 
 function buildQuery(query: ODataQuery = {}): string {
@@ -117,6 +122,10 @@ export class CbsStatLineClient {
     return `${this.odataBaseUrl}/${normalizeTableId(tableId)}/DataProperties?${buildQuery(query)}`;
   }
 
+  getDimensionValuesUrl(tableId: string, dimensionKey: string, query: ODataQuery = {}): string {
+    return `${this.odataBaseUrl}/${normalizeTableId(tableId)}/${encodeURIComponent(dimensionKey)}?${buildQuery(query)}`;
+  }
+
   getTablesUrl(query: ODataQuery = {}): string {
     return `${this.catalogBaseUrl}/Tables?${buildQuery(query)}`;
   }
@@ -132,6 +141,17 @@ export class CbsStatLineClient {
     const endpoint = this.getDataPropertiesUrl(tableId, query);
     const response = await this.fetcher(endpoint);
     const json = await parseODataResponse<CbsDataProperty>(response, endpoint);
+    return json.value;
+  }
+
+  async getDimensionValues(
+    tableId: string,
+    dimensionKey: string,
+    query: ODataQuery = {}
+  ): Promise<CbsDimensionValue[]> {
+    const endpoint = this.getDimensionValuesUrl(tableId, dimensionKey, query);
+    const response = await this.fetcher(endpoint);
+    const json = await parseODataResponse<CbsDimensionValue>(response, endpoint);
     return json.value;
   }
 

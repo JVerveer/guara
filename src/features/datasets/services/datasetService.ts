@@ -3,8 +3,8 @@
  *
  */
 
-import { cbsStatLineClient } from "@/data/bronze/clients/cbsStatLineClient";
-import type { CbsCatalogTable, CbsDataProperty } from "@/data/bronze/schema/cbs";
+import { cbsStatLineClient, toODataString } from "@/data/bronze/clients/cbsStatLineClient";
+import type { CbsCatalogTable, CbsDataProperty, CbsDimensionValue } from "@/data/bronze/schema/cbs";
 import { qualifyCbsRecord, summarizeGeographicLevels, supportedGeographicLevels } from "@/data/geography/cbsGeography";
 import type { Dataset, DatasetPreview, DatasetPreviewColumn, DatasetVariable } from "../types";
 
@@ -12,6 +12,11 @@ const CBS_TAGS = ["Population", "Housing", "Economy"];
 const GEOGRAPHY_LEVEL_COLUMN: DatasetPreviewColumn = {
   key: "__guaraGeographicLevel",
   title: "Geographic level",
+  type: "GuaraQualification",
+};
+const GEOGRAPHY_SOURCE_COLUMN: DatasetPreviewColumn = {
+  key: "__guaraGeographicSource",
+  title: "Qualification source",
   type: "GuaraQualification",
 };
 const GEOGRAPHY_FIELD_KEYS = ["RegioS", "WijkenEnBuurten", "Codering_3", "Gebieden", "Regio", "RegionS"];
@@ -93,6 +98,36 @@ function normalizeCell(value: unknown): string | number | boolean | null {
   if (value === undefined || value === null) return null;
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
   return String(value);
+}
+
+function normalizeLookupKey(value: unknown): string {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+async function getDimensionLookup(
+  datasetId: string,
+  geographyColumn: DatasetPreviewColumn | undefined,
+  rows: Array<Record<string, unknown>>
+): Promise<Record<string, CbsDimensionValue>> {
+  if (!geographyColumn) return {};
+  const keys = Array.from(new Set(rows.map((row) => normalizeLookupKey(row[geographyColumn.key])).filter(Boolean)));
+  if (keys.length === 0) return {};
+
+  const values = await Promise.all(
+    keys.map((key) =>
+      cbsStatLineClient
+        .getDimensionValues(datasetId, geographyColumn.key, {
+          $filter: `Key eq ${toODataString(String(rows.find((row) => normalizeLookupKey(row[geographyColumn.key]) === key)?.[geographyColumn.key] ?? key))}`,
+          $top: 1,
+        })
+        .catch(() => [])
+    )
+  );
+
+  return values.flat().reduce<Record<string, CbsDimensionValue>>((acc, value) => {
+    acc[normalizeLookupKey(value.Key)] = value;
+    return acc;
+  }, {});
 }
 
 export const datasetService = {
@@ -201,9 +236,10 @@ export const datasetService = {
           $select: select,
           $top: PREVIEW_ROW_LIMIT,
         })).value;
+    const dimensionLookup = await getDimensionLookup(datasetId, geographyColumn, rows);
     const qualifiedRows = rows.map((row) => ({
       row,
-      qualification: qualifyCbsRecord(row, properties),
+      qualification: qualifyCbsRecord(row, properties, dimensionLookup),
     }));
     const displayRows = qualifiedRows.some(({ qualification }) => supportedGeographicLevels.includes(qualification.level))
       ? qualifiedRows.filter(({ qualification }) => supportedGeographicLevels.includes(qualification.level)).slice(0, PREVIEW_ROW_LIMIT)
@@ -211,12 +247,13 @@ export const datasetService = {
     const qualifications = displayRows.map(({ qualification }) => qualification);
 
     return {
-      columns: [GEOGRAPHY_LEVEL_COLUMN, ...columns],
+      columns: [GEOGRAPHY_LEVEL_COLUMN, GEOGRAPHY_SOURCE_COLUMN, ...columns],
       geographySummary: summarizeGeographicLevels(qualifications),
       totalRecordCount,
       rows: displayRows.map(({ row }, index) =>
         columns.reduce<Record<string, string | number | boolean | null>>((acc, column) => {
           acc[GEOGRAPHY_LEVEL_COLUMN.key] = qualifications[index]?.label ?? "Other geography";
+          acc[GEOGRAPHY_SOURCE_COLUMN.key] = qualifications[index]?.source ?? "none";
           acc[column.key] = normalizeCell(row[column.key]);
           return acc;
         }, {})

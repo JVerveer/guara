@@ -109,6 +109,15 @@ export interface CbsDataProperty {
   ReleasePolicy?: boolean;
 }
 
+export interface CbsDimensionValue {
+  Key: string;
+  Title: string;
+  Description: string | null;
+  CategoryGroupID?: number | null;
+  Municipality?: string;
+  DetailRegionCode?: string;
+}
+
 /**
  * Dataset 85039NED as CBS returns it today: one record per 2021 municipality,
  * wijk, or buurt. This shape intentionally preserves the source field names.

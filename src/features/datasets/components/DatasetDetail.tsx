@@ -230,7 +230,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                             columnIndex === 0 && "font-medium text-foreground"
                           )}
                         >
-                          {column.key === "__guaraGeographicLevel" ? (
+                          {column.key === "__guaraGeographicLevel" || column.key === "__guaraGeographicSource" ? (
                             <span className="inline-flex rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-accent-foreground">
                               {formatCell(row[column.key])}
                             </span>

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CbsStatLineClient } from "../cbsStatLineClient";
-import type { CbsODataResponse, CbsWijkBuurtRecord } from "@/data/bronze/schema/cbs";
+import type { CbsDimensionValue, CbsODataResponse, CbsWijkBuurtRecord } from "@/data/bronze/schema/cbs";
 
 function response<TRecord>(value: TRecord[]): Response {
   return new Response(
@@ -36,6 +36,29 @@ describe("CbsStatLineClient", () => {
 
     await expect(client.getTypedDataSetCount("85039NED")).resolves.toBe(17681);
     expect(fetcher).toHaveBeenCalledWith("https://opendata.cbs.nl/ODataApi/odata/85039NED/TypedDataSet/$count");
+  });
+
+  it("fetches CBS dimension values for geography qualification", async () => {
+    const fetcher = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(
+      response<CbsDimensionValue>([
+        {
+          Key: "PV27  ",
+          Title: "Noord-Holland (PV)",
+          Description: "PV = Provincie",
+          CategoryGroupID: null,
+        },
+      ])
+    );
+    const client = new CbsStatLineClient({ fetcher });
+
+    const values = await client.getDimensionValues("70072NED", "RegioS", {
+      $filter: "Key eq 'PV27  '",
+      $top: 1,
+    });
+
+    expect(fetcher.mock.calls[0]?.[0]).toContain("https://opendata.cbs.nl/ODataApi/odata/70072NED/RegioS?");
+    expect(fetcher.mock.calls[0]?.[0]).toContain("%24filter=Key+eq+%27PV27++%27");
+    expect(values[0]?.Title).toBe("Noord-Holland (PV)");
   });
 
   it("pads 85039NED municipality codes and parses municipality facts", async () => {

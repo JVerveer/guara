@@ -1,4 +1,4 @@
-import type { CbsDataProperty } from "@/data/bronze/schema/cbs";
+import type { CbsDataProperty, CbsDimensionValue } from "@/data/bronze/schema/cbs";
 import type { GeographicLevel, GeographicQualification } from "./types";
 
 const LEVEL_LABELS: Record<GeographicLevel, string> = {
@@ -24,6 +24,10 @@ function clean(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   const cleaned = String(value).trim();
   return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function normalizeKey(value: unknown): string | undefined {
+  return clean(value)?.toUpperCase();
 }
 
 function firstValue(row: Record<string, unknown>, keys: string[]): { key: string; value: string } | undefined {
@@ -59,21 +63,54 @@ export function levelFromCbsCode(rawCode?: string, rawType?: string): Geographic
   return "other";
 }
 
+function levelFromDimensionValue(dimension?: CbsDimensionValue): GeographicLevel | undefined {
+  if (!dimension) return undefined;
+
+  const key = normalizeKey(dimension.DetailRegionCode || dimension.Key);
+  const title = clean(dimension.Title)?.toLowerCase();
+  const description = clean(dimension.Description)?.toLowerCase();
+  const municipality = clean(dimension.Municipality);
+
+  if (key === "NL00" || key === "NL01" || title === "nederland") return "country";
+  if (key?.startsWith("GM")) return "municipality";
+  if (key?.startsWith("WK") || key?.startsWith("BU")) return "other";
+  if (description?.includes("pv = provincie") || title?.includes("(pv)")) return "province";
+  if (description?.includes("gemeente") && municipality && key?.startsWith("GM")) return "municipality";
+  if (description?.includes("land") && title === "nederland") return "country";
+
+  return undefined;
+}
+
 export function qualifyCbsRecord(
   row: Record<string, unknown>,
-  properties: CbsDataProperty[] = []
+  properties: CbsDataProperty[] = [],
+  dimensionValues: Record<string, CbsDimensionValue> = {}
 ): GeographicQualification {
   const geography = firstValue(row, geographyKeys(properties));
   const regionType = firstValue(row, REGION_TYPE_FIELD_CANDIDATES);
   const regionName = firstValue(row, REGION_NAME_FIELD_CANDIDATES);
-  const level = levelFromCbsCode(geography?.value, regionType?.value);
+  const dimension = geography?.value ? dimensionValues[normalizeKey(geography.value) ?? ""] : undefined;
+  const dimensionLevel = levelFromDimensionValue(dimension);
+  const rowLevel = regionType?.value ? levelFromCbsCode(undefined, regionType.value) : undefined;
+  const level = dimensionLevel ?? rowLevel ?? levelFromCbsCode(geography?.value);
+  const source = dimensionLevel
+    ? "cbs-dimension"
+    : rowLevel
+      ? "cbs-row-field"
+      : geography?.value
+        ? "code-fallback"
+        : "none";
 
   return {
     level,
     label: LEVEL_LABELS[level],
     code: geography?.value,
-    name: regionName?.value,
+    name: dimension?.Title || regionName?.value,
     sourceField: geography?.key,
+    source,
+    evidence: dimension
+      ? `${dimension.Key.trim()} ${dimension.Title}${dimension.Description ? ` — ${dimension.Description}` : ""}`
+      : regionType?.value,
   };
 }
 

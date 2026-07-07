@@ -6,4 +6,6 @@ export interface GeographicQualification {
   code?: string;
   name?: string;
   sourceField?: string;
+  source: "cbs-dimension" | "cbs-row-field" | "code-fallback" | "none";
+  evidence?: string;
 }
