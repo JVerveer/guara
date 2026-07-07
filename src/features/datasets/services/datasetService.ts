@@ -8,6 +8,7 @@ import type { CbsCatalogTable, CbsDataProperty, CbsDimensionValue } from "@/data
 import { qualifyCbsRecord, summarizeGeographicLevels, supportedGeographicLevels } from "@/data/geography/cbsGeography";
 import type { GeographicLevel } from "@/data/geography/types";
 import type { Dataset, DatasetPreview, DatasetPreviewColumn, DatasetVariable } from "../types";
+import { supabaseDatasetRepository } from "./supabaseDatasetRepository";
 
 const CBS_TAGS = ["Population", "Housing", "Economy"];
 const GEOGRAPHY_LEVEL_COLUMN: DatasetPreviewColumn = {
@@ -297,6 +298,11 @@ async function getDimensionLookup(
 
 export const datasetService = {
   async getAllDatasets(): Promise<Dataset[]> {
+    if (supabaseDatasetRepository.isConfigured()) {
+      const cached = await supabaseDatasetRepository.searchDatasets("").catch(() => []);
+      if (cached.length > 0) return cached;
+    }
+
     const tables = await cbsStatLineClient.getTables({
       $select: ["Identifier", "Title", "ShortTitle", "ShortDescription", "Updated", "Period", "Language", "Catalog"],
       $filter: "Language eq 'nl'",
@@ -306,6 +312,11 @@ export const datasetService = {
   },
 
   async getDatasetById(id: string): Promise<Dataset | undefined> {
+    if (supabaseDatasetRepository.isConfigured()) {
+      const cached = await supabaseDatasetRepository.getDatasetById(id).catch(() => undefined);
+      if (cached) return cached;
+    }
+
     const tables = await cbsStatLineClient.getTables({
       $select: ["Identifier", "Title", "ShortTitle", "ShortDescription", "Updated", "Period", "Language", "Catalog"],
       $filter: `Identifier eq '${id.replace(/'/g, "''")}'`,
@@ -316,6 +327,12 @@ export const datasetService = {
 
   async searchDatasets(query: string, tags: string[]): Promise<Dataset[]> {
     if (query.trim()) {
+      if (supabaseDatasetRepository.isConfigured()) {
+        const cached = await supabaseDatasetRepository.searchDatasets(query).catch(() => []);
+        const taggedCache = tags.length === 0 ? cached : cached.filter((dataset) => tags.some((tag) => dataset.tags.includes(tag)));
+        if (taggedCache.length > 0) return taggedCache;
+      }
+
       const year = queryYear(query);
       const tokens = query
         .trim()

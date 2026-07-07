@@ -21,6 +21,11 @@ function optional(key: string, fallback: string): string {
   return (import.meta.env[key] as string | undefined) ?? fallback;
 }
 
+function optionalEmpty(key: string): string | undefined {
+  const value = import.meta.env[key] as string | undefined;
+  return value?.trim() || undefined;
+}
+
 function flag(key: string, fallback = false): boolean {
   const raw = import.meta.env[key] as string | undefined;
   if (raw === undefined) return fallback;
@@ -42,6 +47,12 @@ export const config = {
 
   /** When true, services call the real API instead of returning mock data. */
   useRealApi: flag("VITE_USE_REAL_API", false),
+
+  /** Supabase project URL used for persisted data exploration metadata. */
+  supabaseUrl: optionalEmpty("VITE_SUPABASE_URL"),
+
+  /** Supabase anon public key. Safe for browser use when RLS policies are configured. */
+  supabaseAnonKey: optionalEmpty("VITE_SUPABASE_ANON_KEY"),
 
   /** True when running under `vite dev`. */
   isDev: import.meta.env.DEV as boolean,
