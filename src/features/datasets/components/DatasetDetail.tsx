@@ -21,7 +21,7 @@ const API_ENDPOINT = "https://opendata.cbs.nl/ODataApi/odata/85039NED/TypedDataS
 const EMPTY_PREVIEW: DatasetPreview = {
   columns: [],
   rows: [],
-  geographySummary: { municipality: 0, province: 0, country: 0, other: 0 },
+  geographySummary: { neighborhood: 0, municipality: 0, province: 0, country: 0, other: 0 },
   totalRecordCount: 0,
 };
 
@@ -68,10 +68,10 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const statsKeys = [
     { key: "datasets.stats.records", value: preview.totalRecordCount ? formatNumber(preview.totalRecordCount) : "CBS API" },
     { key: "datasets.stats.previewRows", value: String(preview.rows.length) },
+    { key: "Neighborhood", value: String(preview.geographySummary.neighborhood) },
     { key: "Municipality", value: String(preview.geographySummary.municipality) },
     { key: "Province", value: String(preview.geographySummary.province) },
     { key: "Country", value: String(preview.geographySummary.country) },
-    { key: "datasets.stats.variables", value: String(variables.length) },
   ] as const;
 
   useEffect(() => {

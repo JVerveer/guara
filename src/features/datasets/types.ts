@@ -7,8 +7,19 @@ export interface Dataset {
   description: string;
   tags: string[];
   updated: string;
+  updatedAt?: string;
   records: string;
+  recordCount?: number;
   topics: number;
+  qualification: DatasetQualification;
+}
+
+export interface DatasetQualification {
+  yearStart?: number;
+  yearEnd?: number;
+  geographicLevels: GeographicLevel[];
+  confidence: "cbs-metadata" | "partial-metadata" | "unqualified";
+  evidence: string[];
 }
 
 export interface DatasetVariable {

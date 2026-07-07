@@ -1,4 +1,4 @@
-export type GeographicLevel = "municipality" | "province" | "country" | "other";
+export type GeographicLevel = "neighborhood" | "municipality" | "province" | "country" | "other";
 
 export interface GeographicQualification {
   level: GeographicLevel;

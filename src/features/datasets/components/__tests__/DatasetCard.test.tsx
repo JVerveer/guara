@@ -17,8 +17,17 @@ const MOCK_DATASET: Dataset = {
   description: "Key figures for all Dutch neighborhoods and districts.",
   tags: ["Population", "Housing"],
   updated: "Jan 15, 2024",
+  updatedAt: "2024-01-15T00:00:00",
   records: "87,432",
+  recordCount: 87432,
   topics: 24,
+  qualification: {
+    yearStart: 1970,
+    yearEnd: 2023,
+    geographicLevels: ["neighborhood", "municipality"],
+    confidence: "cbs-metadata",
+    evidence: ["test"],
+  },
 };
 
 describe("DatasetCard", () => {
@@ -41,12 +50,12 @@ describe("DatasetCard", () => {
 
   it("renders the record count", () => {
     render(<DatasetCard dataset={MOCK_DATASET} setScreen={vi.fn()} />);
-    expect(screen.getByText("87,432")).toBeInTheDocument();
+    expect(screen.getAllByText("87,432").length).toBeGreaterThan(0);
   });
 
   it("renders the last updated date", () => {
     render(<DatasetCard dataset={MOCK_DATASET} setScreen={vi.fn()} />);
-    expect(screen.getByText("Jan 15, 2024")).toBeInTheDocument();
+    expect(screen.getAllByText("Jan 15, 2024").length).toBeGreaterThan(0);
   });
 
   it("calls setScreen with 'dataset-detail' when Explore is clicked", async () => {

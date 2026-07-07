@@ -13,6 +13,14 @@ interface DatasetCardProps {
 
 export function DatasetCard({ dataset: d, setScreen, setSelectedDatasetId }: DatasetCardProps) {
   const { t } = useTranslation();
+  const years = d.qualification.yearStart && d.qualification.yearEnd
+    ? d.qualification.yearStart === d.qualification.yearEnd
+      ? String(d.qualification.yearStart)
+      : `${d.qualification.yearStart}-${d.qualification.yearEnd}`
+    : "Years unknown";
+  const levels = d.qualification.geographicLevels.length > 0
+    ? d.qualification.geographicLevels.map((level) => level === "neighborhood" ? "neighborhood" : level).join(", ")
+    : "level unknown";
 
   return (
     <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4 hover:shadow-md transition-shadow duration-200">
@@ -35,6 +43,21 @@ export function DatasetCard({ dataset: d, setScreen, setSelectedDatasetId }: Dat
         {d.tags.map((tag) => (
           <Tag key={tag} label={t(`datasets.tags.${tag}`, { defaultValue: tag })} />
         ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-2 text-[11px] text-muted-foreground">
+        <span>
+          <span className="font-medium text-foreground">Years:</span> {years}
+        </span>
+        <span className="truncate" title={levels}>
+          <span className="font-medium text-foreground">Level:</span> {levels}
+        </span>
+        <span>
+          <span className="font-medium text-foreground">Records:</span> {d.recordCount?.toLocaleString("en-US") ?? d.records}
+        </span>
+        <span>
+          <span className="font-medium text-foreground">Updated:</span> {d.updated}
+        </span>
       </div>
 
       <div className="flex items-center justify-between pt-1 border-t border-border">

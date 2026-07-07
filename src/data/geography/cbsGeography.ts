@@ -2,6 +2,7 @@ import type { CbsDataProperty, CbsDimensionValue } from "@/data/bronze/schema/cb
 import type { GeographicLevel, GeographicQualification } from "./types";
 
 const LEVEL_LABELS: Record<GeographicLevel, string> = {
+  neighborhood: "Neighborhood",
   municipality: "Municipality",
   province: "Province",
   country: "Country",
@@ -54,12 +55,14 @@ export function levelFromCbsCode(rawCode?: string, rawType?: string): Geographic
     if (type === "land" || type.includes("nederland") || type.includes("country")) return "country";
     if (type.includes("provincie") || type.includes("province")) return "province";
     if (type.includes("gemeente") || type.includes("municipality")) return "municipality";
+    if (type.includes("wijk") || type.includes("buurt") || type.includes("neighborhood")) return "neighborhood";
   }
 
   if (!code) return "other";
   if (code === "NL00" || code === "NL01" || code === "NL" || code === "NEDERLAND") return "country";
   if (code.startsWith("PV")) return "province";
   if (code.startsWith("GM")) return "municipality";
+  if (code.startsWith("WK") || code.startsWith("BU")) return "neighborhood";
   return "other";
 }
 
@@ -73,7 +76,7 @@ function levelFromDimensionValue(dimension?: CbsDimensionValue): GeographicLevel
 
   if (key === "NL00" || key === "NL01" || title === "nederland") return "country";
   if (key?.startsWith("GM")) return "municipality";
-  if (key?.startsWith("WK") || key?.startsWith("BU")) return "other";
+  if (key?.startsWith("WK") || key?.startsWith("BU")) return "neighborhood";
   if (description?.includes("pv = provincie") || title?.includes("(pv)")) return "province";
   if (description?.includes("gemeente") && municipality && key?.startsWith("GM")) return "municipality";
   if (description?.includes("land") && title === "nederland") return "country";
@@ -122,8 +125,8 @@ export function summarizeGeographicLevels(
       acc[qualification.level] += 1;
       return acc;
     },
-    { municipality: 0, province: 0, country: 0, other: 0 }
+    { neighborhood: 0, municipality: 0, province: 0, country: 0, other: 0 }
   );
 }
 
-export const supportedGeographicLevels: GeographicLevel[] = ["municipality", "province", "country"];
+export const supportedGeographicLevels: GeographicLevel[] = ["neighborhood", "municipality", "province", "country"];

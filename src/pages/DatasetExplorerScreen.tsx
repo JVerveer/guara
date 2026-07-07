@@ -11,10 +11,17 @@ import { LoadingState } from "@/components/ui/LoadingState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { Screen } from "@/types";
+import type { GeographicLevel } from "@/data/geography/types";
 
 // Canonical filter keys match dataset.tags values (English).
 // Display labels come from t(`datasets.tags.${key}`) so they're translated.
 const FILTER_TAG_KEYS = ["Population", "Housing", "Economy", "Health", "Climate", "EU"] as const;
+const LEVEL_FILTERS: Array<{ key: GeographicLevel; label: string }> = [
+  { key: "neighborhood", label: "Neighborhood" },
+  { key: "municipality", label: "Municipality" },
+  { key: "province", label: "Province" },
+  { key: "country", label: "Country" },
+];
 
 interface DatasetExplorerScreenProps {
   setScreen: (s: Screen) => void;
@@ -24,8 +31,27 @@ interface DatasetExplorerScreenProps {
 export function DatasetExplorerScreen({ setScreen, setSelectedDatasetId }: DatasetExplorerScreenProps) {
   const { t } = useTranslation();
   const { formatCompact } = useLocale();
-  const { filtered, query, setQuery, activeTag, setActiveTag, hasActiveFilters, isLoading, error, retry } =
-    useDatasets();
+  const {
+    filtered,
+    query,
+    setQuery,
+    activeTag,
+    setActiveTag,
+    activeLevels,
+    setActiveLevels,
+    yearStart,
+    setYearStart,
+    yearEnd,
+    setYearEnd,
+    recordCountFilter,
+    setRecordCountFilter,
+    updatedFilter,
+    setUpdatedFilter,
+    hasActiveFilters,
+    isLoading,
+    error,
+    retry,
+  } = useDatasets();
   const [catalogStats, setCatalogStats] = useState({ totalDatasets: 0, sourceCount: 0 });
 
   useEffect(() => {
@@ -42,7 +68,7 @@ export function DatasetExplorerScreen({ setScreen, setSelectedDatasetId }: Datas
     };
   }, []);
 
-  if (isLoading) return <LoadingState message={t("common.loading")} className="flex-1" />;
+  if (isLoading && filtered.length === 0 && !query) return <LoadingState message={t("common.loading")} className="flex-1" />;
 
   if (error) {
     return (
@@ -93,27 +119,116 @@ export function DatasetExplorerScreen({ setScreen, setSelectedDatasetId }: Datas
           />
         </div>
 
-        {/* Tag filters */}
-        <div className="flex items-center gap-2 mb-6 flex-wrap" role="group" aria-label="Filter by topic">
-          <span className="text-[11px] text-muted-foreground flex items-center gap-1" aria-hidden="true">
-            <Filter size={11} /> {t("common.filter")}:
-          </span>
-          {FILTER_TAG_KEYS.map((tagKey) => (
-            <button
-              key={tagKey}
-              type="button"
-              onClick={() => setActiveTag(activeTag === tagKey ? null : tagKey)}
-              aria-pressed={activeTag === tagKey}
-              className={cn(
-                "px-3 py-1 rounded-full text-[12px] font-medium border transition-all duration-150",
-                activeTag === tagKey
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-card border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-              )}
-            >
-              {t(`datasets.tags.${tagKey}`)}
-            </button>
-          ))}
+        {/* Qualification filters */}
+        <div className="mb-6 space-y-3 rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <Filter size={12} /> Dataset qualifiers
+            {isLoading && <span className="normal-case tracking-normal">Refreshing…</span>}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filter by topic">
+            {FILTER_TAG_KEYS.map((tagKey) => (
+              <button
+                key={tagKey}
+                type="button"
+                onClick={() => setActiveTag(activeTag === tagKey ? null : tagKey)}
+                aria-pressed={activeTag === tagKey}
+                className={cn(
+                  "px-3 py-1 rounded-full text-[12px] font-medium border transition-all duration-150",
+                  activeTag === tagKey
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                )}
+              >
+                {t(`datasets.tags.${tagKey}`)}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-[1.1fr_1fr_1fr] gap-3">
+            <div>
+              <p className="mb-2 text-[11px] font-medium text-muted-foreground">Level</p>
+              <div className="flex flex-wrap gap-2">
+                {LEVEL_FILTERS.map((level) => {
+                  const active = activeLevels.includes(level.key);
+                  return (
+                    <button
+                      key={level.key}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() =>
+                        setActiveLevels(active ? activeLevels.filter((item) => item !== level.key) : [...activeLevels, level.key])
+                      }
+                      className={cn(
+                        "rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {level.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-medium text-muted-foreground">Years</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1970}
+                  max={2026}
+                  value={yearStart}
+                  onChange={(event) => setYearStart(event.target.value)}
+                  placeholder="1970"
+                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
+                />
+                <span className="text-muted-foreground">to</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1970}
+                  max={2026}
+                  value={yearEnd}
+                  onChange={(event) => setYearEnd(event.target.value)}
+                  placeholder="2026"
+                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Record count
+                <select
+                  value={recordCountFilter}
+                  onChange={(event) => setRecordCountFilter(event.target.value as typeof recordCountFilter)}
+                  className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="all">Any</option>
+                  <option value="lt-1k">Under 1K</option>
+                  <option value="1k-100k">1K-100K</option>
+                  <option value="100k-plus">100K+</option>
+                </select>
+              </label>
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Last updated
+                <select
+                  value={updatedFilter}
+                  onChange={(event) => setUpdatedFilter(event.target.value as typeof updatedFilter)}
+                  className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="all">Any</option>
+                  <option value="last-year">Last year</option>
+                  <option value="last-5-years">Last 5 years</option>
+                  <option value="older">Older</option>
+                </select>
+              </label>
+            </div>
+          </div>
         </div>
 
         {/* Results count */}

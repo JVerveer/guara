@@ -7,13 +7,13 @@ describe("CBS geography qualification", () => {
     expect(levelFromCbsCode("PV27  ")).toBe("province");
     expect(levelFromCbsCode("NL01  ")).toBe("country");
     expect(levelFromCbsCode("NL00")).toBe("country");
-    expect(levelFromCbsCode("WK036300")).toBe("other");
+    expect(levelFromCbsCode("WK036300")).toBe("neighborhood");
   });
 
   it("uses CBS row metadata when the code alone is not enough", () => {
     expect(qualifyCbsRecord({ WijkenEnBuurten: "NL00", SoortRegio_2: "Land" }).level).toBe("country");
     expect(qualifyCbsRecord({ WijkenEnBuurten: "GM0344", SoortRegio_2: "Gemeente" }).level).toBe("municipality");
-    expect(qualifyCbsRecord({ WijkenEnBuurten: "BU03440101", SoortRegio_2: "Buurt" }).level).toBe("other");
+    expect(qualifyCbsRecord({ WijkenEnBuurten: "BU03440101", SoortRegio_2: "Buurt" }).level).toBe("neighborhood");
   });
 
   it("prefers CBS dimension values over code fallback", () => {
@@ -42,8 +42,9 @@ describe("CBS geography qualification", () => {
         { level: "province", label: "Province", source: "cbs-dimension" },
         { level: "municipality", label: "Municipality", source: "cbs-dimension" },
         { level: "municipality", label: "Municipality", source: "cbs-dimension" },
+        { level: "neighborhood", label: "Neighborhood", source: "cbs-dimension" },
         { level: "other", label: "Other geography", source: "cbs-dimension" },
       ])
-    ).toEqual({ country: 1, province: 1, municipality: 2, other: 1 });
+    ).toEqual({ neighborhood: 1, country: 1, province: 1, municipality: 2, other: 1 });
   });
 });

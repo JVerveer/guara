@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { datasetService } from "../services/datasetService";
 import type { Dataset } from "../types";
+import type { GeographicLevel } from "@/data/geography/types";
+
+export type RecordCountFilter = "all" | "lt-1k" | "1k-100k" | "100k-plus";
+export type UpdatedFilter = "all" | "last-year" | "last-5-years" | "older";
 
 interface UseDatasetsResult {
   /** All datasets from the service */
@@ -11,6 +15,16 @@ interface UseDatasetsResult {
   setQuery: (q: string) => void;
   activeTag: string | null;
   setActiveTag: (tag: string | null) => void;
+  activeLevels: GeographicLevel[];
+  setActiveLevels: (levels: GeographicLevel[]) => void;
+  yearStart: string;
+  setYearStart: (year: string) => void;
+  yearEnd: string;
+  setYearEnd: (year: string) => void;
+  recordCountFilter: RecordCountFilter;
+  setRecordCountFilter: (filter: RecordCountFilter) => void;
+  updatedFilter: UpdatedFilter;
+  setUpdatedFilter: (filter: UpdatedFilter) => void;
   /** True when at least one filter is active */
   hasActiveFilters: boolean;
   isLoading: boolean;
@@ -26,11 +40,23 @@ interface UseDatasetsResult {
  */
 export function useDatasets(): UseDatasetsResult {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [remoteDatasets, setRemoteDatasets] = useState<Dataset[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [activeLevels, setActiveLevels] = useState<GeographicLevel[]>([]);
+  const [yearStart, setYearStart] = useState("");
+  const [yearEnd, setYearEnd] = useState("");
+  const [recordCountFilter, setRecordCountFilter] = useState<RecordCountFilter>("all");
+  const [updatedFilter, setUpdatedFilter] = useState<UpdatedFilter>("all");
   const [fetchKey, setFetchKey] = useState(0);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedQuery(query), 350);
+    return () => window.clearTimeout(handle);
+  }, [query]);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,9 +66,9 @@ export function useDatasets(): UseDatasetsResult {
     const tags = activeTag ? [activeTag] : [];
 
     datasetService
-      .searchDatasets(query, tags)
+      .searchDatasets(debouncedQuery, tags)
       .then((data) => {
-        if (!cancelled) setDatasets(data);
+        if (!cancelled) setRemoteDatasets(data);
       })
       .catch((err: unknown) => {
         if (!cancelled) {
@@ -56,7 +82,38 @@ export function useDatasets(): UseDatasetsResult {
     return () => {
       cancelled = true;
     };
-  }, [activeTag, fetchKey, query]);
+  }, [activeTag, fetchKey, debouncedQuery]);
+
+  useEffect(() => {
+    const minYear = Number(yearStart);
+    const maxYear = Number(yearEnd);
+    const now = Date.now();
+    const yearMs = 365 * 24 * 60 * 60 * 1000;
+
+    setDatasets(remoteDatasets.filter((dataset) => {
+      const qualification = dataset.qualification;
+      if (activeLevels.length > 0 && !activeLevels.some((level) => qualification.geographicLevels.includes(level))) {
+        return false;
+      }
+      if (yearStart && (!qualification.yearEnd || qualification.yearEnd < minYear)) return false;
+      if (yearEnd && (!qualification.yearStart || qualification.yearStart > maxYear)) return false;
+      if (recordCountFilter !== "all") {
+        const count = dataset.recordCount;
+        if (count === undefined) return false;
+        if (recordCountFilter === "lt-1k" && count >= 1_000) return false;
+        if (recordCountFilter === "1k-100k" && (count < 1_000 || count > 100_000)) return false;
+        if (recordCountFilter === "100k-plus" && count < 100_000) return false;
+      }
+      if (updatedFilter !== "all") {
+        const updatedAt = dataset.updatedAt ? new Date(dataset.updatedAt).getTime() : Number.NaN;
+        if (!Number.isFinite(updatedAt)) return false;
+        if (updatedFilter === "last-year" && now - updatedAt > yearMs) return false;
+        if (updatedFilter === "last-5-years" && now - updatedAt > yearMs * 5) return false;
+        if (updatedFilter === "older" && now - updatedAt <= yearMs * 5) return false;
+      }
+      return true;
+    }));
+  }, [activeLevels, yearStart, yearEnd, recordCountFilter, updatedFilter, remoteDatasets]);
 
   const retry = () => setFetchKey((k) => k + 1);
 
@@ -67,7 +124,17 @@ export function useDatasets(): UseDatasetsResult {
     setQuery,
     activeTag,
     setActiveTag,
-    hasActiveFilters: Boolean(query || activeTag),
+    activeLevels,
+    setActiveLevels,
+    yearStart,
+    setYearStart,
+    yearEnd,
+    setYearEnd,
+    recordCountFilter,
+    setRecordCountFilter,
+    updatedFilter,
+    setUpdatedFilter,
+    hasActiveFilters: Boolean(query || activeTag || activeLevels.length || yearStart || yearEnd || recordCountFilter !== "all" || updatedFilter !== "all"),
     isLoading,
     error,
     retry,

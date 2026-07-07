@@ -6,6 +6,7 @@
 import { cbsStatLineClient, toODataString } from "@/data/bronze/clients/cbsStatLineClient";
 import type { CbsCatalogTable, CbsDataProperty, CbsDimensionValue } from "@/data/bronze/schema/cbs";
 import { qualifyCbsRecord, summarizeGeographicLevels, supportedGeographicLevels } from "@/data/geography/cbsGeography";
+import type { GeographicLevel } from "@/data/geography/types";
 import type { Dataset, DatasetPreview, DatasetPreviewColumn, DatasetVariable } from "../types";
 
 const CBS_TAGS = ["Population", "Housing", "Economy"];
@@ -21,6 +22,13 @@ const GEOGRAPHY_SOURCE_COLUMN: DatasetPreviewColumn = {
 };
 const GEOGRAPHY_FIELD_KEYS = ["RegioS", "WijkenEnBuurten", "Codering_3", "Gebieden", "Regio", "RegionS"];
 const PREVIEW_ROW_LIMIT = 25;
+const EMPTY_LEVEL_SUMMARY: Record<GeographicLevel, number> = {
+  neighborhood: 0,
+  municipality: 0,
+  province: 0,
+  country: 0,
+  other: 0,
+};
 
 function escapeODataString(value: string): string {
   return value.replace(/'/g, "''");
@@ -38,8 +46,14 @@ function mapTable(table: CbsCatalogTable): Dataset {
     description: table.ShortDescription?.trim() || table.Title,
     tags: CBS_TAGS,
     updated: table.Updated ? new Date(table.Updated).toLocaleDateString("en-US", { dateStyle: "medium" }) : "CBS API",
+    updatedAt: table.Updated,
     records: table.Period ?? "StatLine",
     topics: 0,
+    qualification: {
+      geographicLevels: [],
+      confidence: "unqualified",
+      evidence: [],
+    },
   };
 }
 
@@ -94,6 +108,10 @@ function findGeographyColumn(columns: DatasetPreviewColumn[]): DatasetPreviewCol
   return columns.find((column) => column.type.includes("Geo") || GEOGRAPHY_FIELD_KEYS.includes(column.key));
 }
 
+function findProperty(properties: CbsDataProperty[], matcher: (property: CbsDataProperty) => boolean): CbsDataProperty | undefined {
+  return properties.find((property) => property.Key && matcher(property));
+}
+
 function normalizeCell(value: unknown): string | number | boolean | null {
   if (value === undefined || value === null) return null;
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
@@ -102,6 +120,92 @@ function normalizeCell(value: unknown): string | number | boolean | null {
 
 function normalizeLookupKey(value: unknown): string {
   return String(value ?? "").trim().toUpperCase();
+}
+
+function extractYear(value: string | null | undefined): number | undefined {
+  const match = value?.match(/(?:19|20)\d{2}/);
+  if (!match) return undefined;
+  const year = Number(match[0]);
+  return year >= 1970 && year <= 2026 ? year : undefined;
+}
+
+function extractYears(value: string): number[] {
+  return Array.from(value.matchAll(/(?:19|20)\d{2}/g))
+    .map((match) => Number(match[0]))
+    .filter((year) => year >= 1970 && year <= 2026);
+}
+
+function levelsFromDimensionValues(values: CbsDimensionValue[]): GeographicLevel[] {
+  const levelSet = new Set<GeographicLevel>();
+  values.forEach((value) => {
+    const qualification = qualifyCbsRecord(
+      { Geo: value.Key },
+      [{ ID: 0, Position: 0, ParentID: null, Type: "GeoDimension", Key: "Geo", Title: "Geo", Description: null }],
+      { [normalizeLookupKey(value.Key)]: value }
+    );
+    if (supportedGeographicLevels.includes(qualification.level)) levelSet.add(qualification.level);
+  });
+  return Array.from(levelSet);
+}
+
+async function getDatasetQualification(dataset: Dataset): Promise<Dataset> {
+  try {
+    const [properties, recordCount] = await Promise.all([
+      cbsStatLineClient.getDataProperties(dataset.id),
+      cbsStatLineClient.getTypedDataSetCount(dataset.id).catch(() => undefined),
+    ]);
+    const timeProperty = findProperty(properties, (property) => property.Type === "TimeDimension");
+    const geographyProperty = findProperty(properties, (property) => property.Type.includes("Geo"));
+    const [periodValues, geographySamples] = await Promise.all([
+      timeProperty
+        ? cbsStatLineClient.getDimensionValues(dataset.id, timeProperty.Key, { $top: 5000 }).catch(() => [])
+        : Promise.resolve([]),
+      geographyProperty
+        ? Promise.all(
+            [
+              `substringof('NL00',Key) or substringof('NL01',Key)`,
+              "substringof('PV',Key)",
+              "substringof('GM',Key)",
+              "substringof('WK',Key) or substringof('BU',Key)",
+            ].map((filter) =>
+              cbsStatLineClient
+                .getDimensionValues(dataset.id, geographyProperty.Key, { $filter: filter, $top: 3 })
+                .catch(() => [])
+            )
+          ).then((groups) => groups.flat())
+        : Promise.resolve([]),
+    ]);
+    const years = periodValues
+      .flatMap((value) => [extractYear(value.Key), extractYear(value.Title)])
+      .filter((year): year is number => typeof year === "number");
+    const catalogYears = extractYears(`${dataset.title} ${dataset.description} ${dataset.records}`);
+    const qualifiedYears = years.length ? years : catalogYears;
+    const geographicLevels = levelsFromDimensionValues(geographySamples);
+    const evidence = [
+      timeProperty ? `Years from CBS dimension ${timeProperty.Key}` : "Years inferred from CBS catalog title/description",
+      geographyProperty ? `Levels from CBS dimension ${geographyProperty.Key}` : "No CBS geography dimension found",
+      recordCount !== undefined ? "Record count from TypedDataSet/$count" : "Record count unavailable",
+    ];
+
+    return {
+      ...dataset,
+      recordCount,
+      records: recordCount !== undefined ? compactNumber(recordCount) : dataset.records,
+      qualification: {
+        yearStart: qualifiedYears.length ? Math.min(...qualifiedYears) : undefined,
+        yearEnd: qualifiedYears.length ? Math.max(...qualifiedYears) : undefined,
+        geographicLevels,
+        confidence: timeProperty || geographyProperty ? "cbs-metadata" : qualifiedYears.length ? "partial-metadata" : "unqualified",
+        evidence,
+      },
+    };
+  } catch {
+    return dataset;
+  }
+}
+
+async function qualifyDatasets(datasets: Dataset[]): Promise<Dataset[]> {
+  return Promise.all(datasets.map((dataset) => getDatasetQualification(dataset)));
 }
 
 async function getDimensionLookup(
@@ -135,8 +239,9 @@ export const datasetService = {
     const tables = await cbsStatLineClient.getTables({
       $select: ["Identifier", "Title", "ShortTitle", "ShortDescription", "Updated", "Period", "Language", "Catalog"],
       $filter: "Language eq 'nl'",
+      $top: 60,
     });
-    return tables.map(mapTable);
+    return qualifyDatasets(tables.map(mapTable).slice(0, 24));
   },
 
   async getDatasetById(id: string): Promise<Dataset | undefined> {
@@ -145,7 +250,7 @@ export const datasetService = {
       $filter: `Identifier eq '${id.replace(/'/g, "''")}'`,
       $top: 1,
     });
-    return tables[0] ? mapTable(tables[0]) : undefined;
+    return tables[0] ? getDatasetQualification(mapTable(tables[0])) : undefined;
   },
 
   async searchDatasets(query: string, tags: string[]): Promise<Dataset[]> {
@@ -184,7 +289,8 @@ export const datasetService = {
         (table, index, all) => all.findIndex((candidate) => candidate.Identifier === table.Identifier) === index
       );
       const mapped = rankDatasets(uniqueTables.map(mapTable), query);
-      return tags.length === 0 ? mapped : mapped.filter((dataset) => tags.some((tag) => dataset.tags.includes(tag)));
+      const tagged = tags.length === 0 ? mapped : mapped.filter((dataset) => tags.some((tag) => dataset.tags.includes(tag)));
+      return qualifyDatasets(tagged.slice(0, 24));
     }
 
     const all = await this.getAllDatasets();
@@ -248,7 +354,7 @@ export const datasetService = {
 
     return {
       columns: [GEOGRAPHY_LEVEL_COLUMN, GEOGRAPHY_SOURCE_COLUMN, ...columns],
-      geographySummary: summarizeGeographicLevels(qualifications),
+      geographySummary: { ...EMPTY_LEVEL_SUMMARY, ...summarizeGeographicLevels(qualifications) },
       totalRecordCount,
       rows: displayRows.map(({ row }, index) =>
         columns.reduce<Record<string, string | number | boolean | null>>((acc, column) => {
