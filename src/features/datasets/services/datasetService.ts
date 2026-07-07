@@ -50,6 +50,7 @@ function mapTable(table: CbsCatalogTable): Dataset {
     records: table.Period ?? "StatLine",
     topics: 0,
     qualification: {
+      years: [],
       geographicLevels: [],
       confidence: "unqualified",
       evidence: [],
@@ -76,6 +77,20 @@ function rankDatasets(datasets: Dataset[], query: string): Dataset[] {
 
     return score(b) - score(a);
   });
+}
+
+function queryYear(query: string): number | undefined {
+  const trimmed = query.trim();
+  if (!/^(?:19|20)\d{2}$/.test(trimmed)) return undefined;
+  const year = Number(trimmed);
+  return year >= 1970 && year <= 2026 ? year : undefined;
+}
+
+function datasetCoversYear(dataset: Dataset, year: number): boolean {
+  const { qualification } = dataset;
+  if (qualification.years.length > 0) return qualification.years.includes(year);
+  if (qualification.yearStart === undefined || qualification.yearEnd === undefined) return false;
+  return qualification.yearStart <= year && qualification.yearEnd >= year;
 }
 
 function isFieldProperty(property: CbsDataProperty): boolean {
@@ -135,6 +150,39 @@ function extractYears(value: string): number[] {
     .filter((year) => year >= 1970 && year <= 2026);
 }
 
+function expandYearRange(years: number[]): number[] {
+  if (years.length < 2) return years;
+  const min = Math.min(...years);
+  const max = Math.max(...years);
+  if (max - min > 80) return years;
+  return Array.from({ length: max - min + 1 }, (_, index) => min + index);
+}
+
+function extractPeriodenYears(values: CbsDimensionValue[]): number[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => Number(value.Key.slice(0, 4)))
+        .filter((year) => Number.isInteger(year) && year >= 1970 && year <= 2026)
+    )
+  ).sort((a, b) => a - b);
+}
+
+function spatialCoverageForLevels(levels: GeographicLevel[]): string | undefined {
+  const levelSet = new Set(levels);
+  if (levelSet.has("country") && levelSet.has("municipality") && levelSet.has("neighborhood")) {
+    return "Netherlands — all municipalities, wijken and buurten";
+  }
+  if (levelSet.has("country") && levelSet.has("province") && levelSet.has("municipality")) {
+    return "Netherlands — country, provinces and municipalities";
+  }
+  if (levelSet.has("province")) return "Netherlands — provinces";
+  if (levelSet.has("municipality")) return "Netherlands — municipalities";
+  if (levelSet.has("country")) return "Netherlands — country";
+  if (levelSet.has("neighborhood")) return "Netherlands — wijken and buurten";
+  return undefined;
+}
+
 function levelsFromDimensionValues(values: CbsDimensionValue[]): GeographicLevel[] {
   const levelSet = new Set<GeographicLevel>();
   values.forEach((value) => {
@@ -154,7 +202,7 @@ async function getDatasetQualification(dataset: Dataset): Promise<Dataset> {
       cbsStatLineClient.getDataProperties(dataset.id),
       cbsStatLineClient.getTypedDataSetCount(dataset.id).catch(() => undefined),
     ]);
-    const timeProperty = findProperty(properties, (property) => property.Type === "TimeDimension");
+    const timeProperty = findProperty(properties, (property) => property.Key === "Perioden" || property.Type === "TimeDimension");
     const geographyProperty = findProperty(properties, (property) => property.Type.includes("Geo"));
     const [periodValues, geographySamples] = await Promise.all([
       timeProperty
@@ -175,17 +223,27 @@ async function getDatasetQualification(dataset: Dataset): Promise<Dataset> {
           ).then((groups) => groups.flat())
         : Promise.resolve([]),
     ]);
-    const years = periodValues
-      .flatMap((value) => [extractYear(value.Key), extractYear(value.Title)])
-      .filter((year): year is number => typeof year === "number");
-    const catalogYears = extractYears(`${dataset.title} ${dataset.description} ${dataset.records}`);
-    const qualifiedYears = years.length ? years : catalogYears;
+    const periodenYears = extractPeriodenYears(periodValues);
+    const catalogPeriodYears = expandYearRange(extractYears(dataset.records));
+    const catalogTextYears = expandYearRange(extractYears(`${dataset.title} ${dataset.description}`));
+    const qualifiedYears = periodenYears.length ? periodenYears : catalogPeriodYears.length ? catalogPeriodYears : catalogTextYears;
     const geographicLevels = levelsFromDimensionValues(geographySamples);
+    const spatialCoverage = spatialCoverageForLevels(geographicLevels);
+    const periodSource = periodenYears.length
+      ? "perioden-dimension"
+      : catalogPeriodYears.length
+        ? "catalog-period"
+        : catalogTextYears.length
+          ? "catalog-text"
+          : "none";
     const evidence = [
-      timeProperty ? `Years from CBS dimension ${timeProperty.Key}` : "Years inferred from CBS catalog title/description",
+      timeProperty ? `Years from CBS ${timeProperty.Key} dimension using first four characters of each key` : "No CBS Perioden dimension found",
+      periodSource === "catalog-period" ? "Years expanded from CBS catalog Period" : undefined,
+      periodSource === "catalog-text" ? "Years inferred from CBS catalog title/description" : undefined,
       geographyProperty ? `Levels from CBS dimension ${geographyProperty.Key}` : "No CBS geography dimension found",
+      spatialCoverage ? `Spatial coverage: ${spatialCoverage}` : undefined,
       recordCount !== undefined ? "Record count from TypedDataSet/$count" : "Record count unavailable",
-    ];
+    ].filter((item): item is string => Boolean(item));
 
     return {
       ...dataset,
@@ -194,7 +252,10 @@ async function getDatasetQualification(dataset: Dataset): Promise<Dataset> {
       qualification: {
         yearStart: qualifiedYears.length ? Math.min(...qualifiedYears) : undefined,
         yearEnd: qualifiedYears.length ? Math.max(...qualifiedYears) : undefined,
+        years: qualifiedYears,
         geographicLevels,
+        spatialCoverage,
+        periodSource,
         confidence: timeProperty || geographyProperty ? "cbs-metadata" : qualifiedYears.length ? "partial-metadata" : "unqualified",
         evidence,
       },
@@ -255,6 +316,7 @@ export const datasetService = {
 
   async searchDatasets(query: string, tags: string[]): Promise<Dataset[]> {
     if (query.trim()) {
+      const year = queryYear(query);
       const tokens = query
         .trim()
         .split(/\s+/)
@@ -268,6 +330,7 @@ export const datasetService = {
           `substringof('${escaped}',Title)`,
           `substringof('${escaped}',ShortTitle)`,
           `substringof('${escaped}',ShortDescription)`,
+          `substringof('${escaped}',Period)`,
         ];
       });
       const tables = await cbsStatLineClient.getTables({
@@ -290,7 +353,8 @@ export const datasetService = {
       );
       const mapped = rankDatasets(uniqueTables.map(mapTable), query);
       const tagged = tags.length === 0 ? mapped : mapped.filter((dataset) => tags.some((tag) => dataset.tags.includes(tag)));
-      return qualifyDatasets(tagged.slice(0, 24));
+      const qualified = await qualifyDatasets(tagged.slice(0, year ? 40 : 24));
+      return year ? qualified.filter((dataset) => datasetCoversYear(dataset, year)).slice(0, 24) : qualified;
     }
 
     const all = await this.getAllDatasets();

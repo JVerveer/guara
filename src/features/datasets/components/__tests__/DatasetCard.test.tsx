@@ -24,7 +24,10 @@ const MOCK_DATASET: Dataset = {
   qualification: {
     yearStart: 1970,
     yearEnd: 2023,
+    years: [1970, 2023],
     geographicLevels: ["neighborhood", "municipality"],
+    spatialCoverage: "Netherlands — all municipalities, wijken and buurten",
+    periodSource: "perioden-dimension",
     confidence: "cbs-metadata",
     evidence: ["test"],
   },

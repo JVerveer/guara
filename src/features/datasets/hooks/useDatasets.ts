@@ -95,8 +95,14 @@ export function useDatasets(): UseDatasetsResult {
       if (activeLevels.length > 0 && !activeLevels.some((level) => qualification.geographicLevels.includes(level))) {
         return false;
       }
-      if (yearStart && (!qualification.yearEnd || qualification.yearEnd < minYear)) return false;
-      if (yearEnd && (!qualification.yearStart || qualification.yearStart > maxYear)) return false;
+      if (yearStart || yearEnd) {
+        const lower = yearStart ? minYear : 1970;
+        const upper = yearEnd ? maxYear : 2026;
+        const matchesYears = qualification.years.length > 0
+          ? qualification.years.some((year) => year >= lower && year <= upper)
+          : qualification.yearStart !== undefined && qualification.yearEnd !== undefined && qualification.yearStart <= upper && qualification.yearEnd >= lower;
+        if (!matchesYears) return false;
+      }
       if (recordCountFilter !== "all") {
         const count = dataset.recordCount;
         if (count === undefined) return false;

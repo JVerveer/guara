@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { fonts } from "@/theme/tokens";
 import { ProviderBadge } from "@/components/ui/ProviderBadge";
 import { datasetService } from "../services/datasetService";
-import type { DatasetPreview, DatasetVariable } from "../types";
+import type { Dataset, DatasetPreview, DatasetVariable } from "../types";
 
 type Tab = "preview" | "metadata" | "variables" | "api";
 
@@ -25,18 +25,6 @@ const EMPTY_PREVIEW: DatasetPreview = {
   totalRecordCount: 0,
 };
 
-const METADATA_KEYS = [
-  { labelKey: "datasets.metadata.datasetId", value: "CBS StatLine" },
-  { labelKey: "datasets.metadata.publisher", value: "Centraal Bureau voor de Statistiek (CBS)" },
-  { labelKey: "datasets.metadata.language", value: "Dutch (NL)" },
-  { labelKey: "datasets.metadata.spatialCoverage", value: "Netherlands — all municipalities, wijken and buurten" },
-  { labelKey: "datasets.metadata.temporalCoverage", value: "Provided by CBS metadata" },
-  { labelKey: "datasets.metadata.license", value: "Creative Commons Attribution 4.0 (CC BY 4.0)" },
-  { labelKey: "datasets.metadata.updateFrequency", value: "Provided by CBS metadata" },
-  { labelKey: "datasets.metadata.format", value: "JSON" },
-  { labelKey: "datasets.metadata.catalogUrl", value: "opendata.cbs.nl" },
-] as const;
-
 interface DatasetDetailProps {
   datasetId: string;
 }
@@ -47,6 +35,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const [copied, setCopied] = useState(false);
   const [preview, setPreview] = useState<DatasetPreview>(EMPTY_PREVIEW);
   const [variables, setVariables] = useState<DatasetVariable[]>([]);
+  const [datasetMeta, setDatasetMeta] = useState<Dataset | null>(null);
   const [datasetTitle, setDatasetTitle] = useState("CBS StatLine dataset");
   const [datasetDescription, setDatasetDescription] = useState("Live CBS StatLine data loaded from the Open Data v3 API.");
   const [apiEndpoint, setApiEndpoint] = useState(API_ENDPOINT);
@@ -62,6 +51,25 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const formatNumber = (value: number) => new Intl.NumberFormat(locale).format(value);
 
   const suggestedJoins = datasetService.getDetailSuggestedJoins();
+  const yearsLabel = datasetMeta?.qualification.yearStart && datasetMeta.qualification.yearEnd
+    ? datasetMeta.qualification.yearStart === datasetMeta.qualification.yearEnd
+      ? String(datasetMeta.qualification.yearStart)
+      : `${datasetMeta.qualification.yearStart}-${datasetMeta.qualification.yearEnd}`
+    : "Provided by CBS metadata";
+  const spatialCoverage = datasetMeta?.qualification.spatialCoverage ?? "Provided by CBS geography metadata";
+  const metadataKeys = [
+    { labelKey: "datasets.metadata.datasetId", value: datasetId },
+    { labelKey: "datasets.metadata.publisher", value: "Centraal Bureau voor de Statistiek (CBS)" },
+    { labelKey: "datasets.metadata.language", value: "Dutch (NL)" },
+    { labelKey: "datasets.metadata.spatialCoverage", value: spatialCoverage },
+    { labelKey: "datasets.metadata.temporalCoverage", value: yearsLabel },
+    { labelKey: "datasets.metadata.license", value: "Creative Commons Attribution 4.0 (CC BY 4.0)" },
+    { labelKey: "datasets.metadata.updateFrequency", value: datasetMeta?.updated ?? "Provided by CBS metadata" },
+    { labelKey: "datasets.metadata.format", value: "JSON" },
+    { labelKey: "datasets.metadata.catalogUrl", value: "opendata.cbs.nl" },
+    { labelKey: "Period source", value: datasetMeta?.qualification.periodSource ?? "none" },
+    { labelKey: "Qualification evidence", value: datasetMeta?.qualification.evidence.join(" · ") ?? "CBS metadata" },
+  ] as const;
   const codeSnippet = `fetch("${apiEndpoint}?$format=json&$top=5")
   .then((response) => response.json())
   .then((data) => console.log(data.value));`;
@@ -90,6 +98,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
         const nextVariables = variablesResult.status === "fulfilled" ? variablesResult.value : [];
         setDatasetTitle(dataset?.title ?? datasetId);
         setDatasetDescription(dataset?.description ?? "Live CBS StatLine data loaded from the Open Data v3 API.");
+        setDatasetMeta(dataset ?? null);
         setPreview(nextPreview);
         setVariables(nextVariables);
         setApiEndpoint(`https://opendata.cbs.nl/ODataApi/odata/${datasetId}/TypedDataSet`);
@@ -127,7 +136,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                 <ProviderBadge name="CBS" />
                 <span>{t("common.lastUpdated")}: CBS API</span>
                 <span>·</span>
-                <span>{t("sources.coverage")}: All 342 municipalities</span>
+                <span>{t("sources.coverage")}: {spatialCoverage}</span>
                 <span>·</span>
                 <span>CC BY 4.0</span>
               </div>
@@ -253,13 +262,13 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
         {/* Metadata */}
         {activeTab === "metadata" && (
           <div className="divide-y divide-border">
-            {METADATA_KEYS.map(({ labelKey, value }) => (
+            {metadataKeys.map(({ labelKey, value }) => (
               <div key={labelKey} className="flex items-start gap-6 py-3">
                 <span className="text-[12px] font-medium text-muted-foreground w-48 flex-shrink-0 pt-0.5">
-                  {t(labelKey)}
+                  {labelKey.startsWith("datasets.") ? t(labelKey) : labelKey}
                 </span>
                 <span className="text-[13px] text-foreground">
-                  {labelKey === "datasets.metadata.datasetId" ? datasetId : value}
+                  {value}
                 </span>
               </div>
             ))}

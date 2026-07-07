@@ -17,7 +17,10 @@ export interface Dataset {
 export interface DatasetQualification {
   yearStart?: number;
   yearEnd?: number;
+  years: number[];
   geographicLevels: GeographicLevel[];
+  spatialCoverage?: string;
+  periodSource?: "perioden-dimension" | "catalog-period" | "catalog-text" | "none";
   confidence: "cbs-metadata" | "partial-metadata" | "unqualified";
   evidence: string[];
 }
