@@ -5,9 +5,16 @@
 
 import { cbsStatLineClient } from "@/data/bronze/clients/cbsStatLineClient";
 import type { CbsCatalogTable, CbsDataProperty } from "@/data/bronze/schema/cbs";
+import { qualifyCbsRecord, summarizeGeographicLevels, supportedGeographicLevels } from "@/data/geography/cbsGeography";
 import type { Dataset, DatasetPreview, DatasetPreviewColumn, DatasetVariable } from "../types";
 
 const CBS_TAGS = ["Population", "Housing", "Economy"];
+const GEOGRAPHY_LEVEL_COLUMN: DatasetPreviewColumn = {
+  key: "__atlasGeographicLevel",
+  title: "Geographic level",
+  type: "AtlasQualification",
+};
+const GEOGRAPHY_FIELD_KEYS = ["RegioS", "WijkenEnBuurten", "Codering_3", "Gebieden", "Regio", "RegionS"];
 
 function escapeODataString(value: string): string {
   return value.replace(/'/g, "''");
@@ -75,6 +82,10 @@ function toPreviewColumns(properties: CbsDataProperty[]): DatasetPreviewColumn[]
     type: property.Datatype ?? property.Type,
     unit: property.Unit,
   }));
+}
+
+function findGeographyColumn(columns: DatasetPreviewColumn[]): DatasetPreviewColumn | undefined {
+  return columns.find((column) => column.type.includes("Geo") || GEOGRAPHY_FIELD_KEYS.includes(column.key));
 }
 
 function normalizeCell(value: unknown): string | number | boolean | null {
@@ -154,15 +165,53 @@ export const datasetService = {
   async getDetailPreview(datasetId = "85039NED"): Promise<DatasetPreview> {
     const properties = await cbsStatLineClient.getDataProperties(datasetId);
     const columns = toPreviewColumns(properties);
-    const response = await cbsStatLineClient.getTypedDataSet<Record<string, unknown>>(datasetId, {
-      $select: columns.map((column) => column.key),
-      $top: 8,
-    });
+    const geographyColumn = findGeographyColumn(columns);
+    const select = columns.map((column) => column.key);
+    const response = geographyColumn
+      ? {
+          value: (
+            await Promise.all(
+              [
+                `substringof('NL00',${geographyColumn.key}) or substringof('NL01',${geographyColumn.key})`,
+                `substringof('PV',${geographyColumn.key})`,
+                `substringof('GM',${geographyColumn.key})`,
+              ].map((filter) =>
+                cbsStatLineClient
+                  .getTypedDataSet<Record<string, unknown>>(datasetId, {
+                    $select: select,
+                    $filter: filter,
+                    $top: 3,
+                  })
+                  .catch(() => ({ value: [] }))
+              )
+            )
+          ).flatMap((levelResponse) => levelResponse.value),
+        }
+      : await cbsStatLineClient.getTypedDataSet<Record<string, unknown>>(datasetId, {
+          $select: select,
+          $top: 50,
+        });
+    const rows = response.value.length > 0
+      ? response.value
+      : (await cbsStatLineClient.getTypedDataSet<Record<string, unknown>>(datasetId, {
+          $select: select,
+          $top: 50,
+        })).value;
+    const qualifiedRows = rows.map((row) => ({
+      row,
+      qualification: qualifyCbsRecord(row, properties),
+    }));
+    const displayRows = qualifiedRows.some(({ qualification }) => supportedGeographicLevels.includes(qualification.level))
+      ? qualifiedRows.filter(({ qualification }) => supportedGeographicLevels.includes(qualification.level)).slice(0, 8)
+      : qualifiedRows.slice(0, 8);
+    const qualifications = displayRows.map(({ qualification }) => qualification);
 
     return {
-      columns,
-      rows: response.value.map((row) =>
+      columns: [GEOGRAPHY_LEVEL_COLUMN, ...columns],
+      geographySummary: summarizeGeographicLevels(qualifications),
+      rows: displayRows.map(({ row }, index) =>
         columns.reduce<Record<string, string | number | boolean | null>>((acc, column) => {
+          acc[GEOGRAPHY_LEVEL_COLUMN.key] = qualifications[index]?.label ?? "Other geography";
           acc[column.key] = normalizeCell(row[column.key]);
           return acc;
         }, {})

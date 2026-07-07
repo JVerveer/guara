@@ -1,3 +1,5 @@
+import type { GeographicLevel } from "@/data/geography/types";
+
 export interface Dataset {
   id: string;
   title: string;
@@ -28,6 +30,7 @@ export interface DatasetPreviewColumn {
 export interface DatasetPreview {
   columns: DatasetPreviewColumn[];
   rows: Array<Record<string, string | number | boolean | null>>;
+  geographySummary: Record<GeographicLevel, number>;
 }
 
 export interface SuggestedJoin {

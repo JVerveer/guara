@@ -14,6 +14,7 @@
  */
 
 import type { BronzeProvenance } from "../bronze/types";
+import type { GeographicLevel } from "../geography/types";
 
 // ── Lineage ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,8 @@ export interface StandardRegion {
   sourceCode: string;
   /** Internal code stripped of prefix (e.g. "0363") */
   code: string;
+  /** Administrative geography level used for filtering and display */
+  level: GeographicLevel;
   /** Resolved display name */
   name: string;
   /** ISO 3166-2:NL province code */

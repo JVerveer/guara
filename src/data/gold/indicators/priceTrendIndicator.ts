@@ -34,6 +34,7 @@ export function buildHousePriceChartData(
   const grouped = new Map<string, Partial<Record<ChartCity, number>>>();
 
   for (const record of silverRecords) {
+    if (record.data.region.level !== "municipality") continue;
     const cityKey = CITY_CODES[record.data.region.code];
     if (!cityKey) continue;
     if (record.data.avgWozValueEur === null) continue;

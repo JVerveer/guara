@@ -54,6 +54,7 @@ async function buildModel(): Promise<GoldModel<AgingDataPoint[]>> {
     .filter(
       (r) =>
         r.data.period.year === REFERENCE_YEAR &&
+        r.data.region.level === "municipality" &&
         r.data.pct65PlusComputed !== null &&
         !mainCities.has(r.data.region.code)
     )

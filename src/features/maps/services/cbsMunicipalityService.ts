@@ -162,6 +162,7 @@ export async function getCbsMunicipalityMapSnapshot(): Promise<CbsMunicipalityMa
       cbsCode: feature.properties.statcode.replace(/^GM/, ""),
       name: feature.properties.statnaam,
       province: "CBS municipality",
+      level: "municipality",
       centroid: project(centroidFromGeometry(feature.geometry)),
       geometry: {
         type: "svg-path",
@@ -178,6 +179,7 @@ export async function getCbsMunicipalityMapSnapshot(): Promise<CbsMunicipalityMa
   const datasetValues: DatasetValue[] = regionalRecords.flatMap((record) => [
     {
       municipalityId: record.RegioS,
+      geographicLevel: "municipality",
       datasetId: "cbs-70072ned",
       indicator: "population",
       year: CBS_MAP_YEAR,
@@ -187,6 +189,7 @@ export async function getCbsMunicipalityMapSnapshot(): Promise<CbsMunicipalityMa
     },
     {
       municipalityId: record.RegioS,
+      geographicLevel: "municipality",
       datasetId: "cbs-70072ned",
       indicator: "housing",
       year: CBS_MAP_YEAR,
@@ -196,6 +199,7 @@ export async function getCbsMunicipalityMapSnapshot(): Promise<CbsMunicipalityMa
     },
     {
       municipalityId: record.RegioS,
+      geographicLevel: "municipality",
       datasetId: "cbs-70072ned",
       indicator: "density",
       year: CBS_MAP_YEAR,

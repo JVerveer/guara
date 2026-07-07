@@ -23,6 +23,7 @@ const SELECT_FIELDS = [
   "GemiddeldeWOZWaardeVanWoningen_98",
   "Bevolkingsdichtheid_57",
 ] as const;
+const SUPPORTED_GEOGRAPHY_FILTER = "(RegioS eq 'NL01  ' or substringof('PV',RegioS) or substringof('GM',RegioS))";
 
 function sumNullable(...values: Array<number | null | undefined>): number | null {
   const known = values.filter((value): value is number => typeof value === "number");
@@ -62,7 +63,7 @@ export const cbsBronzeConnector: IBronzeConnector<CbsKerncijfersRecord> = {
     const periodFilter = YEARS.map((year) => `Perioden eq '${year}JJ00'`).join(" or ");
     const queryParams = {
       $select: SELECT_FIELDS.join(","),
-      $filter: `(${periodFilter}) and substringof('GM',RegioS)`,
+      $filter: `(${periodFilter}) and ${SUPPORTED_GEOGRAPHY_FILTER}`,
       ...params,
     };
     const response = await cbsStatLineClient.getTypedDataSet<CbsRegionalCoreRecord>(CBS_REGIONAL_TABLE_ID, {

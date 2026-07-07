@@ -18,6 +18,11 @@ import type { DatasetPreview, DatasetVariable } from "../types";
 type Tab = "preview" | "metadata" | "variables" | "api";
 
 const API_ENDPOINT = "https://opendata.cbs.nl/ODataApi/odata/85039NED/TypedDataSet";
+const EMPTY_PREVIEW: DatasetPreview = {
+  columns: [],
+  rows: [],
+  geographySummary: { municipality: 0, province: 0, country: 0, other: 0 },
+};
 
 const METADATA_KEYS = [
   { labelKey: "datasets.metadata.datasetId", value: "CBS StatLine" },
@@ -39,7 +44,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>("preview");
   const [copied, setCopied] = useState(false);
-  const [preview, setPreview] = useState<DatasetPreview>({ columns: [], rows: [] });
+  const [preview, setPreview] = useState<DatasetPreview>(EMPTY_PREVIEW);
   const [variables, setVariables] = useState<DatasetVariable[]>([]);
   const [datasetTitle, setDatasetTitle] = useState("CBS StatLine dataset");
   const [datasetDescription, setDatasetDescription] = useState("Live CBS StatLine data loaded from the Open Data v3 API.");
@@ -60,11 +65,11 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   .then((data) => console.log(data.value));`;
   const statsKeys = [
     { key: "datasets.stats.records", value: String(preview.rows.length) },
-    { key: "datasets.stats.topics", value: String(variables.length) },
-    { key: "datasets.stats.variables", value: String(variables.length) },
+    { key: "Municipality", value: String(preview.geographySummary.municipality) },
+    { key: "Province", value: String(preview.geographySummary.province) },
+    { key: "Country", value: String(preview.geographySummary.country) },
     { key: "datasets.stats.period", value: "CBS metadata" },
-    { key: "datasets.stats.format", value: "JSON" },
-    { key: "datasets.stats.reliability", value: "CBS API" },
+    { key: "datasets.stats.variables", value: String(variables.length) },
   ] as const;
 
   useEffect(() => {
@@ -79,7 +84,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
       .then(([datasetResult, previewResult, variablesResult]) => {
         if (cancelled) return;
         const dataset = datasetResult.status === "fulfilled" ? datasetResult.value : undefined;
-        const nextPreview = previewResult.status === "fulfilled" ? previewResult.value : { columns: [], rows: [] };
+        const nextPreview = previewResult.status === "fulfilled" ? previewResult.value : EMPTY_PREVIEW;
         const nextVariables = variablesResult.status === "fulfilled" ? variablesResult.value : [];
         setDatasetTitle(dataset?.title ?? datasetId);
         setDatasetDescription(dataset?.description ?? "Live CBS StatLine data loaded from the Open Data v3 API.");
@@ -150,7 +155,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
           <div className="grid grid-cols-6 gap-4 p-4 bg-muted rounded-xl">
             {statsKeys.map(({ key, value }) => (
               <div key={key}>
-                <p className="text-[10px] text-muted-foreground">{t(key)}</p>
+                <p className="text-[10px] text-muted-foreground">{key.startsWith("datasets.") ? t(key) : key}</p>
                 <p className="text-[14px] font-semibold text-foreground tabular-nums">{value}</p>
               </div>
             ))}
@@ -223,7 +228,13 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                             columnIndex === 0 && "font-medium text-foreground"
                           )}
                         >
-                          {formatCell(row[column.key])}
+                          {column.key === "__atlasGeographicLevel" ? (
+                            <span className="inline-flex rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-accent-foreground">
+                              {formatCell(row[column.key])}
+                            </span>
+                          ) : (
+                            formatCell(row[column.key])
+                          )}
                         </td>
                       ))}
                     </tr>
@@ -232,7 +243,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
               </table>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Showing {preview.rows.length} rows and {preview.columns.length} fields selected from CBS DataProperties.
+              Showing {preview.rows.length} rows qualified by CBS geography metadata as municipality, province, or country where available.
             </p>
           </div>
         )}

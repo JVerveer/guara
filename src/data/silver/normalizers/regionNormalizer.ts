@@ -11,6 +11,7 @@
  */
 
 import type { StandardRegion } from "../types";
+import { levelFromCbsCode } from "../../geography/cbsGeography";
 
 /**
  * Internal municipality registry.
@@ -19,7 +20,7 @@ import type { StandardRegion } from "../types";
  */
 const MUNICIPALITY_REGISTRY: Record<
   string,
-  Omit<StandardRegion, "sourceCode" | "code">
+  Omit<StandardRegion, "sourceCode" | "code" | "level">
 > = {
   "0363": { name: "Amsterdam",  province: "Noord-Holland", nuts3: "NL321" },
   "0344": { name: "Utrecht",    province: "Utrecht",       nuts3: "NL310" },
@@ -40,19 +41,39 @@ const MUNICIPALITY_REGISTRY: Record<
   "0296": { name: "Wijchen",           province: "Gelderland",     nuts3: "NL226" },
 };
 
+const PROVINCE_REGISTRY: Record<string, string> = {
+  PV20: "Groningen",
+  PV21: "Fryslan",
+  PV22: "Drenthe",
+  PV23: "Overijssel",
+  PV24: "Flevoland",
+  PV25: "Gelderland",
+  PV26: "Utrecht",
+  PV27: "Noord-Holland",
+  PV28: "Zuid-Holland",
+  PV29: "Zeeland",
+  PV30: "Noord-Brabant",
+  PV31: "Limburg",
+};
+
 /**
  * Resolves a CBS region code (e.g. "GM0363") into a StandardRegion.
  * Returns a fallback with the raw code as the name if the code is unknown.
  */
 export function normalizeCbsRegion(cbsCode: string): StandardRegion {
   // CBS codes start with "GM" for municipalities; strip it for lookup
-  const numericCode = cbsCode.startsWith("GM") ? cbsCode.slice(2) : cbsCode;
+  const trimmedCode = cbsCode.trim();
+  const level = levelFromCbsCode(trimmedCode);
+  const numericCode = trimmedCode.startsWith("GM") ? trimmedCode.slice(2) : trimmedCode;
   const resolved = MUNICIPALITY_REGISTRY[numericCode];
+  const provinceName = PROVINCE_REGISTRY[trimmedCode];
+  const countryName = level === "country" ? "Nederland" : undefined;
 
   return {
-    sourceCode: cbsCode,
+    sourceCode: trimmedCode,
     code: numericCode,
-    name: resolved?.name ?? `Unknown region (${numericCode})`,
+    level,
+    name: resolved?.name ?? provinceName ?? countryName ?? `Unknown region (${numericCode})`,
     province: resolved?.province,
     nuts3: resolved?.nuts3,
   };
@@ -67,6 +88,7 @@ export function normalizeKadasterRegion(kadasterCode: string): StandardRegion {
   return {
     sourceCode: kadasterCode,
     code: kadasterCode,
+    level: "municipality",
     name: resolved?.name ?? `Unknown municipality (${kadasterCode})`,
     province: resolved?.province,
     nuts3: resolved?.nuts3,

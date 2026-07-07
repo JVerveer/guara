@@ -1,3 +1,5 @@
+import type { GeographicLevel } from "@/data/geography/types";
+
 interface GeoJsonPolygonGeometry {
   type: "Polygon" | "MultiPolygon";
   coordinates: number[][][] | number[][][][];
@@ -33,6 +35,7 @@ export interface Municipality {
   cbsCode: string;
   name: string;
   province: string;
+  level: "municipality";
   geometry: GeometryLike;
   centroid: [number, number];
   disabled?: boolean;
@@ -52,6 +55,7 @@ export interface MunicipalityMetadata {
 
 export interface DatasetValue {
   municipalityId: string;
+  geographicLevel: GeographicLevel;
   datasetId: string;
   indicator: string;
   year: number;
