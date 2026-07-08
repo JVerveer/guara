@@ -12,6 +12,24 @@ export interface Dataset {
   recordCount?: number;
   topics: number;
   qualification: DatasetQualification;
+  source?: DatasetSourceMetadata;
+}
+
+export interface DatasetSourceMetadata {
+  layer: "bronze" | "silver" | "public";
+  originalProvider: string;
+  sourceUrl?: string;
+  catalog?: string;
+  language?: string;
+  sourceVersion?: string;
+  cbsUpdatedAt?: string;
+  bronzeIngestedAt?: string;
+  silverLoadedAt?: string;
+  loadStatus?: string;
+  observationsLoaded?: number;
+  dimensionsLoaded?: number;
+  measuresLoaded?: number;
+  rejectedRows?: number;
 }
 
 export interface DatasetQualification {

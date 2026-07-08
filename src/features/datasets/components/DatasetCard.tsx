@@ -1,4 +1,4 @@
-import { ChevronRight, ExternalLink, Hash, Table } from "lucide-react";
+import { ChevronRight, Database, ExternalLink, Hash, Table } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "@/components/ui/ProviderBadge";
 import { Tag } from "@/components/ui/Tag";
@@ -21,6 +21,11 @@ export function DatasetCard({ dataset: d, setScreen, setSelectedDatasetId }: Dat
   const levels = d.qualification.geographicLevels.length > 0
     ? d.qualification.geographicLevels.map((level) => level === "neighborhood" ? "neighborhood" : level).join(", ")
     : "level unknown";
+  const source = d.source;
+  const sourceLoadedAt = source?.silverLoadedAt || source?.bronzeIngestedAt || source?.cbsUpdatedAt;
+  const sourceLoadedLabel = sourceLoadedAt
+    ? new Date(sourceLoadedAt).toLocaleDateString("en-US", { dateStyle: "medium" })
+    : "unknown";
 
   return (
     <div className="bg-card border border-border rounded-xl p-5 flex flex-col gap-4 hover:shadow-md transition-shadow duration-200">
@@ -59,6 +64,50 @@ export function DatasetCard({ dataset: d, setScreen, setSelectedDatasetId }: Dat
           <span className="font-medium text-foreground">Updated:</span> {d.updated}
         </span>
       </div>
+
+      {source && (
+        <div className="rounded-lg border border-border bg-background p-3 text-[11px] text-muted-foreground">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 font-medium text-foreground">
+              <Database size={11} />
+              {source.layer === "silver" ? "Silver dataset" : "Public catalog"}
+            </span>
+            {source.loadStatus && (
+              <span className="rounded-md bg-accent px-1.5 py-0.5 font-medium text-accent-foreground">
+                {source.loadStatus}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            <span title={source.sourceUrl}>
+              <span className="font-medium text-foreground">Original source:</span> {source.originalProvider}
+            </span>
+            <span>
+              <span className="font-medium text-foreground">Loaded:</span> {sourceLoadedLabel}
+            </span>
+            {source.catalog && (
+              <span className="truncate" title={source.catalog}>
+                <span className="font-medium text-foreground">Catalog:</span> {source.catalog}
+              </span>
+            )}
+            {source.language && (
+              <span>
+                <span className="font-medium text-foreground">Language:</span> {source.language}
+              </span>
+            )}
+            {source.observationsLoaded !== undefined && (
+              <span>
+                <span className="font-medium text-foreground">Observations:</span> {source.observationsLoaded.toLocaleString("en-US")}
+              </span>
+            )}
+            {source.measuresLoaded !== undefined && (
+              <span>
+                <span className="font-medium text-foreground">Measures:</span> {source.measuresLoaded.toLocaleString("en-US")}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between pt-1 border-t border-border">
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground">

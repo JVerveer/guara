@@ -57,9 +57,14 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
       : `${datasetMeta.qualification.yearStart}-${datasetMeta.qualification.yearEnd}`
     : "Provided by CBS metadata";
   const spatialCoverage = datasetMeta?.qualification.spatialCoverage ?? "Provided by CBS geography metadata";
+  const source = datasetMeta?.source;
   const metadataKeys = [
     { labelKey: "datasets.metadata.datasetId", value: datasetId },
     { labelKey: "datasets.metadata.publisher", value: "Centraal Bureau voor de Statistiek (CBS)" },
+    { labelKey: "Data layer", value: source?.layer === "silver" ? "Silver curated dataset" : "Public catalog metadata" },
+    { labelKey: "Original source", value: source?.originalProvider ?? datasetMeta?.provider ?? "CBS" },
+    { labelKey: "Source URL", value: source?.sourceUrl ?? "Stored in Supabase metadata" },
+    { labelKey: "Catalog", value: source?.catalog ?? "CBS StatLine" },
     { labelKey: "datasets.metadata.language", value: "Dutch (NL)" },
     { labelKey: "datasets.metadata.spatialCoverage", value: spatialCoverage },
     { labelKey: "datasets.metadata.temporalCoverage", value: yearsLabel },
@@ -69,6 +74,15 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
     { labelKey: "datasets.metadata.catalogUrl", value: "opendata.cbs.nl" },
     { labelKey: "Period source", value: datasetMeta?.qualification.periodSource ?? "none" },
     { labelKey: "Qualification evidence", value: datasetMeta?.qualification.evidence.join(" · ") ?? "CBS metadata" },
+    { labelKey: "Source version", value: source?.sourceVersion ?? "Not recorded" },
+    { labelKey: "CBS updated", value: source?.cbsUpdatedAt ?? "Not recorded" },
+    { labelKey: "Bronze ingested", value: source?.bronzeIngestedAt ?? "Not recorded" },
+    { labelKey: "Silver loaded", value: source?.silverLoadedAt ?? "Not recorded" },
+    { labelKey: "Silver load status", value: source?.loadStatus ?? "Not recorded" },
+    { labelKey: "Observations loaded", value: source?.observationsLoaded?.toLocaleString(locale) ?? "Not recorded" },
+    { labelKey: "Dimensions loaded", value: source?.dimensionsLoaded?.toLocaleString(locale) ?? "Not recorded" },
+    { labelKey: "Measures loaded", value: source?.measuresLoaded?.toLocaleString(locale) ?? "Not recorded" },
+    { labelKey: "Rejected rows", value: source?.rejectedRows?.toLocaleString(locale) ?? "0" },
   ] as const;
   const codeSnippet = `const { data } = await supabase
   .from("dataset_preview_rows")

@@ -179,6 +179,59 @@ export interface Database {
           },
         ];
       };
+      silver_dataset_catalog: {
+        Row: {
+          dataset_id: string;
+          provider: string;
+          title: string;
+          short_title: string | null;
+          description: string | null;
+          language: string | null;
+          catalog: string | null;
+          period: string | null;
+          cbs_updated_at: string | null;
+          source_version: string | null;
+          source_url: string | null;
+          bronze_ingested_at: string | null;
+          silver_loaded_at: string | null;
+          load_status: string | null;
+          observations_loaded: number | null;
+          dimensions_loaded: number | null;
+          measures_loaded: number | null;
+          rejected_rows: number | null;
+          published_at: string;
+        };
+        Insert: {
+          dataset_id: string;
+          provider?: string;
+          title: string;
+          short_title?: string | null;
+          description?: string | null;
+          language?: string | null;
+          catalog?: string | null;
+          period?: string | null;
+          cbs_updated_at?: string | null;
+          source_version?: string | null;
+          source_url?: string | null;
+          bronze_ingested_at?: string | null;
+          silver_loaded_at?: string | null;
+          load_status?: string | null;
+          observations_loaded?: number | null;
+          dimensions_loaded?: number | null;
+          measures_loaded?: number | null;
+          rejected_rows?: number | null;
+          published_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["silver_dataset_catalog"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "silver_dataset_catalog_dataset_id_fkey";
+            columns: ["dataset_id"];
+            referencedRelation: "dataset_catalog";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

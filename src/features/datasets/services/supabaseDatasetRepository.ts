@@ -6,6 +6,7 @@ import type { Dataset, DatasetPreview, DatasetPreviewColumn, DatasetVariable } f
 type DatasetCatalogRow = Database["public"]["Tables"]["dataset_catalog"]["Row"];
 type DatasetDimensionRow = Database["public"]["Tables"]["dataset_dimensions"]["Row"];
 type DatasetPreviewRow = Database["public"]["Tables"]["dataset_preview_rows"]["Row"];
+type SilverDatasetCatalogRow = Database["public"]["Tables"]["silver_dataset_catalog"]["Row"];
 
 const PREVIEW_ROW_LIMIT = 25;
 const EMPTY_LEVEL_SUMMARY: Record<GeographicLevel, number> = {
@@ -16,6 +17,7 @@ const EMPTY_LEVEL_SUMMARY: Record<GeographicLevel, number> = {
   other: 0,
 };
 const DEFAULT_CBS_TAGS = ["Population", "Housing", "Economy"];
+const SILVER_TAGS = ["Silver", ...DEFAULT_CBS_TAGS];
 
 function queryYear(query: string): number | undefined {
   const trimmed = query.trim();
@@ -46,7 +48,86 @@ function rowToDataset(row: DatasetCatalogRow): Dataset {
       confidence: row.qualification_confidence as Dataset["qualification"]["confidence"],
       evidence: row.qualification_evidence,
     },
+    source: {
+      layer: "public",
+      originalProvider: row.provider,
+      sourceUrl: row.source_url ?? undefined,
+    },
   };
+}
+
+function catalogQualification(row: DatasetCatalogRow | undefined): Dataset["qualification"] {
+  return {
+    yearStart: row?.year_start ?? undefined,
+    yearEnd: row?.year_end ?? undefined,
+    years: row?.years ?? [],
+    geographicLevels: (row?.geographic_levels ?? []) as Dataset["qualification"]["geographicLevels"],
+    spatialCoverage: row?.spatial_coverage ?? undefined,
+    periodSource: row?.period_source as Dataset["qualification"]["periodSource"],
+    confidence: (row?.qualification_confidence ?? "unqualified") as Dataset["qualification"]["confidence"],
+    evidence: row?.qualification_evidence ?? [],
+  };
+}
+
+function silverRowToDataset(row: SilverDatasetCatalogRow, catalog?: DatasetCatalogRow): Dataset {
+  const recordCount = catalog?.record_count ?? row.observations_loaded ?? undefined;
+  const updatedAt = row.silver_loaded_at ?? row.cbs_updated_at ?? catalog?.updated_at ?? undefined;
+
+  return {
+    id: row.dataset_id,
+    title: row.short_title || row.title,
+    provider: row.provider,
+    description: row.description ?? catalog?.description ?? row.title,
+    tags: row.provider === "CBS" ? SILVER_TAGS : ["Silver"],
+    updated: updatedAt ? new Date(updatedAt).toLocaleDateString("en-US", { dateStyle: "medium" }) : "Silver",
+    updatedAt,
+    records: recordCount ? new Intl.NumberFormat("en-US", { notation: "compact" }).format(recordCount) : "Silver",
+    recordCount,
+    topics: row.measures_loaded ?? 0,
+    qualification: catalogQualification(catalog),
+    source: {
+      layer: "silver",
+      originalProvider: row.provider,
+      sourceUrl: row.source_url ?? catalog?.source_url ?? undefined,
+      catalog: row.catalog ?? undefined,
+      language: row.language ?? undefined,
+      sourceVersion: row.source_version ?? undefined,
+      cbsUpdatedAt: row.cbs_updated_at ?? undefined,
+      bronzeIngestedAt: row.bronze_ingested_at ?? undefined,
+      silverLoadedAt: row.silver_loaded_at ?? undefined,
+      loadStatus: row.load_status ?? undefined,
+      observationsLoaded: row.observations_loaded ?? undefined,
+      dimensionsLoaded: row.dimensions_loaded ?? undefined,
+      measuresLoaded: row.measures_loaded ?? undefined,
+      rejectedRows: row.rejected_rows ?? undefined,
+    },
+  };
+}
+
+function isMissingTableError(error: { code?: string; message?: string } | null): boolean {
+  return error?.code === "PGRST205" || Boolean(error?.message?.includes("Could not find the table"));
+}
+
+function matchesSilverSearch(row: SilverDatasetCatalogRow, query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return true;
+  return [
+    row.dataset_id,
+    row.title,
+    row.short_title,
+    row.description,
+    row.catalog,
+    row.period,
+    row.load_status,
+  ].some((value) => String(value ?? "").toLowerCase().includes(trimmed));
+}
+
+function coversYear(catalog: DatasetCatalogRow | undefined, year: number | undefined): boolean {
+  if (!year) return true;
+  if (!catalog) return false;
+  if (catalog.years.length > 0) return catalog.years.includes(year);
+  if (catalog.year_start === null || catalog.year_end === null) return false;
+  return catalog.year_start <= year && catalog.year_end >= year;
 }
 
 function normalizeCell(value: unknown): string | number | boolean | null {
@@ -112,6 +193,9 @@ export const supabaseDatasetRepository = {
   isConfigured: isSupabaseConfigured,
 
   async searchDatasets(query: string): Promise<Dataset[]> {
+    const silverDatasets = await this.searchSilverDatasets(query);
+    if (silverDatasets !== undefined) return silverDatasets;
+
     const supabase = await getSupabaseClient();
     const trimmed = query.trim();
     const year = queryYear(trimmed);
@@ -132,8 +216,47 @@ export const supabaseDatasetRepository = {
     return (data ?? []).map(rowToDataset);
   },
 
+  async searchSilverDatasets(query: string): Promise<Dataset[] | undefined> {
+    const supabase = await getSupabaseClient();
+    const year = queryYear(query);
+    const { data, error } = await supabase
+      .from("silver_dataset_catalog")
+      .select("*")
+      .order("silver_loaded_at", { ascending: false })
+      .limit(200);
+
+    if (error) {
+      if (isMissingTableError(error)) return undefined;
+      throw error;
+    }
+
+    const silverRows = (data ?? []).filter((row) => matchesSilverSearch(row, year ? "" : query));
+    const ids = silverRows.map((row) => row.dataset_id);
+    if (ids.length === 0) return [];
+
+    const { data: catalogRows, error: catalogError } = await supabase
+      .from("dataset_catalog")
+      .select("*")
+      .in("id", ids);
+
+    if (catalogError) throw catalogError;
+
+    const catalogById = new Map((catalogRows ?? []).map((row) => [row.id, row]));
+    return silverRows
+      .filter((row) => coversYear(catalogById.get(row.dataset_id), year))
+      .map((row) => silverRowToDataset(row, catalogById.get(row.dataset_id)));
+  },
+
   async getDatasetById(id: string): Promise<Dataset | undefined> {
     const supabase = await getSupabaseClient();
+    const { data: silverData, error: silverError } = await supabase
+      .from("silver_dataset_catalog")
+      .select("*")
+      .eq("dataset_id", id)
+      .maybeSingle();
+
+    if (silverError && !isMissingTableError(silverError)) throw silverError;
+
     const { data, error } = await supabase
       .from("dataset_catalog")
       .select("*")
@@ -141,6 +264,7 @@ export const supabaseDatasetRepository = {
       .maybeSingle();
 
     if (error) throw error;
+    if (silverData) return silverRowToDataset(silverData, data ?? undefined);
     return data ? rowToDataset(data) : undefined;
   },
 

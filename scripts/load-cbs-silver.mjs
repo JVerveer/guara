@@ -248,6 +248,73 @@ async function updateDatasetStatus(supabase, datasetId, sourceVersion, status, r
   if (error) throw error;
 }
 
+function isMissingPublicTableError(error) {
+  return (
+    error?.code === "PGRST205" ||
+    error?.code === "42P01" ||
+    error?.message?.includes("Could not find the table")
+  );
+}
+
+async function publishPublicSilverDataset(supabase, datasetId) {
+  const { data: dataset, error: datasetError } = await supabase
+    .schema("silver")
+    .from("cbs_datasets")
+    .select("*")
+    .eq("dataset_id", datasetId)
+    .maybeSingle();
+
+  if (datasetError) throw datasetError;
+  if (!dataset) return;
+
+  const { data: status, error: statusError } = await supabase
+    .schema("silver")
+    .from("cbs_dataset_load_status")
+    .select("*")
+    .eq("dataset_id", datasetId)
+    .maybeSingle();
+
+  if (statusError) throw statusError;
+
+  const { error } = await supabase
+    .from("silver_dataset_catalog")
+    .upsert(
+      {
+        dataset_id: datasetId,
+        provider: "CBS",
+        title: dataset.title ?? dataset.short_title ?? datasetId,
+        short_title: dataset.short_title ?? null,
+        description: dataset.short_description ?? null,
+        language: dataset.language ?? null,
+        catalog: dataset.catalog ?? null,
+        period: dataset.period ?? null,
+        cbs_updated_at: dataset.cbs_updated_at ?? null,
+        source_version: dataset.source_version ?? null,
+        source_url: `https://opendata.cbs.nl/ODataApi/odata/${datasetId}`,
+        bronze_ingested_at: dataset.bronze_ingested_at ?? null,
+        silver_loaded_at: dataset.silver_loaded_at ?? null,
+        load_status: status?.status ?? null,
+        observations_loaded: status?.observations_loaded ?? null,
+        dimensions_loaded: status?.dimensions_loaded ?? null,
+        measures_loaded: status?.measures_loaded ?? null,
+        rejected_rows: status?.rejected_rows ?? null,
+        published_at: new Date().toISOString(),
+      },
+      { onConflict: "dataset_id" }
+    );
+
+  if (error) {
+    if (isMissingPublicTableError(error)) {
+      console.warn(
+        `Skipped public silver catalog publish for ${datasetId}: run supabase/schema.sql to create public.silver_dataset_catalog.`
+      );
+      return;
+    }
+
+    throw error;
+  }
+}
+
 async function loadMetadataForDataset(supabase, datasetId, sourceVersion) {
   const payloads = await getRawPayloadsForDataset(supabase, datasetId);
   const catalog = payloadByEndpoint(payloads, "catalog_table");
@@ -599,6 +666,7 @@ async function main() {
 
         await finishRun(supabase, runId, finalStatus, result);
         await updateDatasetStatus(supabase, datasetId, sourceVersion, finalStatus, result);
+        await publishPublicSilverDataset(supabase, datasetId);
 
         console.log(
           `Silver complete ${datasetId}: ${result.observations} observations, ${result.dimensionLinks} dimension links, ${result.measures} measures, ${result.rejected} rejected`
@@ -606,6 +674,9 @@ async function main() {
       } catch (error) {
         await finishRun(supabase, runId, "failed", {}, error.message);
         await updateDatasetStatus(supabase, datasetId, sourceVersion, "failed", {}, error.message);
+        await publishPublicSilverDataset(supabase, datasetId).catch((publishError) => {
+          console.warn(`Skipped public silver catalog publish for ${datasetId}: ${publishError.message}`);
+        });
         throw error;
       }
     } catch (error) {

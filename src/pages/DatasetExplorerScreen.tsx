@@ -15,7 +15,7 @@ import type { GeographicLevel } from "@/data/geography/types";
 
 // Canonical filter keys match dataset.tags values (English).
 // Display labels come from t(`datasets.tags.${key}`) so they're translated.
-const FILTER_TAG_KEYS = ["Population", "Housing", "Economy", "Health", "Climate", "EU"] as const;
+const FILTER_TAG_KEYS = ["Silver", "Population", "Housing", "Economy", "Health", "Climate", "EU"] as const;
 const LEVEL_FILTERS: Array<{ key: GeographicLevel; label: string }> = [
   { key: "neighborhood", label: "Neighborhood" },
   { key: "municipality", label: "Municipality" },
@@ -140,7 +140,7 @@ export function DatasetExplorerScreen({ setScreen, setSelectedDatasetId }: Datas
                     : "bg-background border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
                 )}
               >
-                {t(`datasets.tags.${tagKey}`)}
+                {t(`datasets.tags.${tagKey}`, { defaultValue: tagKey })}
               </button>
             ))}
           </div>

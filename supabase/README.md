@@ -23,6 +23,7 @@ The ingestion job writes:
 - `public.dataset_catalog`
 - `public.dataset_dimensions`
 - `public.dataset_preview_rows` with a capped 25-row app preview
+- `public.silver_dataset_catalog` with app-safe metadata for datasets that have been loaded into Silver
 
 Required local environment:
 
@@ -33,7 +34,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 Do not expose the service-role key in frontend code.
 
-The Guara frontend reads from the public tables only. It does not call the CBS APIs during exploration. Re-run `schema.sql` after pulling changes so `public.dataset_preview_rows` exists before expecting preview rows in the app.
+The Guara frontend reads from the public tables only. It does not call the CBS APIs during exploration and it does not expose raw Bronze or relational Silver tables to the browser. Re-run `schema.sql` after pulling changes so `public.dataset_preview_rows` and `public.silver_dataset_catalog` exist before expecting preview rows or Silver-only dataset listings in the app.
 
 Example commands:
 
