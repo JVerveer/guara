@@ -127,6 +127,74 @@ function escapeODataString(value) {
   return String(value).replace(/'/g, "''");
 }
 
+function extractYearsFromText(value) {
+  return Array.from(String(value ?? "").matchAll(/(?:19|20)\d{2}/g))
+    .map((match) => Number(match[0]))
+    .filter((year) => Number.isInteger(year) && year >= 1970 && year <= 2026);
+}
+
+function expandYearRange(years) {
+  if (years.length < 2) return years;
+  const min = Math.min(...years);
+  const max = Math.max(...years);
+  if (max - min > 80) return years;
+  return Array.from({ length: max - min + 1 }, (_, index) => min + index);
+}
+
+function extractPeriodenYears(dimensionPayloads) {
+  const years = new Set();
+
+  for (const dimension of dimensionPayloads) {
+    if (dimension.key !== "Perioden") continue;
+    for (const value of dimension.payload?.value ?? []) {
+      const year = Number(String(value?.Key ?? "").slice(0, 4));
+      if (Number.isInteger(year) && year >= 1970 && year <= 2026) years.add(year);
+    }
+  }
+
+  return Array.from(years).sort((a, b) => a - b);
+}
+
+function levelFromCbsGeoValue(value) {
+  const key = String(value?.Key ?? value?.DetailRegionCode ?? "").trim().toUpperCase();
+  const title = String(value?.Title ?? "").trim().toLowerCase();
+  const description = String(value?.Description ?? "").trim().toLowerCase();
+
+  if (key === "NL00" || key === "NL01" || key === "NL" || title === "nederland") return "country";
+  if (key.startsWith("PV") || description.includes("pv = provincie") || title.includes("(pv)")) return "province";
+  if (key.startsWith("GM")) return "municipality";
+  if (key.startsWith("WK") || key.startsWith("BU")) return "neighborhood";
+  return null;
+}
+
+function geographyLevelsFromDimensionPayloads(dimensionPayloads) {
+  const levels = new Set();
+
+  for (const dimension of dimensionPayloads) {
+    for (const value of dimension.payload?.value ?? []) {
+      const level = levelFromCbsGeoValue(value);
+      if (level) levels.add(level);
+    }
+  }
+
+  return Array.from(levels);
+}
+
+function spatialCoverageForLevels(levels) {
+  const set = new Set(levels);
+  if (set.has("country") && set.has("municipality") && set.has("neighborhood")) {
+    return "Netherlands — all municipalities, wijken and buurten";
+  }
+  if (set.has("country") && set.has("province") && set.has("municipality")) {
+    return "Netherlands — country, provinces and municipalities";
+  }
+  if (set.has("province")) return "Netherlands — provinces";
+  if (set.has("municipality")) return "Netherlands — municipalities";
+  if (set.has("country")) return "Netherlands — country";
+  if (set.has("neighborhood")) return "Netherlands — wijken and buurten";
+  return null;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -375,6 +443,106 @@ async function upsertRawPayload(supabase, datasetId, endpoint, sourceUrl, payloa
     ],
     { onConflict: "dataset_id,endpoint" }
   );
+}
+
+async function publishPublicDatasetMetadata(
+  supabase,
+  table,
+  properties,
+  dimensionPayloads,
+  recordCount
+) {
+  const datasetId = table.Identifier;
+  const periodenYears = extractPeriodenYears(dimensionPayloads);
+  const catalogPeriodYears = expandYearRange(extractYearsFromText(table.Period));
+  const catalogTextYears = expandYearRange(
+    extractYearsFromText(`${table.Title ?? ""} ${table.ShortTitle ?? ""} ${table.ShortDescription ?? ""}`)
+  );
+  const years = periodenYears.length
+    ? periodenYears
+    : catalogPeriodYears.length
+      ? catalogPeriodYears
+      : catalogTextYears;
+  const geographicLevels = geographyLevelsFromDimensionPayloads(dimensionPayloads);
+  const spatialCoverage = spatialCoverageForLevels(geographicLevels);
+  const periodSource = periodenYears.length
+    ? "perioden-dimension"
+    : catalogPeriodYears.length
+      ? "catalog-period"
+      : catalogTextYears.length
+        ? "catalog-text"
+        : "none";
+  const dimensionProperties = properties.filter(
+    (property) =>
+      property.Key &&
+      (
+        property.Type?.includes("Dimension") ||
+        property.Type?.includes("Geo") ||
+        property.Type === "TimeDimension"
+      )
+  );
+  const valueCounts = new Map(
+    dimensionPayloads.map((dimension) => [dimension.key, dimension.count ?? dimension.payload?.value?.length ?? null])
+  );
+  const evidence = [
+    periodenYears.length ? "Years from CBS Perioden dimension using first four characters of each key" : "No CBS Perioden dimension found",
+    periodSource === "catalog-period" ? "Years expanded from CBS catalog Period" : null,
+    periodSource === "catalog-text" ? "Years inferred from CBS catalog title/description" : null,
+    geographicLevels.length ? "Geographic levels from CBS geography dimension values" : "No CBS geography dimension values identified",
+    spatialCoverage ? `Spatial coverage: ${spatialCoverage}` : null,
+    recordCount !== null && recordCount !== undefined ? "Record count from CBS TypedDataSet/$count" : "Record count unavailable",
+  ].filter(Boolean);
+
+  const catalogResult = await supabase
+    .from("dataset_catalog")
+    .upsert(
+      {
+        id: datasetId,
+        provider: "CBS",
+        title: table.ShortTitle || table.Title,
+        description: table.ShortDescription || table.Title,
+        updated_at: table.Updated ?? null,
+        record_count: recordCount,
+        year_start: years.length ? Math.min(...years) : null,
+        year_end: years.length ? Math.max(...years) : null,
+        years,
+        geographic_levels: geographicLevels,
+        spatial_coverage: spatialCoverage,
+        period_source: periodSource,
+        qualification_confidence: dimensionProperties.length ? "cbs-metadata" : years.length ? "partial-metadata" : "unqualified",
+        qualification_evidence: evidence,
+        source_url: `${CBS_ODATA_BASE}/${datasetId}`,
+        ingested_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+
+  if (catalogResult.error) {
+    console.warn(`  skipped public dataset catalog publish for ${datasetId}: ${catalogResult.error.message}`);
+    return false;
+  }
+
+  if (dimensionProperties.length > 0) {
+    const dimensionsResult = await supabase
+      .from("dataset_dimensions")
+      .upsert(
+        dimensionProperties.map((property) => ({
+          dataset_id: datasetId,
+          key: property.Key,
+          title: property.Title || property.Key,
+          type: property.Type || "Dimension",
+          values_count: valueCounts.get(property.Key) ?? null,
+          ingested_at: new Date().toISOString(),
+        })),
+        { onConflict: "dataset_id,key" }
+      );
+
+    if (dimensionsResult.error) {
+      console.warn(`  skipped public dataset dimensions publish for ${datasetId}: ${dimensionsResult.error.message}`);
+    }
+  }
+
+  return true;
 }
 
 async function getMaxIngestedRowIndex(supabase, datasetId) {
@@ -685,6 +853,14 @@ async function ingestTable(supabase, table, options) {
       dimension.payload
     );
   }
+
+  await publishPublicDatasetMetadata(
+    supabase,
+    table,
+    properties,
+    dimensionPayloads,
+    recordCount
+  );
 
   await updateDatasetStatus(
     supabase,

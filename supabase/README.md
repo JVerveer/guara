@@ -66,6 +66,18 @@ npm run overview:cbs:bronze -- --all --skip-api-counts
 
 The overview scans CBS StatLine catalog metadata, compares it with Bronze ingestion status, and reports API record count, Bronze rows loaded, percentage loaded, partial/completed state, and ingestion errors where available.
 
+Silver coverage overview:
+
+```bash
+npm run overview:cbs:silver
+npm run overview:cbs:silver -- --query wijken --limit 50
+npm run overview:cbs:silver -- --dataset 85039NED
+npm run overview:cbs:silver -- --limit 500 --write-json
+```
+
+The Silver overview scans datasets currently available in Bronze, compares them with Silver load status, and reports Bronze API record count, Bronze raw rows loaded, Silver observations loaded, percentage loaded from Bronze to Silver, partial/completed state, rejected rows, and Silver load errors where available.
+Both Silver loading and Silver coverage overview are handled by `scripts/load-cbs-silver.mjs`; `overview:cbs:silver` is a convenience wrapper that runs that script in overview mode.
+
 Options:
 
 - `--limit 25`: number of CBS catalog tables to ingest.
