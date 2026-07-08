@@ -27,4 +27,9 @@ export interface Connector {
   tags: string[];
   /** Official brand color (hex) — used only for the connector's identity badge */
   brandColor: string;
+  /** Optional layer-specific ingestion metadata displayed in Source Browser. */
+  metadata?: Array<{
+    label: string;
+    value: string;
+  }>;
 }

@@ -17,6 +17,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "load:cbs:silver": "node scripts/load-cbs-silver.mjs",
+    "overview:cbs:silver": "node scripts/load-cbs-silver.mjs --overview",
     "ingest:cbs:bronze:all": "node scripts/ingest-cbs-bronze-all.mjs"
   },
   "dependencies": {

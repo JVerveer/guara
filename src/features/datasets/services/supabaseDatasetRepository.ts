@@ -193,7 +193,10 @@ export const supabaseDatasetRepository = {
   isConfigured: isSupabaseConfigured,
 
   async searchDatasets(query: string): Promise<Dataset[]> {
-    const silverDatasets = await this.searchSilverDatasets(query);
+    const silverDatasets = await this.searchSilverDatasets(query).catch((error) => {
+      console.warn("Silver dataset search failed; falling back to public dataset catalog", error);
+      return undefined;
+    });
     if (silverDatasets !== undefined) return silverDatasets;
 
     const supabase = await getSupabaseClient();

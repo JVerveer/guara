@@ -64,6 +64,17 @@ export function ConnectorCard({ connector: c }: ConnectorCardProps) {
         </div>
       </dl>
 
+      {c.metadata && c.metadata.length > 0 && (
+        <dl className="grid grid-cols-2 gap-2 rounded-lg bg-muted/50 p-3">
+          {c.metadata.map((item) => (
+            <div key={item.label}>
+              <dt className="text-[10px] text-muted-foreground">{item.label}</dt>
+              <dd className="text-[12px] font-semibold text-foreground tabular-nums">{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
       {/* Reliability */}
       <div className="space-y-1">
         <div className="flex items-center justify-between">
