@@ -1,12 +1,19 @@
 # Supabase Ingestion
 
-Run `schema.sql` first for the app-facing public cache tables.
+Run `schema.sql` first for the app-facing public cache tables, source summaries, and public quality checks.
 
 Run `bronze_schema.sql` next for raw CBS bronze tables:
 
 ```sql
 -- Supabase SQL editor
 -- paste supabase/bronze_schema.sql
+```
+
+Run `silver_schema.sql` after your Silver base tables exist. This migration adds lineage, quality checks, expected row counts, and schema snapshots without recreating loaded Silver data:
+
+```sql
+-- Supabase SQL editor
+-- paste supabase/silver_schema.sql
 ```
 
 In Supabase project settings, make sure the `bronze` schema is exposed to the API before running the ingestion job. Keep RLS enabled and do not add public policies to bronze tables; the job uses the service-role key.
@@ -20,10 +27,13 @@ The ingestion job writes:
 - `bronze.cbs_raw_endpoint_payloads`
 - `bronze.cbs_ingestion_runs`
 - `bronze.cbs_dataset_ingestion_status`
+- `bronze.cbs_schema_snapshots`
 - `public.dataset_catalog`
 - `public.dataset_dimensions`
 - `public.dataset_preview_rows` with a capped 25-row app preview
 - `public.silver_dataset_catalog` with app-safe metadata for datasets that have been loaded into Silver
+- `public.source_layer_summary` for Source Browser Bronze/Silver tiles
+- `public.dataset_quality_checks` for inspectable ingestion quality checks
 
 Required local environment:
 
@@ -34,7 +44,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 Do not expose the service-role key in frontend code.
 
-The Guara frontend reads from the public tables only. It does not call the CBS APIs during exploration and it does not expose raw Bronze or relational Silver tables to the browser. Re-run `schema.sql` after pulling changes so `public.dataset_preview_rows` and `public.silver_dataset_catalog` exist before expecting preview rows or Silver-only dataset listings in the app.
+The Guara frontend reads from the public tables only. It does not call the CBS APIs during exploration and it does not expose raw Bronze or relational Silver tables to the browser. Re-run `schema.sql` after pulling changes so `public.dataset_preview_rows`, `public.silver_dataset_catalog`, `public.source_layer_summary`, and `public.dataset_quality_checks` exist before expecting previews, Source Browser metadata, or Silver-only dataset listings in the app.
 
 Example commands:
 

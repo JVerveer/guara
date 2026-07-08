@@ -232,6 +232,66 @@ export interface Database {
           },
         ];
       };
+      source_layer_summary: {
+        Row: {
+          provider: string;
+          layer: string;
+          status: string;
+          datasets_total: number;
+          datasets_complete: number;
+          datasets_partial: number;
+          datasets_failed: number;
+          records_expected: number | null;
+          records_loaded: number | null;
+          completeness_pct: number | null;
+          rejected_rows: number;
+          last_loaded_at: string | null;
+          metadata: Record<string, unknown>;
+          updated_at: string;
+        };
+        Insert: {
+          provider: string;
+          layer: string;
+          status?: string;
+          datasets_total?: number;
+          datasets_complete?: number;
+          datasets_partial?: number;
+          datasets_failed?: number;
+          records_expected?: number | null;
+          records_loaded?: number | null;
+          completeness_pct?: number | null;
+          rejected_rows?: number;
+          last_loaded_at?: string | null;
+          metadata?: Record<string, unknown>;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["source_layer_summary"]["Insert"]>;
+        Relationships: [];
+      };
+      dataset_quality_checks: {
+        Row: {
+          dataset_id: string;
+          layer: string;
+          check_name: string;
+          status: string;
+          expected_value: string | null;
+          actual_value: string | null;
+          message: string | null;
+          checked_at: string;
+        };
+        Insert: {
+          dataset_id: string;
+          layer: string;
+          check_name: string;
+          status: string;
+          expected_value?: string | null;
+          actual_value?: string | null;
+          message?: string | null;
+          checked_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["dataset_quality_checks"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

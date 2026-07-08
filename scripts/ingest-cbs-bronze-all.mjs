@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createClient } from "@supabase/supabase-js";
-import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const CBS_ODATA_BASE = "https://opendata.cbs.nl/ODataApi/odata";
@@ -12,7 +13,19 @@ const REQUIRED_BRONZE_TABLES = [
   "cbs_typed_dataset_rows",
   "cbs_ingestion_runs",
   "cbs_dataset_ingestion_status",
+  "cbs_schema_snapshots",
 ];
+
+const STATUS = {
+  PENDING: "pending",
+  METADATA_LOADED: "metadata_loaded",
+  PARTIAL: "partial",
+  COMPLETE: "complete",
+  COMPLETE_WITH_WARNINGS: "complete_with_warnings",
+  FAILED: "failed",
+  SKIPPED: "skipped",
+  STALE: "stale",
+};
 
 function loadLocalEnv() {
   for (const file of [".env.local", ".env"]) {
@@ -47,6 +60,10 @@ function parseArgs(argv) {
     requestTimeoutMs: 60000,
     resumeRows: true,
     storeTypedBatchPayloads: true,
+    overview: false,
+    output: "table",
+    writeJson: false,
+    jsonPath: "",
   };
 
   for (let i = 2; i < argv.length; i += 1) {
@@ -70,6 +87,10 @@ function parseArgs(argv) {
     else if (arg === "--force") options.force = true;
     else if (arg === "--no-resume-rows") options.resumeRows = false;
     else if (arg === "--no-store-typed-batch-payloads") options.storeTypedBatchPayloads = false;
+    else if (arg === "overview" || arg === "--overview") options.overview = true;
+    else if (arg === "--output") options.output = argv[++i] ?? options.output;
+    else if (arg === "--write-json") options.writeJson = true;
+    else if (arg === "--json-path") options.jsonPath = argv[++i] ?? "";
     else if (arg === "--help") {
       console.log(`Usage:
   npm run ingest:cbs:bronze:all -- --dataset 85039NED
@@ -103,6 +124,9 @@ Options:
   --dimension-batch-size 5000      Dimension values batch size.
   --no-resume-rows                 Disable row-level resume.
   --no-store-typed-batch-payloads  Do not store TypedDataSet batch payloads.
+  --overview                       Scan CBS catalog and compare against Bronze status.
+  --output table|json              Console output for overview mode.
+  --write-json                     Write overview report to reports/.
 `);
       process.exit(0);
     }
@@ -195,6 +219,61 @@ function spatialCoverageForLevels(levels) {
   return null;
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function schemaHash(properties) {
+  const schema = properties
+    .map((property) => ({
+      id: property.ID,
+      key: property.Key,
+      title: property.Title,
+      type: property.Type,
+      datatype: property.Datatype,
+      unit: property.Unit,
+      position: property.Position,
+      parentId: property.ParentID,
+    }))
+    .sort((a, b) => String(a.key ?? a.id).localeCompare(String(b.key ?? b.id)));
+
+  return createHash("sha256").update(stableJson(schema)).digest("hex");
+}
+
+function pct(part, total) {
+  if (!total || total <= 0) return null;
+  return Math.min(100, Number(((part / total) * 100).toFixed(2)));
+}
+
+function bronzeQualityChecks({ properties, dimensionPayloads, recordCount, loadedRowCount, finalStatus }) {
+  const dimensionProperties = properties.filter((property) => property.Key && (property.Type?.includes("Dimension") || property.Type?.includes("Geo") || property.Type === "TimeDimension"));
+  const dimensionPayloadKeys = new Set(dimensionPayloads.map((dimension) => dimension.key));
+  const missingDimensions = dimensionProperties.filter((property) => !dimensionPayloadKeys.has(property.Key)).map((property) => property.Key);
+  const checks = {
+    metadata_present: { status: properties.length > 0 ? "pass" : "fail", actual: properties.length },
+    dimensions_loaded: { status: missingDimensions.length === 0 ? "pass" : "warn", missing: missingDimensions },
+    rows_match_expected: {
+      status: recordCount === null || recordCount === undefined ? "warn" : loadedRowCount >= recordCount ? "pass" : loadedRowCount > 0 ? "warn" : "fail",
+      expected: recordCount,
+      actual: loadedRowCount,
+    },
+    status_terminal: { status: [STATUS.COMPLETE, STATUS.PARTIAL, STATUS.METADATA_LOADED].includes(finalStatus) ? "pass" : "warn", actual: finalStatus },
+  };
+  const failed = Object.values(checks).some((check) => check.status === "fail");
+  const warned = Object.values(checks).some((check) => check.status === "warn");
+  return {
+    checks,
+    qualityStatus: failed ? "failed" : warned ? "warning" : "passed",
+    metadataCompletenessPct: properties.length > 0 ? 100 : 0,
+    dimensionCompletenessPct: dimensionProperties.length === 0 ? 100 : pct(dimensionProperties.length - missingDimensions.length, dimensionProperties.length),
+    rowCompletenessPct: pct(loadedRowCount, recordCount),
+  };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -229,8 +308,8 @@ async function getJson(url, options) {
   }
 }
 
-async function validateSupabaseTables(supabase) {
-  for (const table of REQUIRED_BRONZE_TABLES) {
+async function validateSupabaseTables(supabase, requiredTables = REQUIRED_BRONZE_TABLES) {
+  for (const table of requiredTables) {
     const { error } = await supabase
       .schema("bronze")
       .from(table)
@@ -401,7 +480,7 @@ async function getTypedRows(datasetId, skip, top, options) {
   };
 }
 
-function typedDatasetRows(datasetId, rows, skip, sourceUrl) {
+function typedDatasetRows(datasetId, rows, skip, sourceUrl, runId, sourceVersion) {
   const now = new Date().toISOString();
 
   return rows.map((row, index) => {
@@ -411,6 +490,8 @@ function typedDatasetRows(datasetId, rows, skip, sourceUrl) {
       dataset_id: datasetId,
       row_id: row.ID === undefined || row.ID === null ? String(rowIndex) : String(row.ID),
       row_index: rowIndex,
+      ingestion_run_id: runId,
+      source_version: sourceVersion,
       raw: row,
       ingested_at: now,
     };
@@ -443,6 +524,89 @@ async function upsertRawPayload(supabase, datasetId, endpoint, sourceUrl, payloa
     ],
     { onConflict: "dataset_id,endpoint" }
   );
+}
+
+async function publishSchemaSnapshot(supabase, datasetId, sourceVersion, properties) {
+  if (!sourceVersion || properties.length === 0) return null;
+  const hash = schemaHash(properties);
+  const { error } = await supabase
+    .schema("bronze")
+    .from("cbs_schema_snapshots")
+    .upsert(
+      {
+        dataset_id: datasetId,
+        source_version: sourceVersion,
+        schema_hash: hash,
+        properties,
+        captured_at: new Date().toISOString(),
+      },
+      { onConflict: "dataset_id,source_version,schema_hash" }
+    );
+  if (error) throw error;
+  return hash;
+}
+
+async function publishPublicQualityChecks(supabase, datasetId, layer, quality) {
+  const rows = Object.entries(quality.checks).map(([checkName, check]) => ({
+    dataset_id: datasetId,
+    layer,
+    check_name: checkName,
+    status: check.status,
+    expected_value: check.expected === undefined ? null : String(check.expected),
+    actual_value: check.actual === undefined ? null : String(check.actual),
+    message: check.missing?.length ? `Missing: ${check.missing.join(", ")}` : null,
+    checked_at: new Date().toISOString(),
+  }));
+
+  const { error } = await supabase
+    .from("dataset_quality_checks")
+    .upsert(rows, { onConflict: "dataset_id,layer,check_name" });
+
+  if (error) {
+    console.warn(`  skipped public quality checks for ${datasetId}: ${error.message}`);
+  }
+}
+
+async function publishSourceLayerSummary(supabase, layer) {
+  if (layer !== "bronze") return;
+  const { data, error } = await supabase
+    .schema("bronze")
+    .from("cbs_dataset_ingestion_status")
+    .select("dataset_id,status,record_count,loaded_row_count,error_message,last_ingested_at,quality_status");
+  if (error) throw error;
+
+  const rows = data ?? [];
+  const recordsExpected = rows.reduce((sum, row) => sum + (row.record_count ?? 0), 0);
+  const recordsLoaded = rows.reduce((sum, row) => sum + (row.loaded_row_count ?? 0), 0);
+  const failed = rows.filter((row) => row.status === STATUS.FAILED || row.error_message).length;
+  const partial = rows.filter((row) => row.status === STATUS.PARTIAL).length;
+  const complete = rows.filter((row) => row.status === STATUS.COMPLETE || row.status === STATUS.COMPLETE_WITH_WARNINGS).length;
+  const lastLoadedAt = rows.map((row) => row.last_ingested_at).filter(Boolean).sort().at(-1) ?? null;
+  const summaryStatus = failed > 0 ? STATUS.COMPLETE_WITH_WARNINGS : partial > 0 ? STATUS.PARTIAL : complete > 0 ? STATUS.COMPLETE : STATUS.PENDING;
+
+  const { error: summaryError } = await supabase
+    .from("source_layer_summary")
+    .upsert(
+      {
+        provider: "CBS",
+        layer,
+        status: summaryStatus,
+        datasets_total: rows.length,
+        datasets_complete: complete,
+        datasets_partial: partial,
+        datasets_failed: failed,
+        records_expected: recordsExpected,
+        records_loaded: recordsLoaded,
+        completeness_pct: pct(recordsLoaded, recordsExpected),
+        rejected_rows: 0,
+        last_loaded_at: lastLoadedAt,
+        metadata: { quality_statuses: rows.reduce((acc, row) => ({ ...acc, [row.quality_status ?? "unknown"]: (acc[row.quality_status ?? "unknown"] ?? 0) + 1 }), {}) },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "provider,layer" }
+    );
+
+  if (summaryError) console.warn(`  skipped source layer summary for ${layer}: ${summaryError.message}`);
 }
 
 async function publishPublicDatasetMetadata(
@@ -585,7 +749,7 @@ async function shouldSkipDataset(supabase, table, options) {
 
   if (error) throw error;
   if (!data) return false;
-  if (data.status !== "completed") return false;
+  if (![STATUS.COMPLETE, STATUS.COMPLETE_WITH_WARNINGS, "completed"].includes(data.status)) return false;
 
   const previousUpdated = data.last_cbs_updated_at
     ? new Date(data.last_cbs_updated_at).toISOString()
@@ -610,16 +774,24 @@ async function shouldIncludeFailedOnlyDataset(supabase, table, options) {
 
   if (error) throw error;
 
-  return ["failed", "metadata_completed", "rows_partial"].includes(data?.status);
+  return [
+    STATUS.FAILED,
+    STATUS.METADATA_LOADED,
+    STATUS.PARTIAL,
+    "metadata_completed",
+    "rows_partial",
+  ].includes(data?.status);
 }
 
-async function startRun(supabase, datasetId) {
+async function startRun(supabase, datasetId, sourceVersion = null, expectedRows = null) {
   const { data, error } = await supabase
     .schema("bronze")
     .from("cbs_ingestion_runs")
     .insert({
       dataset_id: datasetId,
-      status: "started",
+      status: STATUS.PENDING,
+      source_version: sourceVersion,
+      expected_rows: expectedRows,
     })
     .select("id")
     .single();
@@ -649,7 +821,8 @@ async function updateDatasetStatus(
   recordCount,
   status,
   errorMessage = null,
-  loadedRowCount = 0
+  loadedRowCount = 0,
+  options = {}
 ) {
   const loadPercentage =
     recordCount && recordCount > 0
@@ -668,6 +841,14 @@ async function updateDatasetStatus(
         record_count: recordCount,
         loaded_row_count: loadedRowCount,
         load_percentage: loadPercentage,
+        source_version: options.sourceVersion ?? table.Updated ?? null,
+        schema_hash: options.schemaHash ?? null,
+        last_run_id: options.runId ?? null,
+        metadata_completeness_pct: options.metadataCompletenessPct ?? null,
+        dimension_completeness_pct: options.dimensionCompletenessPct ?? null,
+        row_completeness_pct: options.rowCompletenessPct ?? loadPercentage,
+        quality_status: options.qualityStatus ?? null,
+        quality_checks: options.qualityChecks ?? {},
         status,
         error_message: errorMessage,
       },
@@ -677,7 +858,7 @@ async function updateDatasetStatus(
   if (error) throw error;
 }
 
-async function ingestTypedRows(supabase, datasetId, recordCount, options) {
+async function ingestTypedRows(supabase, datasetId, recordCount, options, runId, sourceVersion) {
   if (!options.includeRows) return 0;
 
   const maxRows =
@@ -725,7 +906,7 @@ async function ingestTypedRows(supabase, datasetId, recordCount, options) {
       await upsertOrThrow(
         supabase,
         "bronze.cbs_typed_dataset_rows",
-        typedDatasetRows(datasetId, rows, skip, url),
+        typedDatasetRows(datasetId, rows, skip, url, runId, sourceVersion),
         { onConflict: "dataset_id,row_id" }
       );
     }
@@ -781,8 +962,9 @@ async function refreshPublicPreviewRows(supabase, datasetId, options) {
   console.log(`  refreshed public preview rows: ${rows.length} (${datasetId})`);
 }
 
-async function ingestTable(supabase, table, options) {
+async function ingestTable(supabase, table, options, runId = null) {
   const datasetId = table.Identifier;
+  const sourceVersion = table.Updated ?? null;
 
   const dataPropertiesResult = await getDataPropertiesPayload(datasetId, options);
   const properties = dataPropertiesResult.payload.value ?? [];
@@ -801,6 +983,7 @@ async function ingestTable(supabase, table, options) {
   }
 
   const recordCount = await getTypedDataSetCount(datasetId, options);
+  const schemaHashValue = options.dryRun ? null : await publishSchemaSnapshot(supabase, datasetId, sourceVersion, properties);
 
   if (options.dryRun) {
     console.log(
@@ -866,24 +1049,40 @@ async function ingestTable(supabase, table, options) {
     supabase,
     table,
     recordCount,
-    "metadata_completed",
+    STATUS.METADATA_LOADED,
     null,
-    await getLoadedRowCount(supabase, datasetId)
+    await getLoadedRowCount(supabase, datasetId),
+    {
+      runId,
+      sourceVersion,
+      schemaHash: schemaHashValue,
+      metadataCompletenessPct: properties.length > 0 ? 100 : 0,
+      dimensionCompletenessPct: dimensionProperties.length > 0 ? pct(dimensionPayloads.length, dimensionProperties.length) : 100,
+      rowCompletenessPct: pct(await getLoadedRowCount(supabase, datasetId), recordCount),
+      qualityStatus: "pending",
+      qualityChecks: {},
+    }
   );
 
   let writtenRows = 0;
 
   try {
-    writtenRows = await ingestTypedRows(supabase, datasetId, recordCount, options);
+    writtenRows = await ingestTypedRows(supabase, datasetId, recordCount, options, runId, sourceVersion);
     await refreshPublicPreviewRows(supabase, datasetId, options);
   } catch (error) {
     await updateDatasetStatus(
       supabase,
       table,
       recordCount,
-      "rows_partial",
+      STATUS.PARTIAL,
       error.message,
-      await getLoadedRowCount(supabase, datasetId)
+      await getLoadedRowCount(supabase, datasetId),
+      {
+        runId,
+        sourceVersion,
+        schemaHash: schemaHashValue,
+        qualityStatus: "warning",
+      }
     );
 
     throw error;
@@ -892,10 +1091,11 @@ async function ingestTable(supabase, table, options) {
   const loadedRowCount = await getLoadedRowCount(supabase, datasetId);
   const finalStatus =
     recordCount !== null && recordCount !== undefined && loadedRowCount >= recordCount
-      ? "completed"
+      ? STATUS.COMPLETE
       : loadedRowCount > 0
-        ? "rows_partial"
-        : "metadata_completed";
+        ? STATUS.PARTIAL
+        : STATUS.METADATA_LOADED;
+  const quality = bronzeQualityChecks({ properties, dimensionPayloads, recordCount, loadedRowCount, finalStatus });
 
   await updateDatasetStatus(
     supabase,
@@ -903,8 +1103,20 @@ async function ingestTable(supabase, table, options) {
     recordCount,
     finalStatus,
     null,
-    loadedRowCount
+    loadedRowCount,
+    {
+      runId,
+      sourceVersion,
+      schemaHash: schemaHashValue,
+      metadataCompletenessPct: quality.metadataCompletenessPct,
+      dimensionCompletenessPct: quality.dimensionCompletenessPct,
+      rowCompletenessPct: quality.rowCompletenessPct,
+      qualityStatus: quality.qualityStatus,
+      qualityChecks: quality.checks,
+    }
   );
+  await publishPublicQualityChecks(supabase, datasetId, "bronze", quality);
+  await publishSourceLayerSummary(supabase, "bronze");
 
   console.log(
     `Ingested ${datasetId}: ${writtenRows} raw rows this run, ${loadedRowCount}/${recordCount ?? "unknown"} total raw rows loaded, ${properties.length} raw properties, ${dimensionPayloads.length} raw dimension payloads`
@@ -916,7 +1128,134 @@ async function ingestTable(supabase, table, options) {
     rowsIngested: writtenRows,
     loadedRowCount,
     finalStatus,
+    sourceVersion,
+    schemaHash: schemaHashValue,
+    quality,
   };
+}
+
+async function getOverviewRows(queryFactory, pageSize = 1000) {
+  const rows = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await queryFactory().range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+  }
+
+  return rows;
+}
+
+async function getExactBronzeRowCount(supabase, datasetId) {
+  const { count, error } = await supabase
+    .schema("bronze")
+    .from("cbs_typed_dataset_rows")
+    .select("row_id", { count: "exact", head: true })
+    .eq("dataset_id", datasetId);
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
+function classifyBronzeOverview(row) {
+  if ([STATUS.COMPLETE, STATUS.COMPLETE_WITH_WARNINGS, "completed"].includes(row.status) || row.loadedRows >= row.apiRecords) return "complete";
+  if (row.status === STATUS.FAILED) return "failed";
+  if (row.loadedRows > 0) return "partial";
+  if (row.status === STATUS.METADATA_LOADED || row.status === "metadata_completed") return "metadata_only";
+  return "not_loaded";
+}
+
+function compactBronzeOverviewTable(rows) {
+  return rows.map((row) => ({
+    id: row.datasetId,
+    title: row.title.slice(0, 52),
+    apiRecords: row.apiRecords ?? "unknown",
+    loadedRows: row.loadedRows,
+    pctLoaded: row.loadPercentage ?? "unknown",
+    status: row.classification,
+    bronzeStatus: row.status ?? "",
+  }));
+}
+
+function writeBronzeOverviewJson(report, options) {
+  const directory = resolve(process.cwd(), "reports");
+  mkdirSync(directory, { recursive: true });
+  const filename =
+    options.jsonPath ||
+    resolve(directory, `cbs-bronze-overview-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+
+  writeFileSync(filename, `${JSON.stringify(report, null, 2)}\n`);
+  return filename;
+}
+
+async function runBronzeOverview(supabase, options) {
+  const [tables, statusRows] = await Promise.all([
+    getCatalogTables(options),
+    getOverviewRows(() =>
+      supabase
+        .schema("bronze")
+        .from("cbs_dataset_ingestion_status")
+        .select("dataset_id,title,record_count,loaded_row_count,load_percentage,status,error_message,last_ingested_at")
+    ),
+  ]);
+  const statusById = new Map(statusRows.map((row) => [row.dataset_id, row]));
+
+  const rows = [];
+
+  for (const table of tables) {
+    const status = statusById.get(table.Identifier);
+    const loadedRows = status ? await getExactBronzeRowCount(supabase, table.Identifier) : 0;
+    const row = {
+      datasetId: table.Identifier,
+      title: table.ShortTitle || table.Title || table.Identifier,
+      description: table.ShortDescription ?? "",
+      period: table.Period ?? null,
+      cbsUpdatedAt: table.Updated ?? null,
+      apiRecords: status?.record_count ?? null,
+      loadedRows,
+      loadPercentage: pct(loadedRows, status?.record_count),
+      status: status?.status ?? null,
+      error: status?.error_message ?? null,
+      lastIngestedAt: status?.last_ingested_at ?? null,
+    };
+    rows.push({ ...row, classification: classifyBronzeOverview(row) });
+  }
+
+  const summary = {
+    datasetsScanned: rows.length,
+    complete: rows.filter((row) => row.classification === "complete").length,
+    partial: rows.filter((row) => row.classification === "partial").length,
+    metadataOnly: rows.filter((row) => row.classification === "metadata_only").length,
+    notLoaded: rows.filter((row) => row.classification === "not_loaded").length,
+    failed: rows.filter((row) => row.classification === "failed").length,
+    rowsLoaded: rows.reduce((sum, row) => sum + row.loadedRows, 0),
+    recordsExpected: rows.reduce((sum, row) => sum + (row.apiRecords ?? 0), 0),
+  };
+  const report = {
+    generatedAt: new Date().toISOString(),
+    scope: {
+      dataset: options.dataset || null,
+      query: options.query || null,
+      limit: options.limit,
+      all: options.all,
+    },
+    summary,
+    rows,
+  };
+
+  if (options.output === "json") {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log("\nBronze CBS overview");
+    console.log(JSON.stringify(report.summary, null, 2));
+    console.table(compactBronzeOverviewTable(rows));
+  }
+
+  if (options.writeJson) {
+    const path = writeBronzeOverviewJson(report, options);
+    console.log(`Wrote JSON report: ${path}`);
+  }
 }
 
 async function main() {
@@ -945,7 +1284,15 @@ async function main() {
       });
 
   if (!options.dryRun) {
-    await validateSupabaseTables(supabase);
+    const requiredTables = options.overview
+      ? REQUIRED_BRONZE_TABLES.filter((table) => table !== "cbs_schema_snapshots")
+      : REQUIRED_BRONZE_TABLES;
+    await validateSupabaseTables(supabase, requiredTables);
+  }
+
+  if (options.overview) {
+    await runBronzeOverview(supabase, options);
+    return;
   }
 
   const tables = await getCatalogTables(options);
@@ -968,12 +1315,12 @@ async function main() {
     let lastError = null;
 
     for (let attempt = 1; attempt <= options.retries + 1; attempt += 1) {
-      const runId = options.dryRun ? null : await startRun(supabase, datasetId);
+      const runId = options.dryRun ? null : await startRun(supabase, datasetId, table.Updated ?? null, null);
 
       try {
         console.log(`Ingesting ${datasetId}, attempt ${attempt}/${options.retries + 1}`);
 
-        const result = await ingestTable(supabase, table, options);
+        const result = await ingestTable(supabase, table, options, runId);
 
         if (!options.dryRun) {
           await finishRun(supabase, runId, result.finalStatus, result.rowsIngested);
@@ -983,7 +1330,17 @@ async function main() {
             result.recordCount,
             result.finalStatus,
             null,
-            result.loadedRowCount
+            result.loadedRowCount,
+            {
+              runId,
+              sourceVersion: result.sourceVersion,
+              schemaHash: result.schemaHash,
+              metadataCompletenessPct: result.quality?.metadataCompletenessPct,
+              dimensionCompletenessPct: result.quality?.dimensionCompletenessPct,
+              rowCompletenessPct: result.quality?.rowCompletenessPct,
+              qualityStatus: result.quality?.qualityStatus,
+              qualityChecks: result.quality?.checks,
+            }
           );
         }
 
@@ -995,14 +1352,17 @@ async function main() {
         console.error(`Failed ${datasetId}, attempt ${attempt}:`, error.message);
 
         if (!options.dryRun && runId) {
-          await finishRun(supabase, runId, "failed", 0, error.message);
+          await finishRun(supabase, runId, STATUS.FAILED, 0, error.message);
           await updateDatasetStatus(
             supabase,
             table,
             null,
-            "failed",
-            error.message
+            STATUS.FAILED,
+            error.message,
+            0,
+            { runId, sourceVersion: table.Updated ?? null, qualityStatus: "failed" }
           );
+          await publishSourceLayerSummary(supabase, "bronze").catch(() => {});
         }
 
         if (attempt <= options.retries) {

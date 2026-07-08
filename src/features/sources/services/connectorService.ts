@@ -3,6 +3,7 @@ import type { Database } from "@/data/supabase/types";
 import type { Connector } from "../types";
 
 type SilverCatalogRow = Database["public"]["Tables"]["silver_dataset_catalog"]["Row"];
+type SourceLayerSummaryRow = Database["public"]["Tables"]["source_layer_summary"]["Row"];
 
 function formatDate(value?: string | null): string {
   if (!value) return "Not synced";
@@ -40,6 +41,40 @@ async function getSilverRows(): Promise<SilverCatalogRow[]> {
   return data ?? [];
 }
 
+async function getSourceLayerSummaries(): Promise<SourceLayerSummaryRow[]> {
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase
+    .from("source_layer_summary")
+    .select("*")
+    .eq("provider", "CBS");
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+function summaryConnector(
+  summary: SourceLayerSummaryRow,
+  fallback: Pick<Connector, "id" | "name" | "fullName" | "abbr" | "coverage" | "tags" | "brandColor">
+): Connector {
+  const expected = summary.records_expected ?? 0;
+  const loaded = summary.records_loaded ?? 0;
+
+  return {
+    ...fallback,
+    datasets: summary.datasets_total,
+    lastSync: formatDate(summary.last_loaded_at),
+    reliability: Math.round(summary.completeness_pct ?? completeness(summary.datasets_complete, summary.datasets_total)),
+    metadata: [
+      { label: "Datasets loaded", value: formatNumber(summary.datasets_total) },
+      { label: "Complete", value: `${formatNumber(summary.datasets_complete)} / ${formatNumber(summary.datasets_total)}` },
+      { label: "Partial", value: formatNumber(summary.datasets_partial) },
+      { label: "Failed", value: formatNumber(summary.datasets_failed) },
+      { label: "Records", value: expected > 0 ? `${formatNumber(loaded)} / ${formatNumber(expected)}` : formatNumber(loaded) },
+      { label: "Rejected rows", value: formatNumber(summary.rejected_rows) },
+    ],
+  };
+}
+
 async function getLayerConnectors(): Promise<Connector[]> {
   if (!isSupabaseConfigured()) {
     return [
@@ -72,12 +107,35 @@ async function getLayerConnectors(): Promise<Connector[]> {
     ];
   }
 
-  const [bronzeDatasets, previewRows, silverRows] = await Promise.all([
+  const [summaries, bronzeDatasets, previewRows, silverRows] = await Promise.all([
+    getSourceLayerSummaries().catch(() => []),
     countPublicTable("dataset_catalog"),
     countPublicTable("dataset_preview_rows").catch(() => 0),
     getSilverRows().catch(() => []),
   ]);
-  const completedSilver = silverRows.filter((row) => row.load_status === "completed" || row.load_status === "completed_with_rejections").length;
+  const bronzeSummary = summaries.find((summary) => summary.layer === "bronze");
+  const silverSummary = summaries.find((summary) => summary.layer === "silver");
+  const bronzeFallback = {
+    id: "cbs-bronze",
+    name: "CBS Bronze",
+    fullName: "Raw CBS StatLine ingestion layer",
+    abbr: "B",
+    coverage: "Raw API",
+    tags: ["Raw", "CBS", "Bronze"],
+    brandColor: "#6B7280",
+  };
+  const silverFallback = {
+    id: "cbs-silver",
+    name: "CBS Silver",
+    fullName: "Curated CBS relational analysis layer",
+    abbr: "S",
+    coverage: "Curated",
+    tags: ["Curated", "CBS", "Silver"],
+    brandColor: "#1C3D8F",
+  };
+  const completedSilver = silverRows.filter((row) =>
+    ["complete", "complete_with_warnings", "completed", "completed_with_rejections"].includes(row.load_status ?? "")
+  ).length;
   const rejectedSilverRows = silverRows.reduce((sum, row) => sum + (row.rejected_rows ?? 0), 0);
   const silverObservations = silverRows.reduce((sum, row) => sum + (row.observations_loaded ?? 0), 0);
   const lastBronzeSync = await getSupabaseClient()
@@ -94,34 +152,22 @@ async function getLayerConnectors(): Promise<Connector[]> {
   const lastSilverSync = silverRows[0]?.silver_loaded_at ?? silverRows[0]?.published_at ?? null;
 
   return [
-    {
-      id: "cbs-bronze",
-      name: "CBS Bronze",
-      fullName: "Raw CBS StatLine ingestion layer",
-      abbr: "B",
+    bronzeSummary ? summaryConnector(bronzeSummary, bronzeFallback) : {
+      ...bronzeFallback,
       datasets: bronzeDatasets,
       lastSync: formatDate(lastBronzeSync),
-      coverage: "Raw API",
       reliability: bronzeDatasets > 0 ? 92 : 0,
-      tags: ["Raw", "CBS", "Bronze"],
-      brandColor: "#6B7280",
       metadata: [
         { label: "Datasets loaded", value: formatNumber(bronzeDatasets) },
         { label: "Preview rows", value: formatNumber(previewRows) },
         { label: "Completeness", value: bronzeDatasets > 0 ? "Public metadata available" : "Empty" },
       ],
     },
-    {
-      id: "cbs-silver",
-      name: "CBS Silver",
-      fullName: "Curated CBS relational analysis layer",
-      abbr: "S",
+    silverSummary ? summaryConnector(silverSummary, silverFallback) : {
+      ...silverFallback,
       datasets: silverRows.length,
       lastSync: formatDate(lastSilverSync),
-      coverage: "Curated",
       reliability: completeness(completedSilver, silverRows.length),
-      tags: ["Curated", "CBS", "Silver"],
-      brandColor: "#1C3D8F",
       metadata: [
         { label: "Loaded datasets", value: formatNumber(silverRows.length) },
         { label: "Complete", value: `${formatNumber(completedSilver)} / ${formatNumber(silverRows.length)}` },

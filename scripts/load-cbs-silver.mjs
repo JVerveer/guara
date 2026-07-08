@@ -1,7 +1,19 @@
 #!/usr/bin/env node
 import { createClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+const STATUS = {
+  PENDING: "pending",
+  METADATA_LOADED: "metadata_loaded",
+  PARTIAL: "partial",
+  COMPLETE: "complete",
+  COMPLETE_WITH_WARNINGS: "complete_with_warnings",
+  FAILED: "failed",
+  SKIPPED: "skipped",
+  STALE: "stale",
+};
 
 function loadLocalEnv() {
   for (const file of [".env.local", ".env"]) {
@@ -112,6 +124,31 @@ function isDimensionProperty(property) {
       property?.Type === "TimeDimension"
     )
   );
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function schemaHash(properties) {
+  const schema = properties
+    .map((property) => ({
+      id: property.ID,
+      key: property.Key,
+      title: property.Title,
+      type: property.Type,
+      datatype: property.Datatype,
+      unit: property.Unit,
+      position: property.Position,
+      parentId: property.ParentID,
+    }))
+    .sort((a, b) => String(a.key ?? a.id).localeCompare(String(b.key ?? b.id)));
+
+  return createHash("sha256").update(stableJson(schema)).digest("hex");
 }
 
 function propertyId(property) {
@@ -232,22 +269,29 @@ async function shouldSkipDataset(supabase, datasetId, sourceVersion, options) {
   const status = await getLoadStatus(supabase, datasetId);
 
   if (options.failedOnly) {
-    return !["failed", "rows_partial", "metadata_completed"].includes(status?.status);
+    return ![
+      STATUS.FAILED,
+      STATUS.PARTIAL,
+      STATUS.METADATA_LOADED,
+      "rows_partial",
+      "metadata_completed",
+    ].includes(status?.status);
   }
 
   if (!options.skipUnchanged) return false;
 
-  return status?.status === "completed" && status?.source_version === sourceVersion;
+  return [STATUS.COMPLETE, STATUS.COMPLETE_WITH_WARNINGS, "completed", "completed_with_rejections"].includes(status?.status) && status?.source_version === sourceVersion;
 }
 
-async function startRun(supabase, datasetId, sourceVersion) {
+async function startRun(supabase, datasetId, sourceVersion, expectedObservations = null) {
   const { data, error } = await supabase
     .schema("silver")
     .from("cbs_load_runs")
     .insert({
       dataset_id: datasetId,
-      status: "started",
+      status: STATUS.PENDING,
       source_version: sourceVersion,
+      expected_observations: expectedObservations,
     })
     .select("id")
     .single();
@@ -266,6 +310,8 @@ async function finishRun(supabase, runId, status, result = {}, errorMessage = nu
       dimensions_loaded: result.dimensionLinks ?? 0,
       measures_loaded: result.measures ?? 0,
       rejected_rows: result.rejected ?? 0,
+      expected_observations: result.expectedObservations ?? null,
+      metadata: result.metadata ?? {},
       error_message: errorMessage,
       finished_at: new Date().toISOString(),
     })
@@ -288,6 +334,13 @@ async function updateDatasetStatus(supabase, datasetId, sourceVersion, status, r
         dimensions_loaded: result.dimensionLinks ?? 0,
         measures_loaded: result.measures ?? 0,
         rejected_rows: result.rejected ?? 0,
+        expected_observations: result.expectedObservations ?? null,
+        quality_status: result.quality?.qualityStatus ?? null,
+        quality_checks: result.quality?.checks ?? {},
+        metadata_completeness_pct: result.quality?.metadataCompletenessPct ?? null,
+        dimension_completeness_pct: result.quality?.dimensionCompletenessPct ?? null,
+        row_completeness_pct: result.quality?.rowCompletenessPct ?? null,
+        source_schema_hash: result.schemaHash ?? null,
         error_message: errorMessage,
       },
       { onConflict: "dataset_id" }
@@ -296,12 +349,163 @@ async function updateDatasetStatus(supabase, datasetId, sourceVersion, status, r
   if (error) throw error;
 }
 
+async function getBronzeStatus(supabase, datasetId) {
+  const { data, error } = await supabase
+    .schema("bronze")
+    .from("cbs_dataset_ingestion_status")
+    .select("dataset_id,record_count,loaded_row_count,last_run_id,source_version,schema_hash")
+    .eq("dataset_id", datasetId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+function silverQualityChecks({ metadataResult, expectedObservations, observationsLoaded, rejected, status }) {
+  const checks = {
+    metadata_present: {
+      status: metadataResult && (metadataResult.dimensions > 0 || metadataResult.measures > 0) ? "pass" : "fail",
+      actual: metadataResult ? `${metadataResult.dimensions} dimensions, ${metadataResult.measures} measures` : "none",
+    },
+    rows_match_bronze: {
+      status: expectedObservations === null || expectedObservations === undefined
+        ? "warn"
+        : observationsLoaded + rejected >= expectedObservations
+          ? "pass"
+          : observationsLoaded > 0
+            ? "warn"
+            : "fail",
+      expected: expectedObservations,
+      actual: observationsLoaded + rejected,
+    },
+    rejected_rows: {
+      status: rejected > 0 ? "warn" : "pass",
+      expected: 0,
+      actual: rejected,
+    },
+    status_terminal: {
+      status: [STATUS.COMPLETE, STATUS.COMPLETE_WITH_WARNINGS, STATUS.PARTIAL, STATUS.METADATA_LOADED].includes(status) ? "pass" : "warn",
+      actual: status,
+    },
+  };
+  const failed = Object.values(checks).some((check) => check.status === "fail");
+  const warned = Object.values(checks).some((check) => check.status === "warn");
+
+  return {
+    checks,
+    qualityStatus: failed ? "failed" : warned ? "warning" : "passed",
+    metadataCompletenessPct: metadataResult && metadataResult.measures > 0 ? 100 : 0,
+    dimensionCompletenessPct: metadataResult && metadataResult.dimensions > 0 ? 100 : 0,
+    rowCompletenessPct: percentage(observationsLoaded + rejected, expectedObservations),
+  };
+}
+
 function isMissingPublicTableError(error) {
   return (
     error?.code === "PGRST205" ||
     error?.code === "42P01" ||
     error?.message?.includes("Could not find the table")
   );
+}
+
+async function publishPublicQualityChecks(supabase, datasetId, layer, quality) {
+  const rows = Object.entries(quality.checks).map(([checkName, check]) => ({
+    dataset_id: datasetId,
+    layer,
+    check_name: checkName,
+    status: check.status,
+    expected_value: check.expected === undefined ? null : String(check.expected),
+    actual_value: check.actual === undefined ? null : String(check.actual),
+    message: null,
+    checked_at: new Date().toISOString(),
+  }));
+
+  const { error } = await supabase
+    .from("dataset_quality_checks")
+    .upsert(rows, { onConflict: "dataset_id,layer,check_name" });
+
+  if (error) {
+    if (isMissingPublicTableError(error)) return;
+    console.warn(`Skipped public quality checks for ${datasetId}: ${error.message}`);
+  }
+}
+
+async function publishSourceLayerSummary(supabase, layer = "silver") {
+  const { data, error } = await supabase
+    .schema("silver")
+    .from("cbs_dataset_load_status")
+    .select("dataset_id,status,last_loaded_at,observations_loaded,expected_observations,rejected_rows,quality_status");
+
+  if (error) throw error;
+
+  const rows = data ?? [];
+  const recordsExpected = rows.reduce((sum, row) => sum + (row.expected_observations ?? 0), 0);
+  const recordsLoaded = rows.reduce((sum, row) => sum + (row.observations_loaded ?? 0), 0);
+  const rejectedRows = rows.reduce((sum, row) => sum + (row.rejected_rows ?? 0), 0);
+  const failed = rows.filter((row) => row.status === STATUS.FAILED).length;
+  const partial = rows.filter((row) => row.status === STATUS.PARTIAL).length;
+  const complete = rows.filter((row) => [STATUS.COMPLETE, STATUS.COMPLETE_WITH_WARNINGS, "completed", "completed_with_rejections"].includes(row.status)).length;
+  const lastLoadedAt = rows.map((row) => row.last_loaded_at).filter(Boolean).sort().at(-1) ?? null;
+  const summaryStatus = failed > 0 || rejectedRows > 0
+    ? STATUS.COMPLETE_WITH_WARNINGS
+    : partial > 0
+      ? STATUS.PARTIAL
+      : complete > 0
+        ? STATUS.COMPLETE
+        : STATUS.PENDING;
+
+  const { error: summaryError } = await supabase
+    .from("source_layer_summary")
+    .upsert(
+      {
+        provider: "CBS",
+        layer,
+        status: summaryStatus,
+        datasets_total: rows.length,
+        datasets_complete: complete,
+        datasets_partial: partial,
+        datasets_failed: failed,
+        records_expected: recordsExpected,
+        records_loaded: recordsLoaded,
+        completeness_pct: percentage(recordsLoaded + rejectedRows, recordsExpected),
+        rejected_rows: rejectedRows,
+        last_loaded_at: lastLoadedAt,
+        metadata: {
+          quality_statuses: rows.reduce((acc, row) => {
+            const key = row.quality_status ?? "unknown";
+            acc[key] = (acc[key] ?? 0) + 1;
+            return acc;
+          }, {}),
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "provider,layer" }
+    );
+
+  if (summaryError && !isMissingPublicTableError(summaryError)) {
+    console.warn(`Skipped source layer summary for ${layer}: ${summaryError.message}`);
+  }
+}
+
+async function publishSilverSchemaSnapshot(supabase, datasetId, sourceVersion, properties) {
+  if (!sourceVersion || properties.length === 0) return null;
+  const hash = schemaHash(properties);
+  const { error } = await supabase
+    .schema("silver")
+    .from("cbs_schema_snapshots")
+    .upsert(
+      {
+        dataset_id: datasetId,
+        source_version: sourceVersion,
+        schema_hash: hash,
+        properties,
+        captured_at: new Date().toISOString(),
+      },
+      { onConflict: "dataset_id,source_version,schema_hash" }
+    );
+
+  if (error) throw error;
+  return hash;
 }
 
 function extractYearsFromText(value) {
@@ -569,6 +773,7 @@ async function loadMetadataForDataset(supabase, datasetId, sourceVersion) {
   const catalog = payloadByEndpoint(payloads, "catalog_table");
   const dataPropertiesPayload = payloadByEndpoint(payloads, "data_properties");
   const properties = dataPropertiesPayload?.value ?? [];
+  const currentSchemaHash = await publishSilverSchemaSnapshot(supabase, datasetId, sourceVersion, properties);
 
   if (!catalog) throw new Error(`Missing catalog_table payload for ${datasetId}`);
 
@@ -590,6 +795,7 @@ async function loadMetadataForDataset(supabase, datasetId, sourceVersion) {
       source_version: sourceVersion,
       bronze_ingested_at: payloads.find((p) => p.endpoint === "catalog_table")?.ingested_at ?? null,
       silver_loaded_at: now,
+      schema_hash: currentSchemaHash,
     }],
     { onConflict: "dataset_id" }
   );
@@ -690,6 +896,7 @@ async function loadMetadataForDataset(supabase, datasetId, sourceVersion) {
     dimensions: dimensionProperties.length,
     dimensionValues: dimensionValues.length,
     measures: measureProperties.length,
+    schemaHash: currentSchemaHash,
   };
 }
 
@@ -742,6 +949,8 @@ function observationToRelationalRows(row, dimensionKeys, measureKeys, sourceVers
     row_id: row.row_id,
     row_index: row.row_index,
     source_version: sourceVersion,
+    bronze_ingestion_run_id: row.ingestion_run_id ?? null,
+    bronze_source_version: row.source_version ?? null,
     silver_loaded_at: now,
   };
 
@@ -815,7 +1024,7 @@ async function loadRowsForDataset(supabase, datasetId, sourceVersion, options) {
     const { data, error } = await supabase
       .schema("bronze")
       .from("cbs_typed_dataset_rows")
-      .select("dataset_id,row_id,row_index,raw")
+      .select("dataset_id,row_id,row_index,raw,ingestion_run_id,source_version")
       .eq("dataset_id", datasetId)
       .gte("row_index", from)
       .order("row_index", { ascending: true })
@@ -926,10 +1135,10 @@ function matchesOverviewQuery(row, query) {
 function classifySilverOverview(row) {
   if (!row.silverMetadataLoaded && row.silverObservationsLoaded === 0) return "not_loaded";
   if (row.silverMetadataLoaded && row.silverObservationsLoaded === 0) {
-    return row.silverStatus === "failed" ? "failed_metadata" : "metadata_only";
+    return row.silverStatus === STATUS.FAILED ? "failed_metadata" : "metadata_only";
   }
-  if (row.silverStatus === "failed") return "failed_partial";
-  if (row.silverRejectedRows > 0 && row.silverStatus === "completed_with_rejections") return "complete_with_rejections";
+  if (row.silverStatus === STATUS.FAILED) return "failed_partial";
+  if (row.silverRejectedRows > 0 && [STATUS.COMPLETE_WITH_WARNINGS, "completed_with_rejections"].includes(row.silverStatus)) return "complete_with_warnings";
   if (row.bronzeRowsLoaded > 0 && row.silverObservationsLoaded >= row.bronzeRowsLoaded) return "complete";
   if (row.bronzeRecordCount > 0 && row.silverObservationsLoaded >= row.bronzeRecordCount) return "complete";
   if (row.silverObservationsLoaded > 0) return "partial";
@@ -952,7 +1161,7 @@ function summarizeSilverOverview(rows) {
     bronzeDatasetsWithRows: rows.filter((row) => row.bronzeRowsLoaded > 0).length,
     silverMetadataLoaded: rows.filter((row) => row.silverMetadataLoaded).length,
     silverRowsLoaded: rows.filter((row) => row.silverObservationsLoaded > 0).length,
-    complete: rows.filter((row) => row.silverClassification === "complete" || row.silverClassification === "complete_with_rejections").length,
+    complete: rows.filter((row) => row.silverClassification === "complete" || row.silverClassification === "complete_with_warnings").length,
     partial: rows.filter((row) => row.silverClassification.includes("partial")).length,
     metadataOnly: rows.filter((row) => row.silverClassification === "metadata_only").length,
     notLoaded: rows.filter((row) => row.silverClassification === "not_loaded").length,
@@ -1157,37 +1366,78 @@ async function main() {
         await deleteSilverDatasetRows(supabase, datasetId);
       }
 
-      const runId = await startRun(supabase, datasetId, sourceVersion);
+      const bronzeStatus = await getBronzeStatus(supabase, datasetId);
+      const expectedObservations = bronzeStatus?.loaded_row_count ?? bronzeStatus?.record_count ?? null;
+      const runId = await startRun(supabase, datasetId, sourceVersion, expectedObservations);
 
       try {
         console.log(`Loading Silver dataset ${datasetId}`);
 
+        let metadataResult = null;
+
         if (!options.rowsOnly) {
-          await loadMetadataForDataset(supabase, datasetId, sourceVersion);
-          await updateDatasetStatus(supabase, datasetId, sourceVersion, "metadata_completed");
+          metadataResult = await loadMetadataForDataset(supabase, datasetId, sourceVersion);
+          const metadataQuality = silverQualityChecks({
+            metadataResult,
+            expectedObservations,
+            observationsLoaded: await getExactDatasetCount(supabase, "silver", "cbs_observations", "row_id", datasetId),
+            rejected: 0,
+            status: STATUS.METADATA_LOADED,
+          });
+          await updateDatasetStatus(supabase, datasetId, sourceVersion, STATUS.METADATA_LOADED, {
+            expectedObservations,
+            schemaHash: metadataResult.schemaHash,
+            quality: metadataQuality,
+          });
         }
 
-        let result = { observations: 0, dimensionLinks: 0, measures: 0, rejected: 0 };
+        let result = { observations: 0, dimensionLinks: 0, measures: 0, rejected: 0, expectedObservations };
 
         if (!options.metadataOnly) {
           result = await loadRowsForDataset(supabase, datasetId, sourceVersion, options);
         }
 
-        const finalStatus = result.rejected > 0 ? "completed_with_rejections" : "completed";
+        const totalObservations = await getExactDatasetCount(supabase, "silver", "cbs_observations", "row_id", datasetId);
+        const totalRejected = await getExactDatasetCount(supabase, "silver", "cbs_rejected_rows", "row_id", datasetId);
+        const finalStatus = options.metadataOnly
+          ? STATUS.METADATA_LOADED
+          : expectedObservations !== null && totalObservations + totalRejected < expectedObservations
+            ? STATUS.PARTIAL
+            : totalRejected > 0
+              ? STATUS.COMPLETE_WITH_WARNINGS
+              : STATUS.COMPLETE;
+        const quality = silverQualityChecks({
+          metadataResult,
+          expectedObservations,
+          observationsLoaded: totalObservations,
+          rejected: totalRejected,
+          status: finalStatus,
+        });
+        result = {
+          ...result,
+          observations: totalObservations,
+          rejected: totalRejected,
+          expectedObservations,
+          schemaHash: metadataResult?.schemaHash ?? bronzeStatus?.schema_hash ?? null,
+          quality,
+        };
 
         await finishRun(supabase, runId, finalStatus, result);
         await updateDatasetStatus(supabase, datasetId, sourceVersion, finalStatus, result);
+        await publishPublicQualityChecks(supabase, datasetId, "silver", quality);
         await publishPublicSilverDataset(supabase, datasetId);
+        await publishSourceLayerSummary(supabase, "silver");
 
         console.log(
-          `Silver complete ${datasetId}: ${result.observations} observations, ${result.dimensionLinks} dimension links, ${result.measures} measures, ${result.rejected} rejected`
+          `Silver ${finalStatus} ${datasetId}: ${result.observations}/${expectedObservations ?? "unknown"} observations, ${result.dimensionLinks} dimension links, ${result.measures} measures, ${result.rejected} rejected`
         );
       } catch (error) {
-        await finishRun(supabase, runId, "failed", {}, error.message);
-        await updateDatasetStatus(supabase, datasetId, sourceVersion, "failed", {}, error.message);
+        await finishRun(supabase, runId, STATUS.FAILED, { expectedObservations }, error.message);
+        await updateDatasetStatus(supabase, datasetId, sourceVersion, STATUS.FAILED, { expectedObservations }, error.message);
         await publishPublicSilverDataset(supabase, datasetId).catch((publishError) => {
           console.warn(`Skipped public silver catalog publish for ${datasetId}: ${publishError.message}`);
         });
+        await publishSourceLayerSummary(supabase, "silver").catch(() => {});
         throw error;
       }
     } catch (error) {
