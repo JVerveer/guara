@@ -153,11 +153,11 @@ create index if not exists cbs_data_properties_dataset_key_idx
 create index if not exists cbs_dimension_values_dataset_dimension_idx
   on bronze.cbs_dimension_values (dataset_id, dimension_key);
 
-create index if not exists cbs_typed_dataset_rows_dataset_idx
-  on bronze.cbs_typed_dataset_rows (dataset_id);
-
 create index if not exists cbs_typed_dataset_rows_row_index_idx
   on bronze.cbs_typed_dataset_rows (dataset_id, row_index);
+
+create index if not exists cbs_typed_dataset_rows_dataset_row_index_desc_idx
+  on bronze.cbs_typed_dataset_rows (dataset_id, row_index desc);
 
 create index if not exists cbs_raw_endpoint_payloads_dataset_idx
   on bronze.cbs_raw_endpoint_payloads (dataset_id);

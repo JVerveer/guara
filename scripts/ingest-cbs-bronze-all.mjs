@@ -49,7 +49,7 @@ function parseArgs(argv) {
     failedOnly: false,
     tableOffset: 0,
     catalogPageSize: 100,
-    batchSize: 1000,
+    batchSize: 2000,
     maxRowsPerDataset: 0,
     dimensionBatchSize: 5000,
     includeRows: true,
@@ -59,7 +59,8 @@ function parseArgs(argv) {
     requestDelayMs: 100,
     requestTimeoutMs: 60000,
     resumeRows: true,
-    storeTypedBatchPayloads: true,
+    storeTypedBatchPayloads: false,
+    exactCounts: false,
     overview: false,
     output: "table",
     writeJson: false,
@@ -87,6 +88,8 @@ function parseArgs(argv) {
     else if (arg === "--force") options.force = true;
     else if (arg === "--no-resume-rows") options.resumeRows = false;
     else if (arg === "--no-store-typed-batch-payloads") options.storeTypedBatchPayloads = false;
+    else if (arg === "--store-typed-batch-payloads") options.storeTypedBatchPayloads = true;
+    else if (arg === "--exact-counts") options.exactCounts = true;
     else if (arg === "overview" || arg === "--overview") options.overview = true;
     else if (arg === "--output") options.output = argv[++i] ?? options.output;
     else if (arg === "--write-json") options.writeJson = true;
@@ -120,10 +123,11 @@ Options:
   --retries 5                      Retry failed datasets.
   --request-delay-ms 250           Add delay between CBS API requests.
   --request-timeout-ms 60000       Timeout per CBS request.
-  --batch-size 1000                TypedDataSet row batch size.
+  --batch-size 2000                TypedDataSet row batch size.
   --dimension-batch-size 5000      Dimension values batch size.
   --no-resume-rows                 Disable row-level resume.
-  --no-store-typed-batch-payloads  Do not store TypedDataSet batch payloads.
+  --store-typed-batch-payloads     Also store every TypedDataSet batch response in raw endpoint payloads.
+  --exact-counts                   Use exact row counts in overview mode. Slower on large Bronze tables.
   --overview                       Scan CBS catalog and compare against Bronze status.
   --output table|json              Console output for overview mode.
   --write-json                     Write overview report to reports/.
@@ -445,10 +449,14 @@ async function getDimensionValuesPayload(datasetId, dimensionKey, skip, top, opt
 async function getAllDimensionPayloads(datasetId, dimensionKey, options) {
   const payloads = [];
   const top = Math.max(1, options.dimensionBatchSize);
+  const seenPageSignatures = new Set();
 
   for (let skip = 0; ; skip += top) {
     const result = await getDimensionValuesPayload(datasetId, dimensionKey, skip, top, options);
     const values = result.payload.value ?? [];
+    const firstKey = values[0]?.Key ?? "";
+    const lastKey = values.at(-1)?.Key ?? "";
+    const pageSignature = `${values.length}:${firstKey}:${lastKey}`;
 
     payloads.push({
       key: dimensionKey,
@@ -459,6 +467,23 @@ async function getAllDimensionPayloads(datasetId, dimensionKey, options) {
       count: values.length,
     });
 
+    if (skip === 0 && values.length > top) {
+      console.log(
+        `  dimension ${dimensionKey}: ${values.length} values returned in a single unpaged response (${datasetId})`
+      );
+      break;
+    }
+
+    if (seenPageSignatures.has(pageSignature)) {
+      console.log(
+        `  dimension ${dimensionKey}: stopped paging after repeated response at skip ${skip} (${datasetId})`
+      );
+      break;
+    }
+
+    seenPageSignatures.add(pageSignature);
+
+    if (!result.payload["odata.nextLink"] && !result.payload["@odata.nextLink"]) break;
     if (values.length < top) break;
   }
 
@@ -726,15 +751,9 @@ async function getMaxIngestedRowIndex(supabase, datasetId) {
     : Number(data.row_index);
 }
 
-async function getLoadedRowCount(supabase, datasetId) {
-  const { count, error } = await supabase
-    .schema("bronze")
-    .from("cbs_typed_dataset_rows")
-    .select("row_id", { count: "exact", head: true })
-    .eq("dataset_id", datasetId);
-
-  if (error) throw error;
-  return count ?? 0;
+async function getLoadedRowCountEstimate(supabase, datasetId) {
+  const maxIngestedRowIndex = await getMaxIngestedRowIndex(supabase, datasetId);
+  return maxIngestedRowIndex < 0 ? 0 : maxIngestedRowIndex + 1;
 }
 
 async function shouldSkipDataset(supabase, table, options) {
@@ -1051,14 +1070,14 @@ async function ingestTable(supabase, table, options, runId = null) {
     recordCount,
     STATUS.METADATA_LOADED,
     null,
-    await getLoadedRowCount(supabase, datasetId),
+    await getLoadedRowCountEstimate(supabase, datasetId),
     {
       runId,
       sourceVersion,
       schemaHash: schemaHashValue,
       metadataCompletenessPct: properties.length > 0 ? 100 : 0,
       dimensionCompletenessPct: dimensionProperties.length > 0 ? pct(dimensionPayloads.length, dimensionProperties.length) : 100,
-      rowCompletenessPct: pct(await getLoadedRowCount(supabase, datasetId), recordCount),
+      rowCompletenessPct: pct(await getLoadedRowCountEstimate(supabase, datasetId), recordCount),
       qualityStatus: "pending",
       qualityChecks: {},
     }
@@ -1076,7 +1095,7 @@ async function ingestTable(supabase, table, options, runId = null) {
       recordCount,
       STATUS.PARTIAL,
       error.message,
-      await getLoadedRowCount(supabase, datasetId),
+      await getLoadedRowCountEstimate(supabase, datasetId),
       {
         runId,
         sourceVersion,
@@ -1088,7 +1107,7 @@ async function ingestTable(supabase, table, options, runId = null) {
     throw error;
   }
 
-  const loadedRowCount = await getLoadedRowCount(supabase, datasetId);
+  const loadedRowCount = await getLoadedRowCountEstimate(supabase, datasetId);
   const finalStatus =
     recordCount !== null && recordCount !== undefined && loadedRowCount >= recordCount
       ? STATUS.COMPLETE
@@ -1205,7 +1224,9 @@ async function runBronzeOverview(supabase, options) {
 
   for (const table of tables) {
     const status = statusById.get(table.Identifier);
-    const loadedRows = status ? await getExactBronzeRowCount(supabase, table.Identifier) : 0;
+    const loadedRows = options.exactCounts && status
+      ? await getExactBronzeRowCount(supabase, table.Identifier)
+      : status?.loaded_row_count ?? 0;
     const row = {
       datasetId: table.Identifier,
       title: table.ShortTitle || table.Title || table.Identifier,

@@ -40,8 +40,8 @@ function parseArgs(argv) {
     skipUnchanged: true,
     overview: false,
     query: "",
-    withBronzeCounts: true,
-    withSilverCounts: true,
+    withBronzeCounts: false,
+    withSilverCounts: false,
     concurrency: 4,
     output: "table",
     writeJson: false,
@@ -70,6 +70,14 @@ function parseArgs(argv) {
     }
     else if (arg === "--skip-silver-counts") {
       options.withSilverCounts = false;
+      options.overview = true;
+    }
+    else if (arg === "--exact-bronze-counts") {
+      options.withBronzeCounts = true;
+      options.overview = true;
+    }
+    else if (arg === "--exact-silver-counts") {
+      options.withSilverCounts = true;
       options.overview = true;
     }
     else if (arg === "--concurrency") {
@@ -102,8 +110,8 @@ function parseArgs(argv) {
 
 Overview options:
   --query term             Filter by dataset id/title/description/period/catalog.
-  --skip-bronze-counts     Use stored Bronze loaded_row_count only.
-  --skip-silver-counts     Use stored Silver observations_loaded only.
+  --exact-bronze-counts    Count Bronze raw rows directly. Slower on large tables.
+  --exact-silver-counts    Count Silver observations directly. Slower on large tables.
   --concurrency 4          Parallel count requests.
   --output table|json      Console output format.
   --write-json             Write a timestamped JSON report to reports/.

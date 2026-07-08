@@ -16,6 +16,13 @@ Run `silver_schema.sql` after your Silver base tables exist. This migration adds
 -- paste supabase/silver_schema.sql
 ```
 
+For larger Bronze loads, also run `bronze_performance.sql`. It removes a redundant raw-row index, adds a faster resume index, tunes autovacuum for the large JSONB row table, and includes an optional cleanup for duplicated TypedDataSet batch payloads from older runs:
+
+```sql
+-- Supabase SQL editor
+-- paste supabase/bronze_performance.sql
+```
+
 In Supabase project settings, make sure the `bronze` schema is exposed to the API before running the ingestion job. Keep RLS enabled and do not add public policies to bronze tables; the job uses the service-role key.
 
 The ingestion job writes:
@@ -61,7 +68,7 @@ Full bronze row ingestion:
 npm run ingest:cbs:bronze:all -- --dry-run --dataset 85039NED
 npm run ingest:cbs:bronze:all -- --dataset 85039NED --max-rows-per-dataset 5000
 npm run ingest:cbs:bronze:all -- --query 2007 --limit 10 --max-rows-per-dataset 10000
-npm run ingest:cbs:bronze:all -- --limit 25 --batch-size 1000
+npm run ingest:cbs:bronze:all -- --limit 25 --batch-size 2000
 ```
 
 Bronze coverage overview:
@@ -97,5 +104,7 @@ Options:
 - `--dry-run`: fetch and qualify without writing to Supabase.
 - `--metadata-only`: with `ingest:cbs:bronze:all`, skip `TypedDataSet` rows.
 - `--max-rows-per-dataset 5000`: with `ingest:cbs:bronze:all`, cap raw data rows per dataset. `0` means all rows.
-- `--batch-size 1000`: with `ingest:cbs:bronze:all`, row page size for CBS and Supabase upserts.
+- `--batch-size 2000`: with `ingest:cbs:bronze:all`, row page size for CBS and Supabase upserts.
 - `--table-offset 100`: with `ingest:cbs:bronze:all`, skip catalog tables for resumable multi-run ingestion.
+- `--store-typed-batch-payloads`: with `ingest:cbs:bronze:all`, also store full CBS TypedDataSet batch responses in `bronze.cbs_raw_endpoint_payloads`. This is off by default for performance because rows are already stored in `bronze.cbs_typed_dataset_rows`.
+- `--exact-counts`: with Bronze overview mode, count raw rows directly. This is slower on large Bronze tables; stored status counts are used by default.
