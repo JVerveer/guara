@@ -40,8 +40,21 @@ create table if not exists public.dataset_dimensions (
   unique (dataset_id, key)
 );
 
+create table if not exists public.dataset_preview_rows (
+  dataset_id text not null references public.dataset_catalog(id) on delete cascade,
+  row_id text not null,
+  row_index bigint,
+  raw jsonb not null,
+  ingested_at timestamptz not null default now(),
+  primary key (dataset_id, row_id)
+);
+
+create index if not exists dataset_preview_rows_dataset_idx
+  on public.dataset_preview_rows (dataset_id, row_index);
+
 alter table public.dataset_catalog enable row level security;
 alter table public.dataset_dimensions enable row level security;
+alter table public.dataset_preview_rows enable row level security;
 
 drop policy if exists "dataset_catalog_read_public" on public.dataset_catalog;
 create policy "dataset_catalog_read_public"
@@ -51,6 +64,11 @@ create policy "dataset_catalog_read_public"
 drop policy if exists "dataset_dimensions_read_public" on public.dataset_dimensions;
 create policy "dataset_dimensions_read_public"
   on public.dataset_dimensions for select
+  using (true);
+
+drop policy if exists "dataset_preview_rows_read_public" on public.dataset_preview_rows;
+create policy "dataset_preview_rows_read_public"
+  on public.dataset_preview_rows for select
   using (true);
 
 -- Keep writes server-side by default. Add authenticated/service-role ingestion later.

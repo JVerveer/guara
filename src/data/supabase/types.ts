@@ -154,6 +154,31 @@ export interface Database {
           },
         ];
       };
+      dataset_preview_rows: {
+        Row: {
+          dataset_id: string;
+          row_id: string;
+          row_index: number | null;
+          raw: Record<string, unknown>;
+          ingested_at: string;
+        };
+        Insert: {
+          dataset_id: string;
+          row_id: string;
+          row_index?: number | null;
+          raw: Record<string, unknown>;
+          ingested_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["dataset_preview_rows"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "dataset_preview_rows_dataset_id_fkey";
+            columns: ["dataset_id"];
+            referencedRelation: "dataset_catalog";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

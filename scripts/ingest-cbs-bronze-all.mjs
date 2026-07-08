@@ -552,6 +552,48 @@ async function ingestTypedRows(supabase, datasetId, recordCount, options) {
   return written;
 }
 
+async function refreshPublicPreviewRows(supabase, datasetId, options) {
+  if (options.dryRun) return;
+
+  const { data, error } = await supabase
+    .schema("bronze")
+    .from("cbs_typed_dataset_rows")
+    .select("dataset_id,row_id,row_index,raw,ingested_at")
+    .eq("dataset_id", datasetId)
+    .order("row_index", { ascending: true })
+    .limit(25);
+
+  if (error) throw error;
+
+  const rows = data ?? [];
+  if (rows.length === 0) return;
+
+  const deleteResult = await supabase
+    .from("dataset_preview_rows")
+    .delete()
+    .eq("dataset_id", datasetId);
+
+  if (deleteResult.error) {
+    console.warn(
+      `  skipped public preview refresh for ${datasetId}: ${deleteResult.error.message}`
+    );
+    return;
+  }
+
+  const { error: upsertError } = await supabase
+    .from("dataset_preview_rows")
+    .upsert(rows, { onConflict: "dataset_id,row_id" });
+
+  if (upsertError) {
+    console.warn(
+      `  skipped public preview refresh for ${datasetId}: ${upsertError.message}`
+    );
+    return;
+  }
+
+  console.log(`  refreshed public preview rows: ${rows.length} (${datasetId})`);
+}
+
 async function ingestTable(supabase, table, options) {
   const datasetId = table.Identifier;
 
@@ -637,6 +679,7 @@ async function ingestTable(supabase, table, options) {
 
   try {
     writtenRows = await ingestTypedRows(supabase, datasetId, recordCount, options);
+    await refreshPublicPreviewRows(supabase, datasetId, options);
   } catch (error) {
     await updateDatasetStatus(
       supabase,

@@ -17,7 +17,7 @@ import type { Dataset, DatasetPreview, DatasetVariable } from "../types";
 
 type Tab = "preview" | "metadata" | "variables" | "api";
 
-const API_ENDPOINT = "https://opendata.cbs.nl/ODataApi/odata/85039NED/TypedDataSet";
+const API_ENDPOINT = "Supabase public.dataset_catalog";
 const EMPTY_PREVIEW: DatasetPreview = {
   columns: [],
   rows: [],
@@ -37,7 +37,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
   const [variables, setVariables] = useState<DatasetVariable[]>([]);
   const [datasetMeta, setDatasetMeta] = useState<Dataset | null>(null);
   const [datasetTitle, setDatasetTitle] = useState("CBS StatLine dataset");
-  const [datasetDescription, setDatasetDescription] = useState("Live CBS StatLine data loaded from the Open Data v3 API.");
+  const [datasetDescription, setDatasetDescription] = useState("CBS StatLine data loaded from Guara's Supabase data layer.");
   const [apiEndpoint, setApiEndpoint] = useState(API_ENDPOINT);
   const [isLoadingApiData, setIsLoadingApiData] = useState(true);
 
@@ -70,11 +70,14 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
     { labelKey: "Period source", value: datasetMeta?.qualification.periodSource ?? "none" },
     { labelKey: "Qualification evidence", value: datasetMeta?.qualification.evidence.join(" · ") ?? "CBS metadata" },
   ] as const;
-  const codeSnippet = `fetch("${apiEndpoint}?$format=json&$top=5")
-  .then((response) => response.json())
-  .then((data) => console.log(data.value));`;
+  const codeSnippet = `const { data } = await supabase
+  .from("dataset_preview_rows")
+  .select("*")
+  .eq("dataset_id", "${datasetId}")
+  .order("row_index", { ascending: true })
+  .limit(25);`;
   const statsKeys = [
-    { key: "datasets.stats.records", value: preview.totalRecordCount ? formatNumber(preview.totalRecordCount) : "CBS API" },
+    { key: "datasets.stats.records", value: preview.totalRecordCount ? formatNumber(preview.totalRecordCount) : "Supabase" },
     { key: "datasets.stats.previewRows", value: String(preview.rows.length) },
     { key: "Neighborhood", value: String(preview.geographySummary.neighborhood) },
     { key: "Municipality", value: String(preview.geographySummary.municipality) },
@@ -97,11 +100,11 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
         const nextPreview = previewResult.status === "fulfilled" ? previewResult.value : EMPTY_PREVIEW;
         const nextVariables = variablesResult.status === "fulfilled" ? variablesResult.value : [];
         setDatasetTitle(dataset?.title ?? datasetId);
-        setDatasetDescription(dataset?.description ?? "Live CBS StatLine data loaded from the Open Data v3 API.");
+        setDatasetDescription(dataset?.description ?? "CBS StatLine data loaded from Guara's Supabase data layer.");
         setDatasetMeta(dataset ?? null);
         setPreview(nextPreview);
         setVariables(nextVariables);
-        setApiEndpoint(`https://opendata.cbs.nl/ODataApi/odata/${datasetId}/TypedDataSet`);
+        setApiEndpoint(`Supabase: public.dataset_catalog/${datasetId}, public.dataset_dimensions, public.dataset_preview_rows`);
       })
       .finally(() => {
         if (!cancelled) setIsLoadingApiData(false);
@@ -222,7 +225,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                   {!isLoadingApiData && preview.rows.length === 0 && (
                     <tr>
                       <td className="px-4 py-3 text-muted-foreground" colSpan={Math.max(preview.columns.length, 1)}>
-                        No preview rows returned by the CBS API for this table.
+                        No preview rows are available in Supabase for this table yet.
                       </td>
                     </tr>
                   )}
@@ -241,10 +244,10 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
                         >
                           {column.key === "__guaraGeographicLevel" || column.key === "__guaraGeographicSource" ? (
                             <span className="inline-flex rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-accent-foreground">
-                              {formatCell(row[column.key])}
+                              {formatCell(row[column.key] ?? null)}
                             </span>
                           ) : (
-                            formatCell(row[column.key])
+                            formatCell(row[column.key] ?? null)
                           )}
                         </td>
                       ))}
@@ -254,7 +257,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
               </table>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Showing a capped preview of {preview.rows.length} rows from {preview.totalRecordCount ? formatNumber(preview.totalRecordCount) : "the CBS API"} total records.
+              Showing a capped preview of {preview.rows.length} rows from {preview.totalRecordCount ? formatNumber(preview.totalRecordCount) : "the Supabase catalog"} total records.
             </p>
           </div>
         )}

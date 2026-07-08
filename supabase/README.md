@@ -17,8 +17,12 @@ The ingestion job writes:
 - `bronze.cbs_data_properties`
 - `bronze.cbs_dimension_values`
 - `bronze.cbs_typed_dataset_rows` when using the all-data job
+- `bronze.cbs_raw_endpoint_payloads`
+- `bronze.cbs_ingestion_runs`
+- `bronze.cbs_dataset_ingestion_status`
 - `public.dataset_catalog`
 - `public.dataset_dimensions`
+- `public.dataset_preview_rows` with a capped 25-row app preview
 
 Required local environment:
 
@@ -28,6 +32,8 @@ SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 Do not expose the service-role key in frontend code.
+
+The Guara frontend reads from the public tables only. It does not call the CBS APIs during exploration. Re-run `schema.sql` after pulling changes so `public.dataset_preview_rows` exists before expecting preview rows in the app.
 
 Example commands:
 
