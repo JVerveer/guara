@@ -4,8 +4,6 @@ import type { Connector } from "../types";
 
 type SilverCatalogRow = Database["public"]["Tables"]["silver_dataset_catalog"]["Row"];
 
-let cachedConnectors: Connector[] | null = null;
-
 function formatDate(value?: string | null): string {
   if (!value) return "Not synced";
   return new Date(value).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
@@ -43,7 +41,36 @@ async function getSilverRows(): Promise<SilverCatalogRow[]> {
 }
 
 async function getLayerConnectors(): Promise<Connector[]> {
-  if (!isSupabaseConfigured()) return [];
+  if (!isSupabaseConfigured()) {
+    return [
+      {
+        id: "cbs-bronze",
+        name: "CBS Bronze",
+        fullName: "Raw CBS StatLine ingestion layer",
+        abbr: "B",
+        datasets: 0,
+        lastSync: "Supabase not configured",
+        coverage: "Raw API",
+        reliability: 0,
+        tags: ["Raw", "CBS", "Bronze"],
+        brandColor: "#6B7280",
+        metadata: [{ label: "Status", value: "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY" }],
+      },
+      {
+        id: "cbs-silver",
+        name: "CBS Silver",
+        fullName: "Curated CBS relational analysis layer",
+        abbr: "S",
+        datasets: 0,
+        lastSync: "Supabase not configured",
+        coverage: "Curated",
+        reliability: 0,
+        tags: ["Curated", "CBS", "Silver"],
+        brandColor: "#1C3D8F",
+        metadata: [{ label: "Status", value: "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY" }],
+      },
+    ];
+  }
 
   const [bronzeDatasets, previewRows, silverRows] = await Promise.all([
     countPublicTable("dataset_catalog"),
@@ -107,9 +134,7 @@ async function getLayerConnectors(): Promise<Connector[]> {
 
 export const connectorService = {
   async getAllConnectors(): Promise<Connector[]> {
-    if (cachedConnectors) return cachedConnectors;
-    cachedConnectors = await getLayerConnectors();
-    return cachedConnectors;
+    return getLayerConnectors();
   },
 
   async getConnectorById(id: string): Promise<Connector | undefined> {

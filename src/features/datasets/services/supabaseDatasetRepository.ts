@@ -234,6 +234,7 @@ export const supabaseDatasetRepository = {
     }
 
     const silverRows = (data ?? []).filter((row) => matchesSilverSearch(row, year ? "" : query));
+    if (silverRows.length === 0) return undefined;
     const ids = silverRows.map((row) => row.dataset_id);
     if (ids.length === 0) return [];
 

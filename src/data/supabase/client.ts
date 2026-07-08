@@ -4,6 +4,10 @@ import type { Database } from "./types";
 
 let client: SupabaseClient<Database> | null = null;
 
+function normalizeSupabaseUrl(url: string): string {
+  return url.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "");
+}
+
 export function isSupabaseConfigured(): boolean {
   return Boolean(config.supabaseUrl && config.supabaseAnonKey);
 }
@@ -15,7 +19,7 @@ export async function getSupabaseClient(): Promise<SupabaseClient<Database>> {
 
   if (!client) {
     const { createClient } = await import("@supabase/supabase-js");
-    client = createClient<Database>(config.supabaseUrl!, config.supabaseAnonKey!, {
+    client = createClient<Database>(normalizeSupabaseUrl(config.supabaseUrl!), config.supabaseAnonKey!, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
