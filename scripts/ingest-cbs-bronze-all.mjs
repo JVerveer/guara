@@ -4,13 +4,21 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const CBS_ODATA_BASE = "https://opendata.cbs.nl/ODataApi/odata";
+const CBS_ODATA_FEED_BASE = "https://opendata.cbs.nl/ODataFeed/odata";
 const CBS_CATALOG_BASE = "https://opendata.cbs.nl/ODataCatalog";
-const LEVELS = ["neighborhood", "municipality", "province", "country"];
+
+const REQUIRED_BRONZE_TABLES = [
+  "cbs_raw_endpoint_payloads",
+  "cbs_typed_dataset_rows",
+  "cbs_ingestion_runs",
+  "cbs_dataset_ingestion_status",
+];
 
 function loadLocalEnv() {
   for (const file of [".env.local", ".env"]) {
     const path = resolve(process.cwd(), file);
     if (!existsSync(path)) continue;
+
     for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
       const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
       if (!match || process.env[match[1]]) continue;
@@ -24,42 +32,77 @@ function parseArgs(argv) {
     dataset: "",
     query: "",
     limit: 10,
+    all: false,
+    failedOnly: false,
     tableOffset: 0,
+    catalogPageSize: 100,
     batchSize: 1000,
     maxRowsPerDataset: 0,
-    dimensionsPerTable: 5000,
+    dimensionBatchSize: 5000,
     includeRows: true,
     dryRun: false,
+    retries: 2,
+    force: false,
+    requestDelayMs: 100,
+    requestTimeoutMs: 60000,
+    resumeRows: true,
+    storeTypedBatchPayloads: true,
   };
 
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
+
     if (arg === "--dataset") options.dataset = argv[++i] ?? "";
     else if (arg === "--query") options.query = argv[++i] ?? "";
     else if (arg === "--limit") options.limit = Number(argv[++i] ?? options.limit);
+    else if (arg === "--all") options.all = true;
+    else if (arg === "--failed-only") options.failedOnly = true;
     else if (arg === "--table-offset") options.tableOffset = Number(argv[++i] ?? options.tableOffset);
+    else if (arg === "--catalog-page-size") options.catalogPageSize = Number(argv[++i] ?? options.catalogPageSize);
     else if (arg === "--batch-size") options.batchSize = Number(argv[++i] ?? options.batchSize);
     else if (arg === "--max-rows-per-dataset") options.maxRowsPerDataset = Number(argv[++i] ?? 0);
-    else if (arg === "--dimensions-per-table") options.dimensionsPerTable = Number(argv[++i] ?? options.dimensionsPerTable);
+    else if (arg === "--dimension-batch-size") options.dimensionBatchSize = Number(argv[++i] ?? options.dimensionBatchSize);
+    else if (arg === "--retries") options.retries = Number(argv[++i] ?? options.retries);
+    else if (arg === "--request-delay-ms") options.requestDelayMs = Number(argv[++i] ?? options.requestDelayMs);
+    else if (arg === "--request-timeout-ms") options.requestTimeoutMs = Number(argv[++i] ?? options.requestTimeoutMs);
     else if (arg === "--metadata-only") options.includeRows = false;
     else if (arg === "--dry-run") options.dryRun = true;
+    else if (arg === "--force") options.force = true;
+    else if (arg === "--no-resume-rows") options.resumeRows = false;
+    else if (arg === "--no-store-typed-batch-payloads") options.storeTypedBatchPayloads = false;
     else if (arg === "--help") {
       console.log(`Usage:
   npm run ingest:cbs:bronze:all -- --dataset 85039NED
-  npm run ingest:cbs:bronze:all -- --query 2007 --limit 25
-  npm run ingest:cbs:bronze:all -- --limit 100 --batch-size 1000
+  npm run ingest:cbs:bronze:all -- --query bevolking --limit 25
+  npm run ingest:cbs:bronze:all -- --all
+  npm run ingest:cbs:bronze:all -- --all --metadata-only
+  npm run ingest:cbs:bronze:all -- --failed-only
+  npm run ingest:cbs:bronze:all -- --dataset 85039NED --force
+  npm run ingest:cbs:bronze:all -- --all --retries 5
+  npm run ingest:cbs:bronze:all -- --all --request-delay-ms 250
   npm run ingest:cbs:bronze:all -- --dataset 85039NED --max-rows-per-dataset 5000
-  npm run ingest:cbs:bronze:all -- --metadata-only --limit 100
-  npm run ingest:cbs:bronze:all -- --dry-run --dataset 85039NED
 
-Required env for writes:
+Required env:
   VITE_SUPABASE_URL or SUPABASE_URL
   SUPABASE_SERVICE_ROLE_KEY
 
 Notes:
-  --limit controls number of CBS tables, not rows.
-  --max-rows-per-dataset 0 means all rows.
-  Re-running is safe: rows upsert by dataset_id + row_id.
+  This is a raw Bronze ingestion script.
+  It stores CBS source responses as raw JSON payloads.
+  It does not transform, qualify, label, enrich, or normalize CBS data.
+
+Options:
+  --all                            Page through the complete CBS catalog.
+  --failed-only                    Only ingest datasets with failed/partial status.
+  --force                          Re-ingest even if already completed and unchanged.
+  --metadata-only                  Store catalog/properties/dimensions, skip rows.
+  --retries 5                      Retry failed datasets.
+  --request-delay-ms 250           Add delay between CBS API requests.
+  --request-timeout-ms 60000       Timeout per CBS request.
+  --batch-size 1000                TypedDataSet row batch size.
+  --dimension-batch-size 5000      Dimension values batch size.
+  --no-resume-rows                 Disable row-level resume.
+  --no-store-typed-batch-payloads  Do not store TypedDataSet batch payloads.
 `);
       process.exit(0);
     }
@@ -71,210 +114,231 @@ Notes:
 function buildQuery(query = {}) {
   const params = new URLSearchParams();
   params.set("$format", "json");
+
   Object.entries(query).forEach(([key, value]) => {
     if (value === undefined || value === null || value === "") return;
     params.set(key, Array.isArray(value) ? value.join(",") : String(value));
   });
+
   return params.toString();
 }
 
 function escapeODataString(value) {
-  return value.replace(/'/g, "''");
+  return String(value).replace(/'/g, "''");
 }
 
-async function getJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`HTTP ${response.status} for ${url}${body ? `: ${body.slice(0, 300)}` : ""}`);
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getJson(url, options) {
+  if (options.requestDelayMs > 0) {
+    await sleep(options.requestDelayMs);
   }
-  return response.json();
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.requestTimeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(
+        `HTTP ${response.status} for ${url}${body ? `: ${body.slice(0, 300)}` : ""}`
+      );
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Request timeout after ${options.requestTimeoutMs}ms for ${url}`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
-async function getCatalogTables(options) {
+async function validateSupabaseTables(supabase) {
+  for (const table of REQUIRED_BRONZE_TABLES) {
+    const { error } = await supabase
+      .schema("bronze")
+      .from(table)
+      .select("*")
+      .limit(1);
+
+    if (error) {
+      throw new Error(
+        `Required table bronze.${table} is missing or not accessible: ${error.message}`
+      );
+    }
+  }
+}
+
+async function getCatalogTablesPage(options, top, skip) {
   const select = "Identifier,Title,ShortTitle,ShortDescription,Updated,Period,Language,Catalog";
+
   if (options.dataset) {
     const url = `${CBS_CATALOG_BASE}/Tables?${buildQuery({
       $select: select,
       $filter: `Identifier eq '${escapeODataString(options.dataset)}'`,
       $top: 1,
     })}`;
-    return (await getJson(url)).value ?? [];
+
+    const payload = await getJson(url, options);
+    return payload.value ?? [];
   }
 
   const filters = ["Language eq 'nl'"];
+
   if (options.query) {
     const escaped = escapeODataString(options.query);
-    filters.push(`(substringof('${escaped}',Title) or substringof('${escaped}',ShortTitle) or substringof('${escaped}',ShortDescription) or substringof('${escaped}',Period))`);
+    filters.push(
+      `(substringof('${escaped}',Title) or substringof('${escaped}',ShortTitle) or substringof('${escaped}',ShortDescription) or substringof('${escaped}',Period))`
+    );
   }
 
   const url = `${CBS_CATALOG_BASE}/Tables?${buildQuery({
     $select: select,
     $filter: filters.join(" and "),
-    $top: Math.max(1, options.limit),
-    $skip: Math.max(0, options.tableOffset),
+    $top: top,
+    $skip: skip,
   })}`;
-  return (await getJson(url)).value ?? [];
+
+  const payload = await getJson(url, options);
+  return payload.value ?? [];
 }
 
-async function getDataProperties(datasetId) {
+async function getCatalogTables(options) {
+  if (options.dataset) {
+    return getCatalogTablesPage(options, 1, 0);
+  }
+
+  if (!options.all) {
+    return getCatalogTablesPage(
+      options,
+      Math.max(1, options.limit),
+      Math.max(0, options.tableOffset)
+    );
+  }
+
+  const allTables = [];
+  let skip = Math.max(0, options.tableOffset);
+  const top = Math.max(1, options.catalogPageSize);
+
+  while (true) {
+    const page = await getCatalogTablesPage(options, top, skip);
+    allTables.push(...page);
+
+    console.log(`Catalog discovery: ${allTables.length} table(s) loaded`);
+
+    if (page.length < top) break;
+    skip += top;
+  }
+
+  return allTables;
+}
+
+async function getDataPropertiesPayload(datasetId, options) {
   const url = `${CBS_ODATA_BASE}/${datasetId}/DataProperties?${buildQuery({})}`;
-  return (await getJson(url)).value ?? [];
+  return {
+    url,
+    payload: await getJson(url, options),
+  };
 }
 
-async function getTypedDataSetCount(datasetId) {
-  const response = await fetch(`${CBS_ODATA_BASE}/${datasetId}/TypedDataSet/$count`);
-  if (!response.ok) return null;
-  const count = Number(await response.text());
-  return Number.isFinite(count) ? count : null;
-}
+async function getTypedDataSetCount(datasetId, options) {
+  const url = `${CBS_ODATA_BASE}/${datasetId}/TypedDataSet/$count`;
 
-async function getDimensionValues(datasetId, dimensionKey, query = {}) {
-  const url = `${CBS_ODATA_BASE}/${datasetId}/${encodeURIComponent(dimensionKey)}?${buildQuery(query)}`;
+  if (options.requestDelayMs > 0) {
+    await sleep(options.requestDelayMs);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.requestTimeoutMs);
+
   try {
-    return (await getJson(url)).value ?? [];
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+
+    const count = Number(await response.text());
+    return Number.isFinite(count) ? count : null;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Request timeout after ${options.requestTimeoutMs}ms for ${url}`);
+    }
+
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getDimensionValuesPayload(datasetId, dimensionKey, skip, top, options) {
+  const url = `${CBS_ODATA_BASE}/${datasetId}/${encodeURIComponent(dimensionKey)}?${buildQuery({
+    $top: top,
+    $skip: skip,
+  })}`;
+
+  try {
+    return {
+      url,
+      payload: await getJson(url, options),
+    };
   } catch {
-    return [];
+    return {
+      url,
+      payload: { value: [] },
+    };
   }
 }
 
-async function getTypedRows(datasetId, query = {}) {
-  const url = `${CBS_ODATA_BASE}/${datasetId}/TypedDataSet?${buildQuery(query)}`;
-  return (await getJson(url)).value ?? [];
-}
+async function getAllDimensionPayloads(datasetId, dimensionKey, options) {
+  const payloads = [];
+  const top = Math.max(1, options.dimensionBatchSize);
 
-function yearFromPeriodKey(value) {
-  const year = Number(String(value ?? "").slice(0, 4));
-  return Number.isInteger(year) && year >= 1970 && year <= 2026 ? year : undefined;
-}
+  for (let skip = 0; ; skip += top) {
+    const result = await getDimensionValuesPayload(datasetId, dimensionKey, skip, top, options);
+    const values = result.payload.value ?? [];
 
-function extractYears(text) {
-  return Array.from(String(text ?? "").matchAll(/(?:19|20)\d{2}/g))
-    .map((match) => Number(match[0]))
-    .filter((year) => year >= 1970 && year <= 2026);
-}
+    payloads.push({
+      key: dimensionKey,
+      skip,
+      top,
+      sourceUrl: result.url,
+      payload: result.payload,
+      count: values.length,
+    });
 
-function expandYearRange(years) {
-  const unique = Array.from(new Set(years)).sort((a, b) => a - b);
-  if (unique.length < 2) return unique;
-  const min = unique[0];
-  const max = unique[unique.length - 1];
-  if (max - min > 80) return unique;
-  return Array.from({ length: max - min + 1 }, (_, index) => min + index);
-}
-
-function levelFromDimension(value) {
-  const key = String(value.DetailRegionCode || value.Key || "").trim().toUpperCase();
-  const title = String(value.Title || "").trim().toLowerCase();
-  const description = String(value.Description || "").toLowerCase();
-  if (key === "NL00" || key === "NL01" || title === "nederland") return "country";
-  if (key.startsWith("PV") || title.includes("(pv)") || description.includes("pv = provincie")) return "province";
-  if (key.startsWith("GM")) return "municipality";
-  if (key.startsWith("WK") || key.startsWith("BU")) return "neighborhood";
-  return "other";
-}
-
-function spatialCoverageForLevels(levels) {
-  const set = new Set(levels);
-  if (set.has("country") && set.has("municipality") && set.has("neighborhood")) {
-    return "Netherlands — all municipalities, wijken and buurten";
+    if (values.length < top) break;
   }
-  if (set.has("country") && set.has("province") && set.has("municipality")) {
-    return "Netherlands — country, provinces and municipalities";
-  }
-  if (set.has("province")) return "Netherlands — provinces";
-  if (set.has("municipality")) return "Netherlands — municipalities";
-  if (set.has("country")) return "Netherlands — country";
-  if (set.has("neighborhood")) return "Netherlands — wijken and buurten";
-  return null;
+
+  return payloads;
 }
 
-function qualifyDataset(table, properties, dimensionValuesByKey, recordCount) {
-  const timeProperty = properties.find((property) => property.Key === "Perioden" || property.Type === "TimeDimension");
-  const geographyProperty = properties.find((property) => property.Type?.includes("Geo"));
-  const periodValues = timeProperty ? dimensionValuesByKey.get(timeProperty.Key) ?? [] : [];
-  const periodenYears = Array.from(new Set(periodValues.map((value) => yearFromPeriodKey(value.Key)).filter(Boolean))).sort((a, b) => a - b);
-  const catalogPeriodYears = expandYearRange(extractYears(table.Period));
-  const catalogTextYears = expandYearRange(extractYears(`${table.Title} ${table.ShortTitle} ${table.ShortDescription}`));
-  const years = periodenYears.length ? periodenYears : catalogPeriodYears.length ? catalogPeriodYears : catalogTextYears;
-  const periodSource = periodenYears.length
-    ? "perioden-dimension"
-    : catalogPeriodYears.length
-      ? "catalog-period"
-      : catalogTextYears.length
-        ? "catalog-text"
-        : "none";
-  const geographyValues = geographyProperty ? dimensionValuesByKey.get(geographyProperty.Key) ?? [] : [];
-  const geographicLevels = Array.from(new Set(geographyValues.map(levelFromDimension).filter((level) => LEVELS.includes(level))));
-  const spatialCoverage = spatialCoverageForLevels(geographicLevels);
-  const evidence = [
-    timeProperty ? `Years from CBS ${timeProperty.Key} dimension using first four characters of each key` : "No CBS Perioden dimension found",
-    periodSource === "catalog-period" ? "Years expanded from CBS catalog Period" : undefined,
-    periodSource === "catalog-text" ? "Years inferred from CBS catalog title/description" : undefined,
-    geographyProperty ? `Levels from CBS dimension ${geographyProperty.Key}` : "No CBS geography dimension found",
-    spatialCoverage ? `Spatial coverage: ${spatialCoverage}` : undefined,
-    recordCount !== null ? "Record count from TypedDataSet/$count" : "Record count unavailable",
-  ].filter(Boolean);
+async function getTypedRows(datasetId, skip, top, options) {
+  const url = `${CBS_ODATA_FEED_BASE}/${datasetId}/TypedDataSet?${buildQuery({
+    $top: top,
+    $skip: skip,
+  })}`;
+
+  const payload = await getJson(url, options);
 
   return {
-    yearStart: years.length ? years[0] : null,
-    yearEnd: years.length ? years[years.length - 1] : null,
-    years,
-    geographicLevels,
-    spatialCoverage,
-    periodSource,
-    confidence: timeProperty || geographyProperty ? "cbs-metadata" : years.length ? "partial-metadata" : "unqualified",
-    evidence,
+    url,
+    payload,
+    rows: payload.value ?? [],
   };
 }
 
-function catalogBronzeRow(table) {
-  return {
-    identifier: table.Identifier,
-    title: table.Title,
-    short_title: table.ShortTitle,
-    short_description: table.ShortDescription,
-    language: table.Language,
-    catalog: table.Catalog,
-    period: table.Period,
-    updated_at: table.Updated,
-    raw: table,
-    ingested_at: new Date().toISOString(),
-  };
-}
-
-function propertyBronzeRows(datasetId, properties) {
+function typedDatasetRows(datasetId, rows, skip, sourceUrl) {
   const now = new Date().toISOString();
-  return properties.map((property) => ({
-    dataset_id: datasetId,
-    property_id: property.ID,
-    key: property.Key || null,
-    title: property.Title || null,
-    type: property.Type || null,
-    parent_id: property.ParentID,
-    position: property.Position,
-    raw: property,
-    ingested_at: now,
-  }));
-}
 
-function dimensionBronzeRows(datasetId, dimensionKey, values) {
-  const now = new Date().toISOString();
-  return values.map((value) => ({
-    dataset_id: datasetId,
-    dimension_key: dimensionKey,
-    key: value.Key,
-    title: value.Title,
-    description: value.Description,
-    raw: value,
-    ingested_at: now,
-  }));
-}
-
-function typedDatasetRows(datasetId, rows, skip) {
-  const now = new Date().toISOString();
   return rows.map((row, index) => {
     const rowIndex = skip + index;
+
     return {
       dataset_id: datasetId,
       row_id: row.ID === undefined || row.ID === null ? String(rowIndex) : String(row.ID),
@@ -285,130 +349,329 @@ function typedDatasetRows(datasetId, rows, skip) {
   });
 }
 
-function publicDatasetRow(table, qualification, recordCount) {
-  return {
-    id: table.Identifier,
-    provider: "CBS",
-    title: table.ShortTitle || table.Title,
-    description: table.ShortDescription || table.Title,
-    updated_at: table.Updated,
-    record_count: recordCount,
-    year_start: qualification.yearStart,
-    year_end: qualification.yearEnd,
-    years: qualification.years,
-    geographic_levels: qualification.geographicLevels,
-    spatial_coverage: qualification.spatialCoverage,
-    period_source: qualification.periodSource,
-    qualification_confidence: qualification.confidence,
-    qualification_evidence: qualification.evidence,
-    source_url: `${CBS_ODATA_BASE}/${table.Identifier}`,
-    ingested_at: new Date().toISOString(),
-  };
-}
-
-function publicDimensionRows(datasetId, properties, dimensionValuesByKey) {
-  const now = new Date().toISOString();
-  return properties
-    .filter((property) => property.Key && (property.Type?.includes("Dimension") || property.Type?.includes("Geo")))
-    .map((property) => ({
-      dataset_id: datasetId,
-      key: property.Key,
-      title: property.Title || property.Key,
-      type: property.Type,
-      values_count: dimensionValuesByKey.get(property.Key)?.length ?? null,
-      ingested_at: now,
-    }));
-}
-
 async function upsertOrThrow(supabase, table, rows, options = {}) {
   if (rows.length === 0) return;
+
   const target = table.startsWith("bronze.")
     ? supabase.schema("bronze").from(table.replace("bronze.", ""))
     : supabase.from(table);
+
   const { error } = await target.upsert(rows, options);
+  if (error) throw error;
+}
+
+async function upsertRawPayload(supabase, datasetId, endpoint, sourceUrl, payload) {
+  await upsertOrThrow(
+    supabase,
+    "bronze.cbs_raw_endpoint_payloads",
+    [
+      {
+        dataset_id: datasetId,
+        endpoint,
+        source_url: sourceUrl,
+        payload,
+        ingested_at: new Date().toISOString(),
+      },
+    ],
+    { onConflict: "dataset_id,endpoint" }
+  );
+}
+
+async function getMaxIngestedRowIndex(supabase, datasetId) {
+  const { data, error } = await supabase
+    .schema("bronze")
+    .from("cbs_typed_dataset_rows")
+    .select("row_index")
+    .eq("dataset_id", datasetId)
+    .order("row_index", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return data?.row_index === undefined || data?.row_index === null
+    ? -1
+    : Number(data.row_index);
+}
+
+async function shouldSkipDataset(supabase, table, options) {
+  if (options.force || options.dryRun || options.failedOnly) return false;
+
+  const { data, error } = await supabase
+    .schema("bronze")
+    .from("cbs_dataset_ingestion_status")
+    .select("dataset_id,status,last_cbs_updated_at")
+    .eq("dataset_id", table.Identifier)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return false;
+  if (data.status !== "completed") return false;
+
+  const previousUpdated = data.last_cbs_updated_at
+    ? new Date(data.last_cbs_updated_at).toISOString()
+    : null;
+
+  const currentUpdated = table.Updated
+    ? new Date(table.Updated).toISOString()
+    : null;
+
+  return previousUpdated === currentUpdated;
+}
+
+async function shouldIncludeFailedOnlyDataset(supabase, table, options) {
+  if (!options.failedOnly || options.dryRun) return true;
+
+  const { data, error } = await supabase
+    .schema("bronze")
+    .from("cbs_dataset_ingestion_status")
+    .select("status")
+    .eq("dataset_id", table.Identifier)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return ["failed", "metadata_completed", "rows_partial"].includes(data?.status);
+}
+
+async function startRun(supabase, datasetId) {
+  const { data, error } = await supabase
+    .schema("bronze")
+    .from("cbs_ingestion_runs")
+    .insert({
+      dataset_id: datasetId,
+      status: "started",
+    })
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return data.id;
+}
+
+async function finishRun(supabase, runId, status, rowsIngested = 0, errorMessage = null) {
+  const { error } = await supabase
+    .schema("bronze")
+    .from("cbs_ingestion_runs")
+    .update({
+      status,
+      rows_ingested: rowsIngested,
+      error_message: errorMessage,
+      finished_at: new Date().toISOString(),
+    })
+    .eq("id", runId);
+
+  if (error) throw error;
+}
+
+async function updateDatasetStatus(
+  supabase,
+  table,
+  recordCount,
+  status,
+  errorMessage = null
+) {
+  const { error } = await supabase
+    .schema("bronze")
+    .from("cbs_dataset_ingestion_status")
+    .upsert(
+      {
+        dataset_id: table.Identifier,
+        title: table.ShortTitle || table.Title,
+        last_cbs_updated_at: table.Updated ?? null,
+        last_ingested_at: new Date().toISOString(),
+        record_count: recordCount,
+        status,
+        error_message: errorMessage,
+      },
+      { onConflict: "dataset_id" }
+    );
+
   if (error) throw error;
 }
 
 async function ingestTypedRows(supabase, datasetId, recordCount, options) {
   if (!options.includeRows) return 0;
-  const maxRows = options.maxRowsPerDataset > 0
-    ? Math.min(options.maxRowsPerDataset, recordCount ?? options.maxRowsPerDataset)
-    : recordCount;
+
+  const maxRows =
+    options.maxRowsPerDataset > 0
+      ? Math.min(options.maxRowsPerDataset, recordCount ?? options.maxRowsPerDataset)
+      : recordCount;
+
   if (!maxRows) return 0;
 
+  let startSkip = 0;
+
+  if (!options.dryRun && options.resumeRows && !options.force) {
+    const maxIngestedRowIndex = await getMaxIngestedRowIndex(supabase, datasetId);
+    startSkip = Math.max(0, maxIngestedRowIndex + 1);
+
+    if (startSkip > 0) {
+      console.log(`  resuming rows from offset ${startSkip} (${datasetId})`);
+    }
+  }
+
+  if (startSkip >= maxRows) {
+    console.log(`  rows already complete (${datasetId})`);
+    return 0;
+  }
+
   let written = 0;
-  for (let skip = 0; skip < maxRows; skip += options.batchSize) {
+
+  for (let skip = startSkip; skip < maxRows; skip += options.batchSize) {
     const top = Math.min(options.batchSize, maxRows - skip);
-    const rows = await getTypedRows(datasetId, { $top: top, $skip: skip });
+    const { url, payload, rows } = await getTypedRows(datasetId, skip, top, options);
+
+    if (options.storeTypedBatchPayloads && !options.dryRun) {
+      await upsertRawPayload(
+        supabase,
+        datasetId,
+        `typed_dataset_batch:skip=${skip}:top=${top}`,
+        url,
+        payload
+      );
+    }
+
     if (rows.length === 0) break;
+
     if (!options.dryRun) {
       await upsertOrThrow(
         supabase,
         "bronze.cbs_typed_dataset_rows",
-        typedDatasetRows(datasetId, rows, skip),
+        typedDatasetRows(datasetId, rows, skip, url),
         { onConflict: "dataset_id,row_id" }
       );
     }
+
     written += rows.length;
-    console.log(`  rows ${written}/${maxRows} (${datasetId})`);
+    console.log(`  rows ${skip + rows.length}/${maxRows} (${datasetId})`);
+
     if (rows.length < top) break;
   }
+
   return written;
 }
 
 async function ingestTable(supabase, table, options) {
   const datasetId = table.Identifier;
-  const properties = await getDataProperties(datasetId);
-  const dimensionProperties = properties.filter((property) => property.Key && (property.Type?.includes("Dimension") || property.Type?.includes("Geo")));
-  const dimensionValuesByKey = new Map();
+
+  const dataPropertiesResult = await getDataPropertiesPayload(datasetId, options);
+  const properties = dataPropertiesResult.payload.value ?? [];
+
+  const dimensionProperties = properties.filter(
+    (property) =>
+      property.Key &&
+      (property.Type?.includes("Dimension") || property.Type?.includes("Geo"))
+  );
+
+  const dimensionPayloads = [];
 
   for (const property of dimensionProperties) {
-    const values = await getDimensionValues(datasetId, property.Key, { $top: options.dimensionsPerTable });
-    dimensionValuesByKey.set(property.Key, values);
+    const payloads = await getAllDimensionPayloads(datasetId, property.Key, options);
+    dimensionPayloads.push(...payloads);
   }
 
-  const recordCount = await getTypedDataSetCount(datasetId);
-  const qualification = qualifyDataset(table, properties, dimensionValuesByKey, recordCount);
+  const recordCount = await getTypedDataSetCount(datasetId, options);
 
   if (options.dryRun) {
-    console.log(JSON.stringify({
+    console.log(
+      JSON.stringify({
+        datasetId,
+        title: table.ShortTitle || table.Title,
+        recordCount,
+        rowsToIngest: options.includeRows
+          ? options.maxRowsPerDataset > 0
+            ? Math.min(options.maxRowsPerDataset, recordCount ?? 0)
+            : recordCount
+          : 0,
+        rawPayloads: {
+          catalogTable: 1,
+          dataProperties: 1,
+          dimensionPayloads: dimensionPayloads.length,
+        },
+      })
+    );
+
+    return {
       datasetId,
-      title: table.ShortTitle || table.Title,
       recordCount,
-      rowsToIngest: options.includeRows ? (options.maxRowsPerDataset > 0 ? Math.min(options.maxRowsPerDataset, recordCount ?? 0) : recordCount) : 0,
-      years: [qualification.yearStart, qualification.yearEnd],
-      levels: qualification.geographicLevels,
-      dimensions: dimensionProperties.length,
-    }));
-    return;
+      rowsIngested: 0,
+    };
   }
 
-  await upsertOrThrow(supabase, "bronze.cbs_catalog_tables", [catalogBronzeRow(table)], { onConflict: "identifier" });
-  await upsertOrThrow(supabase, "bronze.cbs_data_properties", propertyBronzeRows(datasetId, properties), { onConflict: "dataset_id,property_id" });
+  await upsertRawPayload(
+    supabase,
+    datasetId,
+    "catalog_table",
+    `${CBS_CATALOG_BASE}/Tables`,
+    table
+  );
 
-  for (const property of dimensionProperties) {
-    await upsertOrThrow(
+  await upsertRawPayload(
+    supabase,
+    datasetId,
+    "data_properties",
+    dataPropertiesResult.url,
+    dataPropertiesResult.payload
+  );
+
+  for (const dimension of dimensionPayloads) {
+    await upsertRawPayload(
       supabase,
-      "bronze.cbs_dimension_values",
-      dimensionBronzeRows(datasetId, property.Key, dimensionValuesByKey.get(property.Key) ?? []),
-      { onConflict: "dataset_id,dimension_key,key" }
+      datasetId,
+      `dimension:${dimension.key}:skip=${dimension.skip}:top=${dimension.top}`,
+      dimension.sourceUrl,
+      dimension.payload
     );
   }
 
-  await upsertOrThrow(supabase, "dataset_catalog", [publicDatasetRow(table, qualification, recordCount)], { onConflict: "id" });
-  await upsertOrThrow(supabase, "dataset_dimensions", publicDimensionRows(datasetId, properties, dimensionValuesByKey), { onConflict: "dataset_id,key" });
+  await updateDatasetStatus(
+    supabase,
+    table,
+    recordCount,
+    "metadata_completed",
+    null
+  );
 
-  const writtenRows = await ingestTypedRows(supabase, datasetId, recordCount, options);
-  console.log(`Ingested ${datasetId}: ${writtenRows} data rows, ${qualification.years.length} years, ${qualification.geographicLevels.join(", ") || "no levels"}`);
+  let writtenRows = 0;
+
+  try {
+    writtenRows = await ingestTypedRows(supabase, datasetId, recordCount, options);
+  } catch (error) {
+    await updateDatasetStatus(
+      supabase,
+      table,
+      recordCount,
+      "rows_partial",
+      error.message
+    );
+
+    throw error;
+  }
+
+  console.log(
+    `Ingested ${datasetId}: ${writtenRows} raw rows, ${properties.length} raw properties, ${dimensionPayloads.length} raw dimension payloads`
+  );
+
+  return {
+    datasetId,
+    recordCount,
+    rowsIngested: writtenRows,
+  };
 }
 
 async function main() {
   loadLocalEnv();
+
   const options = parseArgs(process.argv);
+
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl) throw new Error("Missing SUPABASE_URL or VITE_SUPABASE_URL.");
+  if (!supabaseUrl) {
+    throw new Error("Missing SUPABASE_URL or VITE_SUPABASE_URL.");
+  }
+
   if (!options.dryRun && !serviceRoleKey) {
     throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY. Do not use the anon key for ingestion writes.");
   }
@@ -416,14 +679,81 @@ async function main() {
   const supabase = options.dryRun
     ? null
     : createClient(supabaseUrl, serviceRoleKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
       });
 
+  if (!options.dryRun) {
+    await validateSupabaseTables(supabase);
+  }
+
   const tables = await getCatalogTables(options);
-  console.log(`Found ${tables.length} CBS table(s) to ingest.`);
+
+  console.log(`Found ${tables.length} CBS table(s) to ingest raw.`);
 
   for (const table of tables) {
-    await ingestTable(supabase, table, options);
+    const datasetId = table.Identifier;
+
+    if (!options.dryRun && !(await shouldIncludeFailedOnlyDataset(supabase, table, options))) {
+      console.log(`Skipped ${datasetId}: not failed or partial.`);
+      continue;
+    }
+
+    if (!options.dryRun && await shouldSkipDataset(supabase, table, options)) {
+      console.log(`Skipped ${datasetId}: already completed and CBS source has not changed.`);
+      continue;
+    }
+
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= options.retries + 1; attempt += 1) {
+      const runId = options.dryRun ? null : await startRun(supabase, datasetId);
+
+      try {
+        console.log(`Ingesting ${datasetId}, attempt ${attempt}/${options.retries + 1}`);
+
+        const result = await ingestTable(supabase, table, options);
+
+        if (!options.dryRun) {
+          await finishRun(supabase, runId, "completed", result.rowsIngested);
+          await updateDatasetStatus(
+            supabase,
+            table,
+            result.recordCount,
+            "completed",
+            null
+          );
+        }
+
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+
+        console.error(`Failed ${datasetId}, attempt ${attempt}:`, error.message);
+
+        if (!options.dryRun && runId) {
+          await finishRun(supabase, runId, "failed", 0, error.message);
+          await updateDatasetStatus(
+            supabase,
+            table,
+            null,
+            "failed",
+            error.message
+          );
+        }
+
+        if (attempt <= options.retries) {
+          await sleep(1000 * attempt);
+        }
+      }
+    }
+
+    if (lastError) {
+      console.error(`Giving up on ${datasetId}: ${lastError.message}`);
+    }
   }
 }
 
