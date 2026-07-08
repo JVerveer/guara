@@ -394,6 +394,17 @@ async function getMaxIngestedRowIndex(supabase, datasetId) {
     : Number(data.row_index);
 }
 
+async function getLoadedRowCount(supabase, datasetId) {
+  const { count, error } = await supabase
+    .schema("bronze")
+    .from("cbs_typed_dataset_rows")
+    .select("row_id", { count: "exact", head: true })
+    .eq("dataset_id", datasetId);
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 async function shouldSkipDataset(supabase, table, options) {
   if (options.force || options.dryRun || options.failedOnly) return false;
 
@@ -469,8 +480,14 @@ async function updateDatasetStatus(
   table,
   recordCount,
   status,
-  errorMessage = null
+  errorMessage = null,
+  loadedRowCount = 0
 ) {
+  const loadPercentage =
+    recordCount && recordCount > 0
+      ? Math.min(100, Number(((loadedRowCount / recordCount) * 100).toFixed(2)))
+      : null;
+
   const { error } = await supabase
     .schema("bronze")
     .from("cbs_dataset_ingestion_status")
@@ -481,6 +498,8 @@ async function updateDatasetStatus(
         last_cbs_updated_at: table.Updated ?? null,
         last_ingested_at: new Date().toISOString(),
         record_count: recordCount,
+        loaded_row_count: loadedRowCount,
+        load_percentage: loadPercentage,
         status,
         error_message: errorMessage,
       },
@@ -672,7 +691,8 @@ async function ingestTable(supabase, table, options) {
     table,
     recordCount,
     "metadata_completed",
-    null
+    null,
+    await getLoadedRowCount(supabase, datasetId)
   );
 
   let writtenRows = 0;
@@ -686,20 +706,40 @@ async function ingestTable(supabase, table, options) {
       table,
       recordCount,
       "rows_partial",
-      error.message
+      error.message,
+      await getLoadedRowCount(supabase, datasetId)
     );
 
     throw error;
   }
 
+  const loadedRowCount = await getLoadedRowCount(supabase, datasetId);
+  const finalStatus =
+    recordCount !== null && recordCount !== undefined && loadedRowCount >= recordCount
+      ? "completed"
+      : loadedRowCount > 0
+        ? "rows_partial"
+        : "metadata_completed";
+
+  await updateDatasetStatus(
+    supabase,
+    table,
+    recordCount,
+    finalStatus,
+    null,
+    loadedRowCount
+  );
+
   console.log(
-    `Ingested ${datasetId}: ${writtenRows} raw rows, ${properties.length} raw properties, ${dimensionPayloads.length} raw dimension payloads`
+    `Ingested ${datasetId}: ${writtenRows} raw rows this run, ${loadedRowCount}/${recordCount ?? "unknown"} total raw rows loaded, ${properties.length} raw properties, ${dimensionPayloads.length} raw dimension payloads`
   );
 
   return {
     datasetId,
     recordCount,
     rowsIngested: writtenRows,
+    loadedRowCount,
+    finalStatus,
   };
 }
 
@@ -760,13 +800,14 @@ async function main() {
         const result = await ingestTable(supabase, table, options);
 
         if (!options.dryRun) {
-          await finishRun(supabase, runId, "completed", result.rowsIngested);
+          await finishRun(supabase, runId, result.finalStatus, result.rowsIngested);
           await updateDatasetStatus(
             supabase,
             table,
             result.recordCount,
-            "completed",
-            null
+            result.finalStatus,
+            null,
+            result.loadedRowCount
           );
         }
 

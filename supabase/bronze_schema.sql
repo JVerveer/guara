@@ -71,9 +71,17 @@ create table if not exists bronze.cbs_dataset_ingestion_status (
   last_cbs_updated_at timestamptz,
   last_ingested_at timestamptz,
   record_count bigint,
+  loaded_row_count bigint not null default 0,
+  load_percentage numeric,
   status text not null,
   error_message text
 );
+
+alter table bronze.cbs_dataset_ingestion_status
+  add column if not exists loaded_row_count bigint not null default 0;
+
+alter table bronze.cbs_dataset_ingestion_status
+  add column if not exists load_percentage numeric;
 
 create index if not exists cbs_catalog_tables_updated_at_idx
   on bronze.cbs_catalog_tables (updated_at desc);

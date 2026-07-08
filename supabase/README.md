@@ -54,6 +54,18 @@ npm run ingest:cbs:bronze:all -- --query 2007 --limit 10 --max-rows-per-dataset 
 npm run ingest:cbs:bronze:all -- --limit 25 --batch-size 1000
 ```
 
+Bronze coverage overview:
+
+```bash
+npm run overview:cbs:bronze
+npm run overview:cbs:bronze -- --query wijken --limit 50
+npm run overview:cbs:bronze -- --dataset 85039NED
+npm run overview:cbs:bronze -- --all --write-json
+npm run overview:cbs:bronze -- --all --skip-api-counts
+```
+
+The overview scans CBS StatLine catalog metadata, compares it with Bronze ingestion status, and reports API record count, Bronze rows loaded, percentage loaded, partial/completed state, and ingestion errors where available.
+
 Options:
 
 - `--limit 25`: number of CBS catalog tables to ingest.
