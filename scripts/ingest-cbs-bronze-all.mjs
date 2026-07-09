@@ -11,6 +11,10 @@ const CBS_CATALOG_BASE = "https://opendata.cbs.nl/ODataCatalog";
 const REQUIRED_BRONZE_TABLES = [
   "cbs_raw_endpoint_payloads",
   "cbs_typed_dataset_rows",
+  "cbs_themes",
+  "cbs_table_themes",
+  "cbs_featured",
+  "cbs_table_featured",
   "cbs_ingestion_runs",
   "cbs_dataset_ingestion_status",
   "cbs_schema_snapshots",
@@ -50,9 +54,11 @@ function parseArgs(argv) {
     tableOffset: 0,
     catalogPageSize: 100,
     batchSize: 2000,
+    upsertBatchSize: 100,
     maxRowsPerDataset: 0,
     dimensionBatchSize: 5000,
     includeRows: true,
+    classificationOnly: false,
     dryRun: false,
     retries: 2,
     force: false,
@@ -78,12 +84,17 @@ function parseArgs(argv) {
     else if (arg === "--table-offset") options.tableOffset = Number(argv[++i] ?? options.tableOffset);
     else if (arg === "--catalog-page-size") options.catalogPageSize = Number(argv[++i] ?? options.catalogPageSize);
     else if (arg === "--batch-size") options.batchSize = Number(argv[++i] ?? options.batchSize);
+    else if (arg === "--upsert-batch-size") options.upsertBatchSize = Number(argv[++i] ?? options.upsertBatchSize);
     else if (arg === "--max-rows-per-dataset") options.maxRowsPerDataset = Number(argv[++i] ?? 0);
     else if (arg === "--dimension-batch-size") options.dimensionBatchSize = Number(argv[++i] ?? options.dimensionBatchSize);
     else if (arg === "--retries") options.retries = Number(argv[++i] ?? options.retries);
     else if (arg === "--request-delay-ms") options.requestDelayMs = Number(argv[++i] ?? options.requestDelayMs);
     else if (arg === "--request-timeout-ms") options.requestTimeoutMs = Number(argv[++i] ?? options.requestTimeoutMs);
     else if (arg === "--metadata-only") options.includeRows = false;
+    else if (arg === "--classification-only") {
+      options.classificationOnly = true;
+      options.includeRows = false;
+    }
     else if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--force") options.force = true;
     else if (arg === "--no-resume-rows") options.resumeRows = false;
@@ -120,10 +131,12 @@ Options:
   --failed-only                    Only ingest datasets with failed/partial status.
   --force                          Re-ingest even if already completed and unchanged.
   --metadata-only                  Store catalog/properties/dimensions, skip rows.
+  --classification-only            Only refresh CBS Themes/Tables_Themes and Featured/Table_Featured.
   --retries 5                      Retry failed datasets.
   --request-delay-ms 250           Add delay between CBS API requests.
   --request-timeout-ms 60000       Timeout per CBS request.
   --batch-size 2000                TypedDataSet row batch size.
+  --upsert-batch-size 100          Supabase row write chunk size.
   --dimension-batch-size 5000      Dimension values batch size.
   --no-resume-rows                 Disable row-level resume.
   --store-typed-batch-payloads     Also store every TypedDataSet batch response in raw endpoint payloads.
@@ -329,7 +342,7 @@ async function validateSupabaseTables(supabase, requiredTables = REQUIRED_BRONZE
 }
 
 async function getCatalogTablesPage(options, top, skip) {
-  const select = "Identifier,Title,ShortTitle,ShortDescription,Updated,Period,Language,Catalog";
+  const select = "ID,Identifier,Title,ShortTitle,ShortDescription,Updated,Period,Language,Catalog";
 
   if (options.dataset) {
     const url = `${CBS_CATALOG_BASE}/Tables?${buildQuery({
@@ -354,6 +367,7 @@ async function getCatalogTablesPage(options, top, skip) {
   const url = `${CBS_CATALOG_BASE}/Tables?${buildQuery({
     $select: select,
     $filter: filters.join(" and "),
+    $orderby: "ID asc",
     $top: top,
     $skip: skip,
   })}`;
@@ -390,6 +404,84 @@ async function getCatalogTables(options) {
   }
 
   return allTables;
+}
+
+async function getCatalogRows(endpoint, options, query = {}, pageSize = 1000) {
+  const rows = [];
+
+  for (let skip = 0; ; skip += pageSize) {
+    const url = `${CBS_CATALOG_BASE}/${endpoint}?${buildQuery({
+      ...query,
+      $orderby: query.$orderby ?? "ID asc",
+      $top: pageSize,
+      $skip: skip,
+    })}`;
+    const payload = await getJson(url, options);
+    const page = payload.value ?? [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
+}
+
+let cachedDutchThemes = null;
+let publishedDutchThemes = false;
+let cachedDutchFeatured = null;
+let publishedDutchFeatured = false;
+
+async function getDutchThemes(options) {
+  if (!cachedDutchThemes) {
+    cachedDutchThemes = await getCatalogRows(
+      "Themes",
+      options,
+      {
+        $select: "ID,ParentID,Number,Title,Language,Catalog",
+        $filter: "Language eq 'nl'",
+      }
+    );
+  }
+
+  return cachedDutchThemes;
+}
+
+async function getTableThemes(tableIdentifier, options) {
+  return getCatalogRows(
+    "Tables_Themes",
+    options,
+    {
+      $select: "ID,TableID,TableIdentifier,ThemeID,ThemeNumber",
+      $filter: `TableIdentifier eq '${escapeODataString(tableIdentifier)}'`,
+    }
+  );
+}
+
+async function getDutchFeatured(options) {
+  if (!cachedDutchFeatured) {
+    cachedDutchFeatured = await getCatalogRows(
+      "Featured",
+      options,
+      {
+        $select: "ID,Number,Title,Description,Language,Catalog",
+        $filter: "Language eq 'nl'",
+      }
+    );
+  }
+
+  return cachedDutchFeatured;
+}
+
+async function getTableFeatured(tableId, options) {
+  if (tableId === undefined || tableId === null) return [];
+
+  return getCatalogRows(
+    "Table_Featured",
+    options,
+    {
+      $select: "ID,TableID,FeaturedID",
+      $filter: `TableID eq ${Number(tableId)}`,
+    }
+  );
 }
 
 async function getDataPropertiesPayload(datasetId, options) {
@@ -534,6 +626,42 @@ async function upsertOrThrow(supabase, table, rows, options = {}) {
   if (error) throw error;
 }
 
+function isRetryableWriteError(error) {
+  const message = String(error?.message ?? error ?? "").toLowerCase();
+  return (
+    message.includes("statement timeout") ||
+    message.includes("fetch failed") ||
+    message.includes("network") ||
+    message.includes("payload") ||
+    message.includes("timeout")
+  );
+}
+
+async function upsertRowsAdaptive(supabase, table, rows, options = {}, chunkSize = 250) {
+  if (rows.length === 0) return;
+
+  const size = Math.max(1, Math.min(chunkSize, rows.length));
+
+  for (let index = 0; index < rows.length; index += size) {
+    const chunk = rows.slice(index, index + size);
+
+    try {
+      await upsertOrThrow(supabase, table, chunk, options);
+    } catch (error) {
+      if (chunk.length > 1 && isRetryableWriteError(error)) {
+        const nextSize = Math.max(1, Math.floor(chunk.length / 2));
+        console.warn(
+          `  write chunk of ${chunk.length} rows failed (${error.message}); retrying in chunks of ${nextSize}`
+        );
+        await upsertRowsAdaptive(supabase, table, chunk, options, nextSize);
+        continue;
+      }
+
+      throw error;
+    }
+  }
+}
+
 async function upsertRawPayload(supabase, datasetId, endpoint, sourceUrl, payload) {
   await upsertOrThrow(
     supabase,
@@ -549,6 +677,141 @@ async function upsertRawPayload(supabase, datasetId, endpoint, sourceUrl, payloa
     ],
     { onConflict: "dataset_id,endpoint" }
   );
+}
+
+async function upsertThemes(supabase, themes) {
+  if (!themes.length) return;
+  const now = new Date().toISOString();
+
+  await upsertRowsAdaptive(
+    supabase,
+    "bronze.cbs_themes",
+    themes.map((theme) => ({
+      id: theme.ID,
+      parent_id: theme.ParentID ?? null,
+      number: theme.Number ?? null,
+      title: theme.Title ?? null,
+      language: theme.Language ?? null,
+      catalog: theme.Catalog ?? null,
+      raw: theme,
+      ingested_at: now,
+    })),
+    { onConflict: "id" },
+    500
+  );
+}
+
+async function upsertTableThemes(supabase, tableThemes) {
+  if (!tableThemes.length) return;
+  const now = new Date().toISOString();
+
+  await upsertRowsAdaptive(
+    supabase,
+    "bronze.cbs_table_themes",
+    tableThemes.map((row) => ({
+      id: row.ID,
+      table_id: row.TableID,
+      table_identifier: row.TableIdentifier,
+      theme_id: row.ThemeID,
+      theme_number: row.ThemeNumber ?? null,
+      raw: row,
+      ingested_at: now,
+    })),
+    { onConflict: "id" },
+    500
+  );
+}
+
+async function upsertFeatured(supabase, featured) {
+  if (!featured.length) return;
+  const now = new Date().toISOString();
+
+  await upsertRowsAdaptive(
+    supabase,
+    "bronze.cbs_featured",
+    featured.map((item) => ({
+      id: item.ID,
+      number: item.Number ?? null,
+      title: item.Title ?? null,
+      description: item.Description ?? null,
+      language: item.Language ?? null,
+      catalog: item.Catalog ?? null,
+      raw: item,
+      ingested_at: now,
+    })),
+    { onConflict: "id" },
+    500
+  );
+}
+
+async function upsertTableFeatured(supabase, tableFeatured, tableIdentifier) {
+  if (!tableFeatured.length) return;
+  const now = new Date().toISOString();
+
+  await upsertRowsAdaptive(
+    supabase,
+    "bronze.cbs_table_featured",
+    tableFeatured.map((row) => ({
+      id: row.ID,
+      table_id: row.TableID,
+      table_identifier: tableIdentifier,
+      featured_id: row.FeaturedID,
+      raw: row,
+      ingested_at: now,
+    })),
+    { onConflict: "id" },
+    500
+  );
+}
+
+async function ingestCatalogClassificationMetadata(supabase, table, options) {
+  const [themes, tableThemes, featured, tableFeatured] = await Promise.all([
+    getDutchThemes(options),
+    getTableThemes(table.Identifier, options),
+    getDutchFeatured(options),
+    getTableFeatured(table.ID, options),
+  ]);
+
+  if (!publishedDutchThemes) {
+    await upsertThemes(supabase, themes);
+    publishedDutchThemes = true;
+  }
+
+  await upsertTableThemes(supabase, tableThemes);
+
+  if (!publishedDutchFeatured) {
+    await upsertFeatured(supabase, featured);
+    publishedDutchFeatured = true;
+  }
+
+  await upsertTableFeatured(supabase, tableFeatured, table.Identifier);
+
+  if (tableThemes.length > 0) {
+    await upsertRawPayload(
+      supabase,
+      table.Identifier,
+      "catalog_table_themes",
+      `${CBS_CATALOG_BASE}/Tables_Themes`,
+      { value: tableThemes }
+    );
+  }
+
+  if (tableFeatured.length > 0) {
+    await upsertRawPayload(
+      supabase,
+      table.Identifier,
+      "catalog_table_featured",
+      `${CBS_CATALOG_BASE}/Table_Featured`,
+      { value: tableFeatured }
+    );
+  }
+
+  return {
+    themes: themes.length,
+    tableThemes: tableThemes.length,
+    featured: featured.length,
+    tableFeatured: tableFeatured.length,
+  };
 }
 
 async function publishSchemaSnapshot(supabase, datasetId, sourceVersion, properties) {
@@ -922,11 +1185,18 @@ async function ingestTypedRows(supabase, datasetId, recordCount, options, runId,
     if (rows.length === 0) break;
 
     if (!options.dryRun) {
-      await upsertOrThrow(
+      if (rows.length > options.upsertBatchSize) {
+        console.log(
+          `  writing rows ${skip + 1}-${skip + rows.length} in chunks of ${options.upsertBatchSize} (${datasetId})`
+        );
+      }
+
+      await upsertRowsAdaptive(
         supabase,
         "bronze.cbs_typed_dataset_rows",
         typedDatasetRows(datasetId, rows, skip, url, runId, sourceVersion),
-        { onConflict: "dataset_id,row_id" }
+        { onConflict: "dataset_id,row_id" },
+        options.upsertBatchSize
       );
     }
 
@@ -1003,6 +1273,9 @@ async function ingestTable(supabase, table, options, runId = null) {
 
   const recordCount = await getTypedDataSetCount(datasetId, options);
   const schemaHashValue = options.dryRun ? null : await publishSchemaSnapshot(supabase, datasetId, sourceVersion, properties);
+  const classificationMetadata = options.dryRun
+    ? { themes: 0, tableThemes: 0, featured: 0, tableFeatured: 0 }
+    : await ingestCatalogClassificationMetadata(supabase, table, options);
 
   if (options.dryRun) {
     console.log(
@@ -1019,6 +1292,7 @@ async function ingestTable(supabase, table, options, runId = null) {
           catalogTable: 1,
           dataProperties: 1,
           dimensionPayloads: dimensionPayloads.length,
+          classification: "skipped in dry run",
         },
       })
     );
@@ -1138,7 +1412,7 @@ async function ingestTable(supabase, table, options, runId = null) {
   await publishSourceLayerSummary(supabase, "bronze");
 
   console.log(
-    `Ingested ${datasetId}: ${writtenRows} raw rows this run, ${loadedRowCount}/${recordCount ?? "unknown"} total raw rows loaded, ${properties.length} raw properties, ${dimensionPayloads.length} raw dimension payloads`
+    `Ingested ${datasetId}: ${writtenRows} raw rows this run, ${loadedRowCount}/${recordCount ?? "unknown"} total raw rows loaded, ${properties.length} raw properties, ${dimensionPayloads.length} raw dimension payloads, ${classificationMetadata.tableThemes} theme link(s), ${classificationMetadata.tableFeatured} featured link(s)`
   );
 
   return {
@@ -1150,6 +1424,7 @@ async function ingestTable(supabase, table, options, runId = null) {
     sourceVersion,
     schemaHash: schemaHashValue,
     quality,
+    classificationMetadata,
   };
 }
 
@@ -1306,7 +1581,13 @@ async function main() {
 
   if (!options.dryRun) {
     const requiredTables = options.overview
-      ? REQUIRED_BRONZE_TABLES.filter((table) => table !== "cbs_schema_snapshots")
+      ? REQUIRED_BRONZE_TABLES.filter((table) => ![
+          "cbs_schema_snapshots",
+          "cbs_themes",
+          "cbs_table_themes",
+          "cbs_featured",
+          "cbs_table_featured",
+        ].includes(table))
       : REQUIRED_BRONZE_TABLES;
     await validateSupabaseTables(supabase, requiredTables);
   }

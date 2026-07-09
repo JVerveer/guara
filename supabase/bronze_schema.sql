@@ -37,6 +37,47 @@ create table if not exists bronze.cbs_dimension_values (
   primary key (dataset_id, dimension_key, key)
 );
 
+create table if not exists bronze.cbs_themes (
+  id integer primary key,
+  parent_id integer,
+  number text,
+  title text,
+  language text,
+  catalog text,
+  raw jsonb not null,
+  ingested_at timestamptz not null default now()
+);
+
+create table if not exists bronze.cbs_table_themes (
+  id integer primary key,
+  table_id integer not null,
+  table_identifier text not null,
+  theme_id integer not null,
+  theme_number text,
+  raw jsonb not null,
+  ingested_at timestamptz not null default now()
+);
+
+create table if not exists bronze.cbs_featured (
+  id integer primary key,
+  number text,
+  title text,
+  description text,
+  language text,
+  catalog text,
+  raw jsonb not null,
+  ingested_at timestamptz not null default now()
+);
+
+create table if not exists bronze.cbs_table_featured (
+  id integer primary key,
+  table_id integer not null,
+  table_identifier text,
+  featured_id integer not null,
+  raw jsonb not null,
+  ingested_at timestamptz not null default now()
+);
+
 create table if not exists bronze.cbs_typed_dataset_rows (
   dataset_id text not null references bronze.cbs_catalog_tables(identifier) on delete cascade,
   row_id text not null,
@@ -144,6 +185,12 @@ alter table bronze.cbs_ingestion_runs
 alter table bronze.cbs_ingestion_runs
   add column if not exists metadata jsonb not null default '{}'::jsonb;
 
+alter table bronze.cbs_table_themes
+  add column if not exists table_identifier text;
+
+alter table bronze.cbs_table_featured
+  add column if not exists table_identifier text;
+
 create index if not exists cbs_catalog_tables_updated_at_idx
   on bronze.cbs_catalog_tables (updated_at desc);
 
@@ -152,6 +199,27 @@ create index if not exists cbs_data_properties_dataset_key_idx
 
 create index if not exists cbs_dimension_values_dataset_dimension_idx
   on bronze.cbs_dimension_values (dataset_id, dimension_key);
+
+create index if not exists cbs_themes_language_catalog_idx
+  on bronze.cbs_themes (language, catalog);
+
+create index if not exists cbs_themes_parent_idx
+  on bronze.cbs_themes (parent_id);
+
+create index if not exists cbs_table_themes_table_identifier_idx
+  on bronze.cbs_table_themes (table_identifier);
+
+create index if not exists cbs_table_themes_theme_idx
+  on bronze.cbs_table_themes (theme_id);
+
+create index if not exists cbs_featured_language_catalog_idx
+  on bronze.cbs_featured (language, catalog);
+
+create index if not exists cbs_table_featured_table_identifier_idx
+  on bronze.cbs_table_featured (table_identifier);
+
+create index if not exists cbs_table_featured_featured_idx
+  on bronze.cbs_table_featured (featured_id);
 
 create index if not exists cbs_typed_dataset_rows_row_index_idx
   on bronze.cbs_typed_dataset_rows (dataset_id, row_index);
@@ -177,6 +245,10 @@ create index if not exists cbs_schema_snapshots_dataset_idx
 alter table bronze.cbs_catalog_tables enable row level security;
 alter table bronze.cbs_data_properties enable row level security;
 alter table bronze.cbs_dimension_values enable row level security;
+alter table bronze.cbs_themes enable row level security;
+alter table bronze.cbs_table_themes enable row level security;
+alter table bronze.cbs_featured enable row level security;
+alter table bronze.cbs_table_featured enable row level security;
 alter table bronze.cbs_typed_dataset_rows enable row level security;
 alter table bronze.cbs_raw_endpoint_payloads enable row level security;
 alter table bronze.cbs_ingestion_runs enable row level security;

@@ -213,6 +213,8 @@ async function deleteSilverDatasetRows(supabase, datasetId) {
     "cbs_observation_measures",
     "cbs_observation_dimensions",
     "cbs_observations",
+    "cbs_dataset_featured",
+    "cbs_dataset_themes",
     "cbs_dimension_values",
     "cbs_dimensions",
     "cbs_measures",
@@ -900,11 +902,129 @@ async function loadMetadataForDataset(supabase, datasetId, sourceVersion) {
     { onConflict: "dataset_id,measure_key" }
   );
 
+  const themesResult = await loadThemesForDataset(supabase, datasetId, sourceVersion);
+  const featuredResult = await loadFeaturedForDataset(supabase, datasetId, sourceVersion);
+
   return {
     dimensions: dimensionProperties.length,
     dimensionValues: dimensionValues.length,
     measures: measureProperties.length,
+    themes: themesResult.datasetThemes,
+    featured: featuredResult.datasetFeatured,
     schemaHash: currentSchemaHash,
+  };
+}
+
+async function loadThemesForDataset(supabase, datasetId, sourceVersion) {
+  const { data: tableThemes, error: tableThemesError } = await supabase
+    .schema("bronze")
+    .from("cbs_table_themes")
+    .select("table_identifier,theme_id,theme_number")
+    .eq("table_identifier", datasetId);
+
+  if (tableThemesError) throw tableThemesError;
+
+  const themeIds = Array.from(new Set((tableThemes ?? []).map((row) => row.theme_id))).filter(Boolean);
+  if (themeIds.length === 0) return { themes: 0, datasetThemes: 0 };
+
+  const { data: themes, error: themesError } = await supabase
+    .schema("bronze")
+    .from("cbs_themes")
+    .select("id,parent_id,number,title,language,catalog")
+    .in("id", themeIds);
+
+  if (themesError) throw themesError;
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_themes",
+    (themes ?? []).map((theme) => ({
+      theme_id: theme.id,
+      parent_theme_id: theme.parent_id ?? null,
+      theme_number: theme.number ?? null,
+      title: theme.title ?? null,
+      language: theme.language ?? null,
+      catalog: theme.catalog ?? null,
+      source_version: sourceVersion,
+      silver_loaded_at: new Date().toISOString(),
+    })),
+    { onConflict: "theme_id" }
+  );
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_dataset_themes",
+    (tableThemes ?? []).map((row) => ({
+      dataset_id: datasetId,
+      theme_id: row.theme_id,
+      theme_number: row.theme_number ?? null,
+      source_version: sourceVersion,
+      silver_loaded_at: new Date().toISOString(),
+    })),
+    { onConflict: "dataset_id,theme_id" }
+  );
+
+  return {
+    themes: themes?.length ?? 0,
+    datasetThemes: tableThemes?.length ?? 0,
+  };
+}
+
+async function loadFeaturedForDataset(supabase, datasetId, sourceVersion) {
+  const { data: tableFeatured, error: tableFeaturedError } = await supabase
+    .schema("bronze")
+    .from("cbs_table_featured")
+    .select("table_identifier,featured_id")
+    .eq("table_identifier", datasetId);
+
+  if (tableFeaturedError) throw tableFeaturedError;
+
+  const featuredIds = Array.from(new Set((tableFeatured ?? []).map((row) => row.featured_id))).filter(Boolean);
+  if (featuredIds.length === 0) return { featured: 0, datasetFeatured: 0 };
+
+  const { data: featured, error: featuredError } = await supabase
+    .schema("bronze")
+    .from("cbs_featured")
+    .select("id,number,title,description,language,catalog")
+    .in("id", featuredIds);
+
+  if (featuredError) throw featuredError;
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_featured",
+    (featured ?? []).map((item) => ({
+      featured_id: item.id,
+      number: item.number ?? null,
+      title: item.title ?? null,
+      description: item.description ?? null,
+      language: item.language ?? null,
+      catalog: item.catalog ?? null,
+      source_version: sourceVersion,
+      silver_loaded_at: new Date().toISOString(),
+    })),
+    { onConflict: "featured_id" }
+  );
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_dataset_featured",
+    (tableFeatured ?? []).map((row) => ({
+      dataset_id: datasetId,
+      featured_id: row.featured_id,
+      source_version: sourceVersion,
+      silver_loaded_at: new Date().toISOString(),
+    })),
+    { onConflict: "dataset_id,featured_id" }
+  );
+
+  return {
+    featured: featured?.length ?? 0,
+    datasetFeatured: tableFeatured?.length ?? 0,
   };
 }
 

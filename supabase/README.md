@@ -30,6 +30,10 @@ The ingestion job writes:
 - `bronze.cbs_catalog_tables`
 - `bronze.cbs_data_properties`
 - `bronze.cbs_dimension_values`
+- `bronze.cbs_themes`
+- `bronze.cbs_table_themes`
+- `bronze.cbs_featured`
+- `bronze.cbs_table_featured`
 - `bronze.cbs_typed_dataset_rows` when using the all-data job
 - `bronze.cbs_raw_endpoint_payloads`
 - `bronze.cbs_ingestion_runs`
@@ -67,8 +71,11 @@ Full bronze row ingestion:
 ```bash
 npm run ingest:cbs:bronze:all -- --dry-run --dataset 85039NED
 npm run ingest:cbs:bronze:all -- --dataset 85039NED --max-rows-per-dataset 5000
+npm run ingest:cbs:bronze:all -- --dataset 85039NED --metadata-only
+npm run ingest:cbs:bronze:all -- --all --metadata-only
 npm run ingest:cbs:bronze:all -- --query 2007 --limit 10 --max-rows-per-dataset 10000
 npm run ingest:cbs:bronze:all -- --limit 25 --batch-size 2000
+npm run ingest:cbs:bronze:all -- --dataset 85322NED --batch-size 2000 --upsert-batch-size 100
 ```
 
 Bronze coverage overview:
@@ -95,6 +102,8 @@ npm run overview:cbs:silver -- --limit 500 --write-json
 The Silver overview scans datasets currently available in Bronze, compares them with Silver load status, and reports Bronze API record count, Bronze raw rows loaded, Silver observations loaded, percentage loaded from Bronze to Silver, partial/completed state, rejected rows, and Silver load errors where available.
 Both Silver loading and Silver coverage overview are handled by `scripts/load-cbs-silver.mjs`; `overview:cbs:silver` is a convenience wrapper that runs that script in overview mode.
 
+CBS catalog paging is explicit and deterministic: Dutch catalog tables are requested with `Language eq 'nl'` and `$orderby=ID asc`. This makes `--table-offset` stable across resumed batches unless CBS changes catalog contents.
+
 Options:
 
 - `--limit 25`: number of CBS catalog tables to ingest.
@@ -102,9 +111,10 @@ Options:
 - `--dataset 85039NED`: ingest one exact CBS table.
 - `--dimensions-per-table 250`: cap dimension values stored per dimension.
 - `--dry-run`: fetch and qualify without writing to Supabase.
-- `--metadata-only`: with `ingest:cbs:bronze:all`, skip `TypedDataSet` rows.
+- `--metadata-only`: with `ingest:cbs:bronze:all`, skip `TypedDataSet` rows while refreshing catalog metadata, DataProperties, dimensions, CBS Themes, CBS Tables_Themes links, Featured groups, and Table_Featured links.
 - `--max-rows-per-dataset 5000`: with `ingest:cbs:bronze:all`, cap raw data rows per dataset. `0` means all rows.
 - `--batch-size 2000`: with `ingest:cbs:bronze:all`, row page size for CBS and Supabase upserts.
+- `--upsert-batch-size 100`: with `ingest:cbs:bronze:all`, Supabase write chunk size. Lower this for very wide CBS datasets with hundreds of properties.
 - `--table-offset 100`: with `ingest:cbs:bronze:all`, skip catalog tables for resumable multi-run ingestion.
 - `--store-typed-batch-payloads`: with `ingest:cbs:bronze:all`, also store full CBS TypedDataSet batch responses in `bronze.cbs_raw_endpoint_payloads`. This is off by default for performance because rows are already stored in `bronze.cbs_typed_dataset_rows`.
 - `--exact-counts`: with Bronze overview mode, count raw rows directly. This is slower on large Bronze tables; stored status counts are used by default.
