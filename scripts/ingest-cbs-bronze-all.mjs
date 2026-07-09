@@ -429,6 +429,8 @@ let cachedDutchThemes = null;
 let publishedDutchThemes = false;
 let cachedDutchFeatured = null;
 let publishedDutchFeatured = false;
+let cachedTableThemesByIdentifier = null;
+let cachedTableFeaturedByTableId = null;
 
 async function getDutchThemes(options) {
   if (!cachedDutchThemes) {
@@ -446,6 +448,10 @@ async function getDutchThemes(options) {
 }
 
 async function getTableThemes(tableIdentifier, options) {
+  if (cachedTableThemesByIdentifier) {
+    return cachedTableThemesByIdentifier.get(tableIdentifier) ?? [];
+  }
+
   return getCatalogRows(
     "Tables_Themes",
     options,
@@ -473,14 +479,60 @@ async function getDutchFeatured(options) {
 
 async function getTableFeatured(tableId, options) {
   if (tableId === undefined || tableId === null) return [];
+  const normalizedTableId = Number(tableId);
+
+  if (cachedTableFeaturedByTableId) {
+    return cachedTableFeaturedByTableId.get(normalizedTableId) ?? [];
+  }
 
   return getCatalogRows(
     "Table_Featured",
     options,
     {
       $select: "ID,TableID,FeaturedID",
-      $filter: `TableID eq ${Number(tableId)}`,
+      $filter: `TableID eq ${normalizedTableId}`,
     }
+  );
+}
+
+async function primeCatalogClassificationCaches(tables, options) {
+  if (tables.length <= 1) return;
+
+  const tableIds = new Set(tables.map((table) => Number(table.ID)).filter(Number.isFinite));
+  const tableIdentifiers = new Set(tables.map((table) => table.Identifier).filter(Boolean));
+  const [tableThemes, tableFeatured] = await Promise.all([
+    getCatalogRows(
+      "Tables_Themes",
+      options,
+      { $select: "ID,TableID,TableIdentifier,ThemeID,ThemeNumber" },
+      2000
+    ),
+    getCatalogRows(
+      "Table_Featured",
+      options,
+      { $select: "ID,TableID,FeaturedID" },
+      2000
+    ),
+  ]);
+
+  cachedTableThemesByIdentifier = new Map();
+  for (const row of tableThemes) {
+    if (!tableIdentifiers.has(row.TableIdentifier)) continue;
+    const rows = cachedTableThemesByIdentifier.get(row.TableIdentifier) ?? [];
+    rows.push(row);
+    cachedTableThemesByIdentifier.set(row.TableIdentifier, rows);
+  }
+
+  cachedTableFeaturedByTableId = new Map();
+  for (const row of tableFeatured) {
+    if (!tableIds.has(row.TableID)) continue;
+    const rows = cachedTableFeaturedByTableId.get(row.TableID) ?? [];
+    rows.push(row);
+    cachedTableFeaturedByTableId.set(row.TableID, rows);
+  }
+
+  console.log(
+    `Catalog classification cache: ${tableThemes.length} table-theme links and ${tableFeatured.length} table-featured links loaded once`
   );
 }
 
@@ -1255,6 +1307,51 @@ async function ingestTable(supabase, table, options, runId = null) {
   const datasetId = table.Identifier;
   const sourceVersion = table.Updated ?? null;
 
+  if (options.classificationOnly) {
+    if (options.dryRun) {
+      console.log(
+        JSON.stringify({
+          datasetId,
+          title: table.ShortTitle || table.Title,
+          catalogClassificationOnly: true,
+        })
+      );
+
+      return {
+        datasetId,
+        recordCount: null,
+        rowsIngested: 0,
+        loadedRowCount: 0,
+        finalStatus: STATUS.METADATA_LOADED,
+        skipStatusUpdate: true,
+      };
+    }
+
+    await upsertRawPayload(
+      supabase,
+      datasetId,
+      "catalog_table",
+      `${CBS_CATALOG_BASE}/Tables`,
+      table
+    );
+
+    const classificationMetadata = await ingestCatalogClassificationMetadata(supabase, table, options);
+    console.log(
+      `Classified ${datasetId}: ${classificationMetadata.tableThemes} theme link(s), ${classificationMetadata.tableFeatured} featured link(s)`
+    );
+
+    return {
+      datasetId,
+      recordCount: null,
+      rowsIngested: 0,
+      loadedRowCount: 0,
+      finalStatus: STATUS.METADATA_LOADED,
+      sourceVersion,
+      classificationMetadata,
+      skipStatusUpdate: true,
+    };
+  }
+
   const dataPropertiesResult = await getDataPropertiesPayload(datasetId, options);
   const properties = dataPropertiesResult.payload.value ?? [];
 
@@ -1601,6 +1698,10 @@ async function main() {
 
   console.log(`Found ${tables.length} CBS table(s) to ingest raw.`);
 
+  if (!options.dryRun && !options.includeRows) {
+    await primeCatalogClassificationCaches(tables, options);
+  }
+
   for (const table of tables) {
     const datasetId = table.Identifier;
 
@@ -1624,7 +1725,7 @@ async function main() {
 
         const result = await ingestTable(supabase, table, options, runId);
 
-        if (!options.dryRun) {
+        if (!options.dryRun && !result.skipStatusUpdate) {
           await finishRun(supabase, runId, result.finalStatus, result.rowsIngested);
           await updateDatasetStatus(
             supabase,
@@ -1644,6 +1745,8 @@ async function main() {
               qualityChecks: result.quality?.checks,
             }
           );
+        } else if (!options.dryRun && runId) {
+          await finishRun(supabase, runId, result.finalStatus, result.rowsIngested);
         }
 
         lastError = null;

@@ -73,6 +73,7 @@ npm run ingest:cbs:bronze:all -- --dry-run --dataset 85039NED
 npm run ingest:cbs:bronze:all -- --dataset 85039NED --max-rows-per-dataset 5000
 npm run ingest:cbs:bronze:all -- --dataset 85039NED --metadata-only
 npm run ingest:cbs:bronze:all -- --all --metadata-only
+npm run ingest:cbs:bronze:all -- --all --classification-only
 npm run ingest:cbs:bronze:all -- --query 2007 --limit 10 --max-rows-per-dataset 10000
 npm run ingest:cbs:bronze:all -- --limit 25 --batch-size 2000
 npm run ingest:cbs:bronze:all -- --dataset 85322NED --batch-size 2000 --upsert-batch-size 100
@@ -112,6 +113,7 @@ Options:
 - `--dimensions-per-table 250`: cap dimension values stored per dimension.
 - `--dry-run`: fetch and qualify without writing to Supabase.
 - `--metadata-only`: with `ingest:cbs:bronze:all`, skip `TypedDataSet` rows while refreshing catalog metadata, DataProperties, dimensions, CBS Themes, CBS Tables_Themes links, Featured groups, and Table_Featured links.
+- `--classification-only`: with `ingest:cbs:bronze:all`, only refresh CBS Themes, CBS Tables_Themes links, Featured groups, and Table_Featured links. Use this to backfill classification metadata over already-ingested datasets without refetching DataProperties, dimensions, counts, or rows.
 - `--max-rows-per-dataset 5000`: with `ingest:cbs:bronze:all`, cap raw data rows per dataset. `0` means all rows.
 - `--batch-size 2000`: with `ingest:cbs:bronze:all`, row page size for CBS and Supabase upserts.
 - `--upsert-batch-size 100`: with `ingest:cbs:bronze:all`, Supabase write chunk size. Lower this for very wide CBS datasets with hundreds of properties.
