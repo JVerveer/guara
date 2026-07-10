@@ -100,26 +100,30 @@ function Panel({
   );
 }
 
+function createInitialInvestigationState(plan: ResearchPlan): InvestigationState {
+  return {
+    plan,
+    selectedMunicipalityId: null,
+    selectedDatasetId: plan.datasets[0]?.dataset.id ?? null,
+    selectedConceptId: plan.concepts[0]?.id ?? null,
+    comparedMunicipalityIds: [],
+    notes: `Original question:\n${plan.question}\n\nRemaining questions:\n`,
+  };
+}
+
 export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationWorkspaceScreenProps) {
   const [municipalities, setMunicipalities] = useState<Municipality[]>([]);
   const [metadataById, setMetadataById] = useState<Record<string, MunicipalityMetadata>>({});
   const [datasetValues, setDatasetValues] = useState<DatasetValue[]>([]);
   const [filters, setFilters] = useState(defaultFilters);
-  const [state, setState] = useState<InvestigationState | null>(null);
+  const [state, setState] = useState<InvestigationState | null>(() => (plan ? createInitialInvestigationState(plan) : null));
   const [activeStage, setActiveStage] = useState<LifecycleStageId>("trigger");
   const [mapError, setMapError] = useState<Error | null>(null);
   const [mapLoading, setMapLoading] = useState(true);
 
   useEffect(() => {
     if (!plan) return;
-    setState({
-      plan,
-      selectedMunicipalityId: null,
-      selectedDatasetId: plan.datasets[0]?.dataset.id ?? null,
-      selectedConceptId: plan.concepts[0]?.id ?? null,
-      comparedMunicipalityIds: [],
-      notes: `Original question:\n${plan.question}\n\nRemaining questions:\n`,
-    });
+    setState(createInitialInvestigationState(plan));
   }, [plan]);
 
   useEffect(() => {
@@ -151,9 +155,20 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
   }, []);
 
   const evidence = useMemo<EvidenceItem[]>(() => (plan ? buildEvidenceFromPlan(plan) : []), [plan]);
+
+  if (!plan || !state) {
+    return (
+      <ErrorState
+        message="Create a research plan before opening the workspace."
+        onRetry={() => setScreen("home")}
+        retryLabel="Start investigation"
+        className="flex-1"
+      />
+    );
+  }
+
   const selectedMunicipality = municipalities.find((municipality) => municipality.id === state?.selectedMunicipalityId) ?? null;
   const selectedMetadata = selectedMunicipality ? metadataById[selectedMunicipality.id] : undefined;
-  const selectedDataset = plan?.datasets.find(({ dataset }) => dataset.id === state?.selectedDatasetId)?.dataset ?? null;
   const exportMarkdown = () => {
     const markdown = [
       `# ${plan.question}`,
@@ -222,8 +237,8 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
         municipalities={municipalities}
         metadataById={metadataById}
         datasetValues={datasetValues}
-        selectedMunicipalityId={state?.selectedMunicipalityId ?? null}
-        comparedMunicipalityIds={state?.comparedMunicipalityIds ?? []}
+        selectedMunicipalityId={state.selectedMunicipalityId}
+        comparedMunicipalityIds={state.comparedMunicipalityIds}
         colorScale={colorScale}
         legend={populationLegend}
         activeFilters={filters}
@@ -513,18 +528,6 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
     }
   };
 
-  if (!plan || !state) {
-    return (
-      <ErrorState
-        message="Create a research plan before opening the workspace."
-        onRetry={() => setScreen("home")}
-        retryLabel="Start investigation"
-        className="flex-1"
-      />
-    );
-  }
-
-  if (error) return <ErrorState message={error.message} onRetry={() => window.location.reload()} retryLabel="Retry" className="flex-1" />;
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-background">
       <div className="flex flex-shrink-0 gap-1 overflow-x-auto border-b border-border bg-card px-3 py-2">
