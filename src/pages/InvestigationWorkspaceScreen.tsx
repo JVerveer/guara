@@ -66,18 +66,18 @@ const lifecycleStages: Array<{
   label: string;
   icon: React.ReactNode;
 }> = [
-  { id: "trigger", label: "1. Trigger", icon: <Sparkles size={14} /> },
-  { id: "orientation", label: "2. Orientation", icon: <BookOpen size={14} /> },
-  { id: "hypotheses", label: "3. Forming Hypotheses", icon: <HelpCircle size={14} /> },
-  { id: "evidence", label: "4. Evidence Collection", icon: <FileText size={14} /> },
-  { id: "data", label: "5. Data Exploration", icon: <Table2 size={14} /> },
-  { id: "entities", label: "6. Entity Discovery", icon: <GitBranch size={14} /> },
-  { id: "timeline", label: "7. Timeline Reconstruction", icon: <History size={14} /> },
-  { id: "gaps", label: "8. Contradiction and Gap Analysis", icon: <AlertTriangle size={14} /> },
-  { id: "verification", label: "9. Verification", icon: <FileCheck2 size={14} /> },
-  { id: "reply", label: "10. Right of Reply", icon: <MessageSquareReply size={14} /> },
-  { id: "story", label: "11. Story Construction", icon: <Megaphone size={14} /> },
-  { id: "monitoring", label: "12. Post Publication Monitoring", icon: <Radar size={14} /> },
+  { id: "trigger", label: "Trigger", icon: <Sparkles size={14} /> },
+  { id: "orientation", label: "Orientation", icon: <BookOpen size={14} /> },
+  { id: "hypotheses", label: "Forming Hypotheses", icon: <HelpCircle size={14} /> },
+  { id: "evidence", label: "Evidence Collection", icon: <FileText size={14} /> },
+  { id: "data", label: "Data Exploration", icon: <Table2 size={14} /> },
+  { id: "entities", label: "Entity Discovery", icon: <GitBranch size={14} /> },
+  { id: "timeline", label: "Timeline Reconstruction", icon: <History size={14} /> },
+  { id: "gaps", label: "Contradiction and Gap Analysis", icon: <AlertTriangle size={14} /> },
+  { id: "verification", label: "Verification", icon: <FileCheck2 size={14} /> },
+  { id: "reply", label: "Right of Reply", icon: <MessageSquareReply size={14} /> },
+  { id: "story", label: "Story Construction", icon: <Megaphone size={14} /> },
+  { id: "monitoring", label: "Post Publication Monitoring", icon: <Radar size={14} /> },
 ];
 
 function Panel({
@@ -530,13 +530,13 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-background">
-      <div className="flex flex-shrink-0 gap-1 overflow-x-auto border-b border-border bg-card px-3 py-2">
+      <div className="flex flex-shrink-0 flex-wrap gap-1 border-b border-border bg-card px-3 py-2">
         {lifecycleStages.map((stage) => (
           <button
             key={stage.id}
             type="button"
             onClick={() => setActiveStage(stage.id)}
-            className={`flex h-9 flex-shrink-0 items-center gap-2 rounded-md px-3 text-xs font-medium transition-colors ${
+            className={`flex h-8 flex-shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition-colors ${
               activeStage === stage.id
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
