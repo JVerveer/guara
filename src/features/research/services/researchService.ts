@@ -38,8 +38,8 @@ export const researchService = {
       answerTitle: `CBS StatLine results for "${normalizedQuestion}"`,
       answerSummary:
         evidenceSources.length > 0
-          ? `The answer below is based only on live CBS StatLine catalog results. Guara found ${matches.length} matching CBS datasets and listed the strongest matches as evidence.`
-          : "CBS StatLine did not return matching datasets for this query. Try a Dutch CBS term such as bevolking, inkomen, woningen, gemeente, wijken, or buurten.",
+          ? `The answer below is based only on Supabase silver metadata. Guara found ${matches.length} matching silver datasets and listed the strongest matches as evidence.`
+          : "No matching silver datasets are available for this query yet. Load the relevant CBS data into silver and refresh the public Supabase projections.",
       answerBullets: matches.slice(0, 5).map((dataset) => `${dataset.id}: ${dataset.title}`),
     };
   },

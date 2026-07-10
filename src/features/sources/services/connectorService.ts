@@ -85,7 +85,7 @@ async function getLayerConnectors(): Promise<Connector[]> {
         abbr: "B",
         datasets: 0,
         lastSync: "Supabase not configured",
-        coverage: "Raw API",
+        coverage: "Bronze ingestion",
         reliability: 0,
         tags: ["Raw", "CBS", "Bronze"],
         brandColor: "#6B7280",
@@ -120,7 +120,7 @@ async function getLayerConnectors(): Promise<Connector[]> {
     name: "CBS Bronze",
     fullName: "Raw CBS StatLine ingestion layer",
     abbr: "B",
-    coverage: "Raw API",
+    coverage: "Bronze ingestion",
     tags: ["Raw", "CBS", "Bronze"],
     brandColor: "#6B7280",
   };

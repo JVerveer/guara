@@ -40,7 +40,7 @@ interface InvestigationWorkspaceScreenProps {
 }
 
 const defaultFilters: ActiveFilters = {
-  datasetId: "cbs-70072ned",
+  datasetId: "cbs-silver",
   year: 2024,
   indicator: "population",
   compareMode: false,
@@ -108,6 +108,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
   const [state, setState] = useState<InvestigationState | null>(null);
   const [activeStage, setActiveStage] = useState<LifecycleStageId>("trigger");
   const [error, setError] = useState<Error | null>(null);
+  const [mapLoading, setMapLoading] = useState(true);
 
   useEffect(() => {
     if (!plan) return;
@@ -123,16 +124,25 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
 
   useEffect(() => {
     let cancelled = false;
+    setMapLoading(true);
     getCbsMunicipalityMapSnapshot()
       .then((snapshot) => {
         if (cancelled) return;
         setMunicipalities(snapshot.municipalities);
         setMetadataById(snapshot.metadataById);
         setDatasetValues(snapshot.datasetValues);
+        setFilters((current) => ({
+          ...current,
+          datasetId: snapshot.datasetValues[0]?.datasetId ?? current.datasetId,
+          year: snapshot.datasetValues[0]?.year ?? current.year,
+        }));
         setState((current) => current ? { ...current, selectedMunicipalityId: snapshot.municipalities[0]?.id ?? null } : current);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (!cancelled) setMapLoading(false);
       });
     return () => {
       cancelled = true;
@@ -228,7 +238,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
           <div className="grid min-h-0 flex-1 grid-cols-[360px_1fr] gap-3 overflow-hidden p-3">
             <Panel title="Orientation Brief" icon={<BookOpen size={14} />}>
               <p className="text-sm leading-6 text-muted-foreground">
-                Guara found {plan.datasets.length} live CBS datasets and {plan.concepts.length} concepts. Use this stage to understand scope, definitions, and likely blind spots.
+                Guara found {plan.datasets.length} silver datasets and {plan.concepts.length} concepts. Use this stage to understand scope, definitions, and likely blind spots.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {plan.concepts.map((concept) => (
@@ -478,7 +488,17 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
   }
 
   if (error) return <ErrorState message={error.message} onRetry={() => window.location.reload()} retryLabel="Retry" className="flex-1" />;
-  if (municipalities.length === 0) return <LoadingState message="Loading synchronized CBS and PDOK workspace..." className="flex-1" />;
+  if (mapLoading) return <LoadingState message="Loading workspace from Supabase silver tables..." className="flex-1" />;
+  if (municipalities.length === 0) {
+    return (
+      <ErrorState
+        message="No municipality preview rows are available from Supabase silver yet. Load a municipality-level dataset into silver and refresh the public preview rows."
+        onRetry={() => window.location.reload()}
+        retryLabel="Retry"
+        className="flex-1"
+      />
+    );
+  }
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-background">

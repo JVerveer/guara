@@ -68,7 +68,7 @@ export function PlanningScreen({ question, setScreen, setResearchPlan }: Plannin
     return <ErrorState message={error.message} onRetry={() => setFetchKey((key) => key + 1)} retryLabel="Retry" className="flex-1" />;
   }
 
-  if (!plan) return <LoadingState message="Building research plan from live CBS APIs..." className="flex-1" />;
+  if (!plan) return <LoadingState message="Building research plan from Supabase silver tables..." className="flex-1" />;
 
   return (
     <div className="flex-1 overflow-y-auto bg-background">
@@ -132,7 +132,7 @@ export function PlanningScreen({ question, setScreen, setResearchPlan }: Plannin
               </div>
               <span className="text-lg font-semibold text-foreground">{plan.expectedConfidence}%</span>
             </div>
-            <p className="mt-3 text-sm text-muted-foreground">Based on number and relevance of live CBS datasets found for this question.</p>
+            <p className="mt-3 text-sm text-muted-foreground">Based on number and relevance of silver datasets found for this question.</p>
           </Section>
         </div>
 

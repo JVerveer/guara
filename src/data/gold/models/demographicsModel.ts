@@ -1,101 +1,102 @@
-/**
- * Demographics Gold Model
- *
- * Produces the curated aging-by-municipality dataset consumed by the Research
- * feature's AgingChart component. Selects the top municipalities by share of
- * 65+ population from CBS Silver records.
- *
- * Data flow:
- *   CBS Bronze (raw OData) → Silver (standardized municipality records)
- *   → Gold (ranked aging data for 2023, top N municipalities)
- *
- * Silver inputs:
- *   SilverMunicipalityRecord.pct65PlusComputed
- *   SilverMunicipalityRecord.population65Plus
- *   SilverMunicipalityRecord.population
- *   SilverMunicipalityRecord.region.name
- *   SilverMunicipalityRecord.period.year (filter: 2023)
- */
-
-import { cbsBronzeConnector } from "../../bronze/connectors/cbsBronzeConnector";
-import { mapCbsKerncijfers } from "../../silver/mappers/cbsMapper";
+import { getSupabaseClient } from "@/data/supabase/client";
+import type { Database } from "@/data/supabase/types";
 import type { AgingDataPoint, GoldLineage, GoldModel } from "../types";
 
-const MODEL_VERSION = "demographicsModel@1.0.0";
-const REFERENCE_YEAR = 2023;
-const TOP_N = 6;
+type PreviewRow = Database["public"]["Tables"]["dataset_preview_rows"]["Row"];
 
-// Mapping from municipality code to shortened chart axis label
-// (full names are available in SilverMunicipalityRecord.region.name)
-const AXIS_LABELS: Record<string, string> = {
-  "0302": "Rozendaal",
-  "0376": "Blaricum",
-  "0629": "Wassenaar",
-  "0385": "Bloemendaal",
-  "0090": "Schiermonnik.",  // Schiermonnikoog — truncated for chart axis
-  "0296": "Wijchen",
-};
+const MODEL_VERSION = "demographicsModel@2.0.0";
+const SOURCE_DATASET_ID = "85039NED";
+const TOP_N = 6;
 
 let cachedModel: GoldModel<AgingDataPoint[]> | null = null;
 
+function clean(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const text = String(value).trim();
+  return text.length > 0 ? text : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const parsed = Number(value.replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function findNumber(row: Record<string, unknown>, patterns: RegExp[]): number | undefined {
+  for (const [key, value] of Object.entries(row)) {
+    if (!patterns.some((pattern) => pattern.test(key))) continue;
+    const parsed = numberValue(value);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
+}
+
+function findMunicipalityName(row: Record<string, unknown>): string {
+  return clean(row.Gemeentenaam_1 ?? row.Naam_2 ?? row.RegioNaam ?? row.WijkenEnBuurten ?? row.RegioS) ?? "Unknown";
+}
+
+function shortenName(name: string): string {
+  return name.length > 13 ? `${name.slice(0, 12)}.` : name;
+}
+
+async function getPreviewRows(): Promise<PreviewRow[]> {
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase
+    .from("dataset_preview_rows")
+    .select("*")
+    .eq("dataset_id", SOURCE_DATASET_ID)
+    .order("row_index", { ascending: true })
+    .limit(25);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
 async function buildModel(): Promise<GoldModel<AgingDataPoint[]>> {
-  // 1. Bronze
-  const bronze = await cbsBronzeConnector.fetch();
+  const rows = await getPreviewRows();
+  const data = rows
+    .map((previewRow) => {
+      const row = previewRow.raw ?? {};
+      const totalPopulation = findNumber(row, [/BevolkingAantalInwoners/i, /^TotaleBevolking/i, /Bevolking/i]) ?? 0;
+      const population65Plus =
+        findNumber(row, [/k_65JaarOfOuder/i]) ??
+        ((findNumber(row, [/k_65Tot80Jaar/i]) ?? 0) + (findNumber(row, [/k_80JaarOfOuder/i]) ?? 0));
+      const pct = totalPopulation > 0 ? Math.round((population65Plus / totalPopulation) * 1000) / 10 : 0;
+      const municipalityFull = findMunicipalityName(row);
 
-  // 2. Silver
-  const silverRecords = mapCbsKerncijfers(bronze);
-
-  // 3. Gold — filter to reference year, exclude the three main cities
-  //    (they skew the ranking due to student populations),
-  //    rank by pct65Plus descending, take top N
-  const mainCities = new Set(["0363", "0344", "0599", "0518", "0772"]);
-
-  const agingRecords = silverRecords
-    .filter(
-      (r) =>
-        r.data.period.year === REFERENCE_YEAR &&
-        r.data.region.level === "municipality" &&
-        r.data.pct65PlusComputed !== null &&
-        !mainCities.has(r.data.region.code)
-    )
-    .sort((a, b) => (b.data.pct65PlusComputed ?? 0) - (a.data.pct65PlusComputed ?? 0))
+      return {
+        municipality: shortenName(municipalityFull),
+        municipalityFull,
+        pct,
+        totalPopulation,
+        population65Plus,
+      };
+    })
+    .filter((row) => row.pct > 0)
+    .sort((a, b) => b.pct - a.pct)
     .slice(0, TOP_N);
 
-  const data: AgingDataPoint[] = agingRecords.map((r) => ({
-    municipality: AXIS_LABELS[r.data.region.code] ?? r.data.region.name,
-    municipalityFull: r.data.region.name,
-    pct: r.data.pct65PlusComputed ?? 0,
-    totalPopulation: r.data.population ?? 0,
-    population65Plus: r.data.population65Plus ?? 0,
-  }));
-
   const lineage: GoldLineage = {
-    silverLineages: agingRecords.map((r) => r.lineage),
-    bronzeProvenances: [bronze.provenance],
+    silverLineages: [],
+    bronzeProvenances: [],
     calculations: [
       {
         field: "pct",
-        formula: "SilverMunicipalityRecord.pct65PlusComputed (= k_65JaarOfOuder_12 / BevolkingAantalInwoners_1 × 100)",
-        silverInputs: ["SilverMunicipalityRecord.pct65PlusComputed"],
-      },
-      {
-        field: "municipality (axis label)",
-        formula: `Resolved from AXIS_LABELS registry for chart-axis brevity; full name preserved in municipalityFull`,
-        silverInputs: ["SilverMunicipalityRecord.region.code", "SilverMunicipalityRecord.region.name"],
+        formula: "population65Plus / totalPopulation * 100 using Supabase public.dataset_preview_rows for a dataset already loaded into Silver.",
+        silverInputs: ["public.dataset_preview_rows.raw", "public.silver_dataset_catalog.dataset_id"],
       },
     ],
     processedAt: new Date().toISOString(),
     modelVersion: MODEL_VERSION,
-    qualityScore: 98,
+    qualityScore: data.length > 0 ? 90 : 0,
   };
 
   return { data, lineage };
 }
 
 export async function getDemographicsModel(): Promise<GoldModel<AgingDataPoint[]>> {
-  if (!cachedModel) {
-    cachedModel = await buildModel();
-  }
+  if (!cachedModel) cachedModel = await buildModel();
   return cachedModel;
 }
 

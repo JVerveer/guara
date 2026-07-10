@@ -1,78 +1,110 @@
-/**
- * House Price Gold Model
- *
- * Produces the curated house price trend dataset consumed by the Research
- * feature's HousePricesChart component. Aggregates CBS Kerncijfers Silver
- * records into a chart-ready GoldModel<HousePriceDataPoint[]>.
- *
- * Data flow:
- *   CBS Bronze (raw OData) → Silver (standardized) → Gold (chart-ready)
- *
- * Silver inputs: SilverMunicipalityRecord.avgWozValueEur, .period, .region
- * Gold output:   HousePriceDataPoint[] — values in €000s, one row per year
- */
-
-import { cbsBronzeConnector } from "../../bronze/connectors/cbsBronzeConnector";
-import { mapCbsKerncijfers } from "../../silver/mappers/cbsMapper";
-import { buildHousePriceChartData } from "../indicators/priceTrendIndicator";
+import { getSupabaseClient } from "@/data/supabase/client";
+import type { Database } from "@/data/supabase/types";
 import type { GoldLineage, GoldModel, HousePriceDataPoint } from "../types";
 
-const MODEL_VERSION = "housePriceModel@1.0.0";
+type PreviewRow = Database["public"]["Tables"]["dataset_preview_rows"]["Row"];
+type ChartCity = keyof Omit<HousePriceDataPoint, "year">;
 
-// ── Synchronous bootstrap from pre-fetched bronze data ───────────────────────
-// In production this would be replaced by an async pipeline that fetches,
-// maps, and caches the gold model on application startup.
+const MODEL_VERSION = "housePriceModel@2.0.0";
+const SOURCE_DATASET_ID = "85039NED";
+const CITY_CODES: Record<string, ChartCity> = {
+  GM0363: "Amsterdam",
+  GM0344: "Utrecht",
+  GM0599: "Rotterdam",
+};
 
 let cachedModel: GoldModel<HousePriceDataPoint[]> | null = null;
 
+function clean(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const text = String(value).trim();
+  return text.length > 0 ? text : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const parsed = Number(value.replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function findYear(row: Record<string, unknown>): string | undefined {
+  return clean(row.Perioden)?.slice(0, 4);
+}
+
+function findCity(row: Record<string, unknown>): ChartCity | undefined {
+  const code = clean(row.WijkenEnBuurten ?? row.RegioS)?.toUpperCase();
+  return code ? CITY_CODES[code] : undefined;
+}
+
+function findWozThousands(row: Record<string, unknown>): number | undefined {
+  for (const [key, value] of Object.entries(row)) {
+    if (!/WOZ/i.test(key)) continue;
+    const parsed = numberValue(value);
+    if (parsed === undefined) continue;
+    return parsed > 10_000 ? Math.round(parsed / 1000) : parsed;
+  }
+  return undefined;
+}
+
+async function getPreviewRows(): Promise<PreviewRow[]> {
+  const supabase = await getSupabaseClient();
+  const { data, error } = await supabase
+    .from("dataset_preview_rows")
+    .select("*")
+    .eq("dataset_id", SOURCE_DATASET_ID)
+    .order("row_index", { ascending: true })
+    .limit(25);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
 async function buildModel(): Promise<GoldModel<HousePriceDataPoint[]>> {
-  // 1. Bronze — fetch raw CBS data (mock or real API)
-  const bronze = await cbsBronzeConnector.fetch();
+  const rows = await getPreviewRows();
+  const grouped = new Map<string, Partial<Record<ChartCity, number>>>();
 
-  // 2. Silver — map all fields, resolve regions and periods
-  const silverRecords = mapCbsKerncijfers(bronze);
+  rows.forEach((previewRow) => {
+    const row = previewRow.raw ?? {};
+    const year = findYear(row);
+    const city = findCity(row);
+    const value = findWozThousands(row);
+    if (!year || !city || value === undefined) return;
+    grouped.set(year, { ...grouped.get(year), [city]: value });
+  });
 
-  // 3. Gold — build chart-ready data from Amsterdam, Utrecht, Rotterdam records
-  const data = buildHousePriceChartData(silverRecords);
+  const data = Array.from(grouped.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([year, cities]) => ({
+      year,
+      Amsterdam: cities.Amsterdam ?? 0,
+      Utrecht: cities.Utrecht ?? 0,
+      Rotterdam: cities.Rotterdam ?? 0,
+    }));
 
-  // 4. Assemble lineage
-  const silverLineages = silverRecords.map((r) => r.lineage);
   const lineage: GoldLineage = {
-    silverLineages,
-    bronzeProvenances: [bronze.provenance],
+    silverLineages: [],
+    bronzeProvenances: [],
     calculations: [
       {
         field: "Amsterdam | Utrecht | Rotterdam",
-        formula: "SilverMunicipalityRecord.avgWozValueEur / 1000, grouped by period.year and region.code",
-        silverInputs: ["SilverMunicipalityRecord.avgWozValueEur", "SilverMunicipalityRecord.period.year", "SilverMunicipalityRecord.region.code"],
+        formula: "Read WOZ measures from Supabase public.dataset_preview_rows for a dataset already loaded into Silver.",
+        silverInputs: ["public.dataset_preview_rows.raw", "public.silver_dataset_catalog.dataset_id"],
       },
     ],
     processedAt: new Date().toISOString(),
     modelVersion: MODEL_VERSION,
-    qualityScore: 98, // Derived from CBS reliability score
+    qualityScore: data.length > 0 ? 90 : 0,
   };
 
   return { data, lineage };
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/**
- * Returns the Gold house price model.
- * On first call, builds the model by running the Bronze → Silver → Gold pipeline.
- * Results are cached in memory for the session.
- */
 export async function getHousePriceModel(): Promise<GoldModel<HousePriceDataPoint[]>> {
-  if (!cachedModel) {
-    cachedModel = await buildModel();
-  }
+  if (!cachedModel) cachedModel = await buildModel();
   return cachedModel;
 }
 
-/**
- * Convenience helper — returns just the chart data array without lineage.
- * Use when a component only needs the data, not the provenance.
- */
 export async function getHousePriceData(): Promise<HousePriceDataPoint[]> {
   const model = await getHousePriceModel();
   return model.data;

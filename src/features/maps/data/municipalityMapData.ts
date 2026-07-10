@@ -1,7 +1,7 @@
 import type { Legend } from "@/features/maps/types";
 
 export const mapDatasets = [
-  { id: "cbs-70072ned", label: "CBS regional core", provider: "CBS" },
+  { id: "cbs-silver", label: "Supabase silver municipality preview", provider: "Supabase" },
 ] as const;
 
 export const mapIndicators = [
@@ -13,7 +13,7 @@ export const mapIndicators = [
 export const mapYears = [2024] as const;
 
 export const populationLegend: Legend = {
-  title: "CBS indicator scale",
+  title: "Silver indicator scale",
   mode: "quantiles",
   items: [
     { label: "Very low", color: "#EAF2EA" },

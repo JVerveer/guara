@@ -26,36 +26,6 @@ function queryYear(query: string): number | undefined {
   return year >= 1970 && year <= 2026 ? year : undefined;
 }
 
-function rowToDataset(row: DatasetCatalogRow): Dataset {
-  return {
-    id: row.id,
-    title: row.title,
-    provider: row.provider,
-    description: row.description ?? row.title,
-    tags: row.provider === "CBS" ? DEFAULT_CBS_TAGS : [],
-    updated: row.updated_at ? new Date(row.updated_at).toLocaleDateString("en-US", { dateStyle: "medium" }) : "Supabase",
-    updatedAt: row.updated_at ?? undefined,
-    records: row.record_count ? new Intl.NumberFormat("en-US", { notation: "compact" }).format(row.record_count) : "Supabase",
-    recordCount: row.record_count ?? undefined,
-    topics: 0,
-    qualification: {
-      yearStart: row.year_start ?? undefined,
-      yearEnd: row.year_end ?? undefined,
-      years: row.years,
-      geographicLevels: row.geographic_levels as Dataset["qualification"]["geographicLevels"],
-      spatialCoverage: row.spatial_coverage ?? undefined,
-      periodSource: row.period_source as Dataset["qualification"]["periodSource"],
-      confidence: row.qualification_confidence as Dataset["qualification"]["confidence"],
-      evidence: row.qualification_evidence,
-    },
-    source: {
-      layer: "public",
-      originalProvider: row.provider,
-      sourceUrl: row.source_url ?? undefined,
-    },
-  };
-}
-
 function catalogQualification(row: DatasetCatalogRow | undefined): Dataset["qualification"] {
   return {
     yearStart: row?.year_start ?? undefined,
@@ -193,33 +163,10 @@ export const supabaseDatasetRepository = {
   isConfigured: isSupabaseConfigured,
 
   async searchDatasets(query: string): Promise<Dataset[]> {
-    const silverDatasets = await this.searchSilverDatasets(query).catch((error) => {
-      console.warn("Silver dataset search failed; falling back to public dataset catalog", error);
-      return undefined;
-    });
-    if (silverDatasets !== undefined) return silverDatasets;
-
-    const supabase = await getSupabaseClient();
-    const trimmed = query.trim();
-    const year = queryYear(trimmed);
-    let request = supabase
-      .from("dataset_catalog")
-      .select("*")
-      .order("updated_at", { ascending: false })
-      .limit(200);
-
-    if (year) {
-      request = request.contains("years", [year]);
-    } else if (trimmed) {
-      request = request.or(`title.ilike.%${trimmed}%,description.ilike.%${trimmed}%,id.ilike.%${trimmed}%`);
-    }
-
-    const { data, error } = await request;
-    if (error) throw error;
-    return (data ?? []).map(rowToDataset);
+    return this.searchSilverDatasets(query);
   },
 
-  async searchSilverDatasets(query: string): Promise<Dataset[] | undefined> {
+  async searchSilverDatasets(query: string): Promise<Dataset[]> {
     const supabase = await getSupabaseClient();
     const year = queryYear(query);
     const { data, error } = await supabase
@@ -229,12 +176,12 @@ export const supabaseDatasetRepository = {
       .limit(200);
 
     if (error) {
-      if (isMissingTableError(error)) return undefined;
+      if (isMissingTableError(error)) return [];
       throw error;
     }
 
     const silverRows = (data ?? []).filter((row) => matchesSilverSearch(row, year ? "" : query));
-    if (silverRows.length === 0) return undefined;
+    if (silverRows.length === 0) return [];
     const ids = silverRows.map((row) => row.dataset_id);
     if (ids.length === 0) return [];
 
@@ -268,8 +215,7 @@ export const supabaseDatasetRepository = {
       .maybeSingle();
 
     if (error) throw error;
-    if (silverData) return silverRowToDataset(silverData, data ?? undefined);
-    return data ? rowToDataset(data) : undefined;
+    return silverData ? silverRowToDataset(silverData, data ?? undefined) : undefined;
   },
 
   async getDatasetDimensions(datasetId: string): Promise<DatasetDimensionRow[]> {
@@ -340,7 +286,7 @@ export const supabaseDatasetRepository = {
       period_source: dataset.qualification.periodSource,
       qualification_confidence: dataset.qualification.confidence,
       qualification_evidence: dataset.qualification.evidence,
-      source_url: `https://opendata.cbs.nl/ODataApi/odata/${dataset.id}`,
+      source_url: dataset.source?.sourceUrl,
     }));
 
     const { error } = await supabase.from("dataset_catalog").upsert(rows, { onConflict: "id" });

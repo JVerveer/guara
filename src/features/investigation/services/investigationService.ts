@@ -1,4 +1,3 @@
-import { cbsStatLineClient } from "@/data/bronze/clients/cbsStatLineClient";
 import { datasetService } from "@/features/datasets/services/datasetService";
 import type {
   DetectedConcept,
@@ -73,7 +72,7 @@ function buildSearchQuery(question: string, concepts: DetectedConcept[]): string
 
 function explainDataset(datasetTitle: string, concepts: DetectedConcept[], question: string): string {
   const conceptLabels = concepts.map((concept) => concept.label).join(", ");
-  return `Selected from the live CBS StatLine catalog because its title or description matches "${question}" and the detected concept set: ${conceptLabels}.`;
+  return `Selected from Guara's Supabase silver catalog because "${datasetTitle}" matches "${question}" and the detected concept set: ${conceptLabels}.`;
 }
 
 export async function createResearchPlan(question: string): Promise<ResearchPlan> {
@@ -93,13 +92,13 @@ export async function createResearchPlan(question: string): Promise<ResearchPlan
     question,
     entities,
     concepts,
-    hypotheses: concepts.slice(0, 4).map((concept) => `${concept.label} may help explain observable municipal differences in the CBS data.`),
+    hypotheses: concepts.slice(0, 4).map((concept) => `${concept.label} may help explain observable municipal differences in the loaded silver data.`),
     datasets: plannedDatasets,
     expectedConfidence,
     strategy: [
-      "Start with CBS catalog evidence and inspect selected datasets before drawing conclusions.",
-      "Use municipality-level geography to compare places mentioned in the question.",
-      "Track every statement back to dataset, variables, API endpoint, update date and license.",
+      "Start with Supabase silver catalog evidence and inspect selected datasets before drawing conclusions.",
+      "Use qualified municipality, province, and country coverage from the loaded silver metadata.",
+      "Track every statement back to dataset, variables, Supabase table, update date and license.",
       "Treat unsupported sources, such as election results, as gaps until an official API is connected.",
     ],
   };
@@ -114,9 +113,9 @@ export function buildEvidenceFromPlan(plan: ResearchPlan): EvidenceItem[] {
     variables: selectedVariables,
     transformation: "Catalog match and concept tagging; no statistical transformation applied yet.",
     confidence: plan.expectedConfidence,
-    api: cbsStatLineClient.getTypedDataSetUrl(dataset.id, { $top: 5 }),
+    api: `Supabase public.silver_dataset_catalog / public.dataset_preview_rows (${dataset.id})`,
     lastUpdated: dataset.updated,
     license: "Creative Commons Attribution 4.0",
-    provenance: `CBS ODataCatalog/Tables -> Guara research plan -> Investigation Workspace`,
+    provenance: `CBS source ingestion -> Bronze -> Silver -> public Supabase projection -> Guara research plan -> Investigation Workspace`,
   }));
 }

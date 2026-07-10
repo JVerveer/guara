@@ -71,7 +71,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
     { labelKey: "datasets.metadata.license", value: "Creative Commons Attribution 4.0 (CC BY 4.0)" },
     { labelKey: "datasets.metadata.updateFrequency", value: datasetMeta?.updated ?? "Provided by CBS metadata" },
     { labelKey: "datasets.metadata.format", value: "JSON" },
-    { labelKey: "datasets.metadata.catalogUrl", value: "opendata.cbs.nl" },
+    { labelKey: "datasets.metadata.catalogUrl", value: "Supabase public.silver_dataset_catalog" },
     { labelKey: "Period source", value: datasetMeta?.qualification.periodSource ?? "none" },
     { labelKey: "Qualification evidence", value: datasetMeta?.qualification.evidence.join(" · ") ?? "CBS metadata" },
     { labelKey: "Source version", value: source?.sourceVersion ?? "Not recorded" },
@@ -151,7 +151,7 @@ export function DatasetDetail({ datasetId }: DatasetDetailProps) {
             <div className="space-y-2">
               <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground">
                 <ProviderBadge name="CBS" />
-                <span>{t("common.lastUpdated")}: CBS API</span>
+                <span>{t("common.lastUpdated")}: Supabase silver metadata</span>
                 <span>·</span>
                 <span>{t("sources.coverage")}: {spatialCoverage}</span>
                 <span>·</span>
