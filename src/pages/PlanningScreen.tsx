@@ -34,6 +34,8 @@ export function PlanningScreen({ question, setScreen, setResearchPlan }: Plannin
   const [fetchKey, setFetchKey] = useState(0);
 
   useEffect(() => {
+    if (!question.trim()) return;
+
     let cancelled = false;
     setError(null);
     setPlan(null);

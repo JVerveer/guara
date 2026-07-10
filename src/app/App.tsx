@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { ThemeProvider, I18nProvider } from "./providers";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopNav } from "@/components/layout/TopNav";
@@ -14,10 +14,10 @@ function Shell() {
   const [researchPlan, setResearchPlan] = useState<ResearchPlan | null>(null);
   const [researchTitle, setResearchTitle] = useState("");
 
-  const handleSetResearchPlan = (plan: ResearchPlan) => {
+  const handleSetResearchPlan = useCallback((plan: ResearchPlan) => {
     setResearchPlan(plan);
     setResearchTitle(plan.question);
-  };
+  }, []);
 
   return (
     <div
