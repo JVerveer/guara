@@ -1,4 +1,4 @@
-import { Search, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Screen } from "@/types";
 
@@ -17,8 +17,6 @@ export function TopNav({ screen, setScreen }: TopNavProps) {
     result: t("research.resultHeading"),
     datasets: t("nav.datasetExplorer"),
     sources: t("nav.sourceBrowser"),
-    map: t("nav.mapExplorer"),
-    graph: t("graph.title"),
     "dataset-detail": t("datasets.tabs.metadata"),
   };
 
@@ -42,14 +40,6 @@ export function TopNav({ screen, setScreen }: TopNavProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted hover:bg-muted/70 transition-colors text-sm text-muted-foreground">
-          <Search size={13} />
-          <span className="text-[12px] hidden sm:block">{t("common.searchEverything")}</span>
-          <kbd className="text-[10px] px-1 py-0.5 rounded bg-card border border-border font-mono hidden sm:block">
-            {t("common.shortcutHint")}
-          </kbd>
-        </button>
-
         <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold flex-shrink-0">
           ML
         </div>

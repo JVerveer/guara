@@ -3,9 +3,7 @@ import { HomeScreen } from "@/pages/HomeScreen";
 import { ResultScreen } from "@/pages/ResultScreen";
 import { DatasetExplorerScreen } from "@/pages/DatasetExplorerScreen";
 import { SourceBrowserScreen } from "@/pages/SourceBrowserScreen";
-import { GraphScreen } from "@/pages/GraphScreen";
 import { DatasetDetailScreen } from "@/pages/DatasetDetailScreen";
-import { MapExplorerScreen } from "@/pages/MapExplorerScreen";
 import { PlanningScreen } from "@/pages/PlanningScreen";
 import { InvestigationWorkspaceScreen } from "@/pages/InvestigationWorkspaceScreen";
 import type { ResearchPlan } from "@/features/investigation/types";
@@ -50,10 +48,6 @@ export function renderRoute(screen: Screen, setScreen: (s: Screen) => void, stat
       return <DatasetExplorerScreen {...props} setSelectedDatasetId={state.setSelectedDatasetId} />;
     case "sources":
       return <SourceBrowserScreen />;
-    case "map":
-      return <MapExplorerScreen />;
-    case "graph":
-      return <GraphScreen />;
     case "dataset-detail":
       return <DatasetDetailScreen datasetId={state.selectedDatasetId} />;
   }

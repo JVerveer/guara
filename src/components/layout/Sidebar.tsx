@@ -2,12 +2,9 @@ import {
   Plus,
   Bookmark,
   Database,
-  FolderOpen,
   Settings,
-  Network,
   Globe,
   Compass,
-  Map,
   Moon,
   Sun,
 } from "lucide-react";
@@ -86,11 +83,8 @@ export function Sidebar({ screen, setScreen }: SidebarProps) {
       <ul className="px-3 space-y-0.5 list-none">
         {[
           { label: t("nav.savedReports"), icon: <Bookmark size={14} />, screen: "home" as Screen },
-          { label: t("nav.mapExplorer"), icon: <Map size={14} />, screen: "map" as Screen },
           { label: t("nav.datasetExplorer"), icon: <Database size={14} />, screen: "datasets" as Screen },
           { label: t("nav.sourceBrowser"), icon: <Globe size={14} />, screen: "sources" as Screen },
-          { label: t("nav.researchGraph"), icon: <Network size={14} />, screen: "graph" as Screen },
-          { label: t("nav.collections"), icon: <FolderOpen size={14} />, screen: "home" as Screen },
         ].map(({ label, icon, screen: target }) => (
           <li key={label}>
             <NavItem
