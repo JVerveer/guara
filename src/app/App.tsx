@@ -12,6 +12,12 @@ function Shell() {
   const [selectedDatasetId, setSelectedDatasetId] = useState("85039NED");
   const [researchQuestion, setResearchQuestion] = useState("");
   const [researchPlan, setResearchPlan] = useState<ResearchPlan | null>(null);
+  const [researchTitle, setResearchTitle] = useState("");
+
+  const handleSetResearchPlan = (plan: ResearchPlan) => {
+    setResearchPlan(plan);
+    setResearchTitle(plan.question);
+  };
 
   return (
     <div
@@ -21,7 +27,12 @@ function Shell() {
       <Sidebar screen={screen} setScreen={setScreen} />
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <TopNav screen={screen} setScreen={setScreen} />
+        <TopNav
+          screen={screen}
+          setScreen={setScreen}
+          researchTitle={researchTitle || researchPlan?.question || researchQuestion}
+          onRenameResearchTitle={setResearchTitle}
+        />
         <main className="flex-1 overflow-hidden flex flex-col">
           {renderRoute(screen, setScreen, {
             selectedDatasetId,
@@ -29,7 +40,7 @@ function Shell() {
             researchQuestion,
             setResearchQuestion,
             researchPlan,
-            setResearchPlan,
+            setResearchPlan: handleSetResearchPlan,
           })}
         </main>
       </div>

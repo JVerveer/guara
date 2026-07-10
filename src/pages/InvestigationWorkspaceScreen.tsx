@@ -482,21 +482,6 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
 
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex h-16 flex-shrink-0 items-center justify-between border-b border-border bg-card px-5">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Investigation Workspace</p>
-          <h1 className="text-lg font-semibold text-foreground">{plan.question}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <MunicipalitySearch
-            municipalities={municipalities}
-            query={filters.query}
-            onQueryChange={(query) => setFilters({ ...filters, query })}
-            onSelect={(municipality) => setState({ ...state, selectedMunicipalityId: municipality.id })}
-          />
-          <button onClick={exportMarkdown} className="rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground">Export</button>
-        </div>
-      </header>
       <div className="flex flex-shrink-0 gap-1 overflow-x-auto border-b border-border bg-card px-3 py-2">
         {lifecycleStages.map((stage) => (
           <button
