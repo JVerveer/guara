@@ -107,7 +107,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
   const [filters, setFilters] = useState(defaultFilters);
   const [state, setState] = useState<InvestigationState | null>(null);
   const [activeStage, setActiveStage] = useState<LifecycleStageId>("trigger");
-  const [error, setError] = useState<Error | null>(null);
+  const [mapError, setMapError] = useState<Error | null>(null);
   const [mapLoading, setMapLoading] = useState(true);
 
   useEffect(() => {
@@ -125,6 +125,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
   useEffect(() => {
     let cancelled = false;
     setMapLoading(true);
+    setMapError(null);
     getCbsMunicipalityMapSnapshot()
       .then((snapshot) => {
         if (cancelled) return;
@@ -139,7 +140,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
         setState((current) => current ? { ...current, selectedMunicipalityId: snapshot.municipalities[0]?.id ?? null } : current);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err : new Error(String(err)));
+        if (!cancelled) setMapError(err instanceof Error ? err : new Error(String(err)));
       })
       .finally(() => {
         if (!cancelled) setMapLoading(false);
@@ -185,6 +186,52 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
     const colors = ["#EAF2EA", "#CFE2D3", "#9FC8B0", "#5C9E87", "#1D6F63"];
     const step = Math.min(colors.length - 1, Math.floor(((value - min) / (max - min)) * colors.length));
     return colors[step] ?? "#E9EEE9";
+  };
+
+  const renderMapContent = () => {
+    if (mapLoading) {
+      return <LoadingState message="Loading map data from Supabase silver tables..." className="h-full" />;
+    }
+
+    if (mapError) {
+      return (
+        <div className="flex h-full items-center justify-center bg-[#F7F7F4] p-8">
+          <div className="max-w-md rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
+            <p className="font-semibold text-foreground">Map data unavailable</p>
+            <p className="mt-2 leading-6">{mapError.message}</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (municipalities.length === 0) {
+      return (
+        <div className="flex h-full items-center justify-center bg-[#F7F7F4] p-8">
+          <div className="max-w-md rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
+            <p className="font-semibold text-foreground">No municipality map data yet</p>
+            <p className="mt-2 leading-6">
+              No municipality preview rows are available from Supabase silver yet. The investigation remains open and this stage records the map as an evidence gap.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <MunicipalityMap
+        municipalities={municipalities}
+        metadataById={metadataById}
+        datasetValues={datasetValues}
+        selectedMunicipalityId={state?.selectedMunicipalityId ?? null}
+        comparedMunicipalityIds={state?.comparedMunicipalityIds ?? []}
+        colorScale={colorScale}
+        legend={populationLegend}
+        activeFilters={filters}
+        onSelectMunicipality={(municipality) => {
+          setState((current) => current ? { ...current, selectedMunicipalityId: municipality.id } : current);
+        }}
+      />
+    );
   };
 
   const renderEvidenceList = () => (
@@ -321,17 +368,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
                   <option value="density">Population density</option>
                 </select>
               </div>
-              <MunicipalityMap
-                municipalities={municipalities}
-                metadataById={metadataById}
-                datasetValues={datasetValues}
-                selectedMunicipalityId={state.selectedMunicipalityId}
-                comparedMunicipalityIds={state.comparedMunicipalityIds}
-                colorScale={colorScale}
-                legend={populationLegend}
-                activeFilters={filters}
-                onSelectMunicipality={(municipality) => setState({ ...state, selectedMunicipalityId: municipality.id })}
-              />
+              {renderMapContent()}
             </section>
             <Panel title="Selected Entity" icon={<Eye size={14} />}>
               {selectedMetadata ? (
@@ -340,7 +377,7 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
                   <div className="rounded-lg bg-muted p-3"><dt className="text-xs text-muted-foreground">Population</dt><dd className="font-semibold">{selectedMetadata.population.toLocaleString("en-US")}</dd></div>
                   <div className="rounded-lg bg-muted p-3"><dt className="text-xs text-muted-foreground">WOZ value</dt><dd className="font-semibold">€{selectedMetadata.housePrice.toLocaleString("nl-NL")}</dd></div>
                 </dl>
-              ) : <p className="text-sm text-muted-foreground">Select a municipality to populate this stage.</p>}
+              ) : <p className="text-sm text-muted-foreground">Select a municipality to populate this stage, or continue recording the map as an evidence gap.</p>}
             </Panel>
           </div>
         );
@@ -488,18 +525,6 @@ export function InvestigationWorkspaceScreen({ plan, setScreen }: InvestigationW
   }
 
   if (error) return <ErrorState message={error.message} onRetry={() => window.location.reload()} retryLabel="Retry" className="flex-1" />;
-  if (mapLoading) return <LoadingState message="Loading workspace from Supabase silver tables..." className="flex-1" />;
-  if (municipalities.length === 0) {
-    return (
-      <ErrorState
-        message="No municipality preview rows are available from Supabase silver yet. Load a municipality-level dataset into silver and refresh the public preview rows."
-        onRetry={() => window.location.reload()}
-        retryLabel="Retry"
-        className="flex-1"
-      />
-    );
-  }
-
   return (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-background">
       <div className="flex flex-shrink-0 gap-1 overflow-x-auto border-b border-border bg-card px-3 py-2">
