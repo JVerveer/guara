@@ -242,6 +242,86 @@ create index if not exists cbs_dataset_ingestion_status_quality_idx
 create index if not exists cbs_schema_snapshots_dataset_idx
   on bronze.cbs_schema_snapshots (dataset_id, captured_at desc);
 
+create or replace view bronze.cbs_theme_hierarchy as
+with recursive theme_tree as (
+  select
+    theme.id as theme_id,
+    theme.parent_id as parent_theme_id,
+    theme.id as root_theme_id,
+    theme.number as theme_number,
+    theme.title as theme_title,
+    theme.number as root_theme_number,
+    theme.title as root_theme_title,
+    theme.language,
+    theme.catalog,
+    0 as depth,
+    array[theme.id] as theme_path_ids,
+    array[theme.title] as theme_path_titles
+  from bronze.cbs_themes theme
+  where theme.parent_id is null
+
+  union all
+
+  select
+    child.id as theme_id,
+    child.parent_id as parent_theme_id,
+    tree.root_theme_id,
+    child.number as theme_number,
+    child.title as theme_title,
+    tree.root_theme_number,
+    tree.root_theme_title,
+    child.language,
+    child.catalog,
+    tree.depth + 1 as depth,
+    tree.theme_path_ids || child.id as theme_path_ids,
+    tree.theme_path_titles || child.title as theme_path_titles
+  from bronze.cbs_themes child
+  join theme_tree tree
+    on tree.theme_id = child.parent_id
+),
+orphan_themes as (
+  select
+    theme.id as theme_id,
+    theme.parent_id as parent_theme_id,
+    theme.id as root_theme_id,
+    theme.number as theme_number,
+    theme.title as theme_title,
+    theme.number as root_theme_number,
+    theme.title as root_theme_title,
+    theme.language,
+    theme.catalog,
+    0 as depth,
+    array[theme.id] as theme_path_ids,
+    array[theme.title] as theme_path_titles
+  from bronze.cbs_themes theme
+  left join theme_tree tree
+    on tree.theme_id = theme.id
+  where tree.theme_id is null
+)
+select * from theme_tree
+union all
+select * from orphan_themes;
+
+create or replace view bronze.cbs_dataset_theme_hierarchy as
+select
+  table_theme.table_identifier as dataset_id,
+  table_theme.table_id,
+  table_theme.theme_id as assigned_theme_id,
+  hierarchy.theme_number as assigned_theme_number,
+  hierarchy.theme_title as assigned_theme_title,
+  hierarchy.parent_theme_id,
+  hierarchy.root_theme_id as top_theme_id,
+  hierarchy.root_theme_number as top_theme_number,
+  hierarchy.root_theme_title as top_theme_title,
+  hierarchy.depth,
+  hierarchy.theme_path_ids,
+  hierarchy.theme_path_titles,
+  array_to_string(hierarchy.theme_path_titles, ' > ') as theme_path,
+  table_theme.ingested_at
+from bronze.cbs_table_themes table_theme
+left join bronze.cbs_theme_hierarchy hierarchy
+  on hierarchy.theme_id = table_theme.theme_id;
+
 alter table bronze.cbs_catalog_tables enable row level security;
 alter table bronze.cbs_data_properties enable row level security;
 alter table bronze.cbs_dimension_values enable row level security;

@@ -32,6 +32,7 @@ function parseArgs(argv) {
   const options = {
     dataset: "",
     limit: 100,
+    rootTheme: "",
     batchSize: 1000,
     rowsOnly: false,
     metadataOnly: false,
@@ -53,6 +54,7 @@ function parseArgs(argv) {
 
     if (arg === "overview" || arg === "--overview") options.overview = true;
     else if (arg === "--dataset") options.dataset = argv[++i] ?? "";
+    else if (arg === "--root-theme") options.rootTheme = argv[++i] ?? "";
     else if (arg === "--query") {
       options.query = argv[++i] ?? "";
       options.overview = true;
@@ -99,6 +101,7 @@ function parseArgs(argv) {
     else if (arg === "--help") {
       console.log(`Usage:
   npm run load:cbs:silver -- --dataset 86205NED
+  npm run load:cbs:silver -- --root-theme "Bouwen en wonen" --limit 25
   npm run load:cbs:silver -- --limit 100
   npm run load:cbs:silver -- --dataset 86205NED --force
   npm run load:cbs:silver -- --failed-only
@@ -107,6 +110,9 @@ function parseArgs(argv) {
   npm run load:cbs:silver -- overview --limit 100
   npm run overview:cbs:silver -- --query wijken --limit 50
   npm run overview:cbs:silver -- --dataset 85039NED
+
+Selection options:
+  --root-theme "Bouwen en wonen"  Load or overview datasets linked to a CBS top-level root theme.
 
 Overview options:
   --query term             Filter by dataset id/title/description/period/catalog.
@@ -234,6 +240,15 @@ async function deleteSilverDatasetRows(supabase, datasetId) {
 }
 
 async function getBronzeDatasets(supabase, options) {
+  if (options.rootTheme) {
+    const themeDatasetIds = await getDatasetIdsForRootTheme(supabase, options.rootTheme);
+    const datasetIds = options.dataset
+      ? themeDatasetIds.filter((id) => id === options.dataset)
+      : themeDatasetIds;
+
+    return getCatalogRowsForDatasetIds(supabase, datasetIds.slice(0, Math.max(1, options.limit)));
+  }
+
   let query = supabase
     .schema("bronze")
     .from("cbs_raw_endpoint_payloads")
@@ -1235,6 +1250,94 @@ async function getOverviewStatusRows(supabase, schema, table, selectWithCounts, 
   }
 }
 
+function normalizeText(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+async function getDatasetIdsForRootTheme(supabase, rootTheme) {
+  const normalizedRootTheme = normalizeText(rootTheme);
+  if (!normalizedRootTheme) return [];
+
+  const rows = await getOverviewRows(() =>
+    supabase
+      .schema("bronze")
+      .from("cbs_dataset_theme_hierarchy")
+      .select("dataset_id,top_theme_title")
+      .order("dataset_id", { ascending: true })
+  );
+
+  return Array.from(
+    new Set(
+      rows
+        .filter((row) => normalizeText(row.top_theme_title) === normalizedRootTheme)
+        .map((row) => row.dataset_id)
+        .filter(Boolean)
+    )
+  ).sort();
+}
+
+async function getThemeRowsForDatasetIds(supabase, datasetIds) {
+  if (datasetIds.length === 0) return [];
+  const chunks = [];
+  for (let index = 0; index < datasetIds.length; index += 200) {
+    chunks.push(datasetIds.slice(index, index + 200));
+  }
+
+  const rows = [];
+  for (const chunk of chunks) {
+    const { data, error } = await supabase
+      .schema("bronze")
+      .from("cbs_dataset_theme_hierarchy")
+      .select("dataset_id,top_theme_title,assigned_theme_title,theme_path")
+      .in("dataset_id", chunk);
+
+    if (error) throw error;
+    rows.push(...(data ?? []));
+  }
+
+  return rows;
+}
+
+function themeSummaryByDataset(themeRows) {
+  const byDataset = new Map();
+  for (const row of themeRows) {
+    const datasetId = row.dataset_id;
+    if (!datasetId) continue;
+    const current = byDataset.get(datasetId) ?? {
+      topThemeTitles: [],
+      assignedThemeTitles: [],
+      themePaths: [],
+    };
+    current.topThemeTitles = Array.from(new Set([...current.topThemeTitles, row.top_theme_title].filter(Boolean)));
+    current.assignedThemeTitles = Array.from(new Set([...current.assignedThemeTitles, row.assigned_theme_title].filter(Boolean)));
+    current.themePaths = Array.from(new Set([...current.themePaths, row.theme_path].filter(Boolean)));
+    byDataset.set(datasetId, current);
+  }
+  return byDataset;
+}
+
+async function getCatalogRowsForDatasetIds(supabase, datasetIds) {
+  if (datasetIds.length === 0) return [];
+
+  const rows = [];
+  for (let index = 0; index < datasetIds.length; index += 200) {
+    const chunk = datasetIds.slice(index, index + 200);
+    const { data, error } = await supabase
+      .schema("bronze")
+      .from("cbs_raw_endpoint_payloads")
+      .select("dataset_id,payload,ingested_at")
+      .eq("endpoint", "catalog_table")
+      .in("dataset_id", chunk)
+      .order("dataset_id", { ascending: true });
+
+    if (error) throw error;
+    rows.push(...(data ?? []));
+  }
+
+  const order = new Map(datasetIds.map((id, index) => [id, index]));
+  return rows.sort((a, b) => (order.get(a.dataset_id) ?? 0) - (order.get(b.dataset_id) ?? 0));
+}
+
 async function getExactDatasetCount(supabase, schema, table, column, datasetId) {
   const { count, error } = await supabase
     .schema(schema)
@@ -1251,6 +1354,9 @@ function matchesOverviewQuery(row, query) {
   if (!normalized) return true;
   return [
     row.datasetId,
+    row.rootThemes?.join(" "),
+    row.assignedThemes?.join(" "),
+    row.themePaths?.join(" "),
     row.title,
     row.description,
     row.period,
@@ -1300,6 +1406,7 @@ function summarizeSilverOverview(rows) {
 function compactSilverOverviewTable(rows) {
   return rows.map((row) => ({
     id: row.datasetId,
+    rootTheme: (row.rootThemes ?? []).slice(0, 1).join(", "),
     title: row.title.slice(0, 52),
     apiRecords: row.bronzeRecordCount ?? "unknown",
     bronzeRows: row.bronzeRowsLoaded,
@@ -1324,19 +1431,27 @@ function writeSilverOverviewJson(report, options) {
 }
 
 async function runSilverOverview(supabase, options) {
-  let rawCatalogQuery = supabase
-    .schema("bronze")
-    .from("cbs_raw_endpoint_payloads")
-    .select("dataset_id,payload,ingested_at")
-    .eq("endpoint", "catalog_table")
-    .order("dataset_id", { ascending: true })
-    .limit(options.limit);
+  const rawCatalogRowsPromise = options.rootTheme
+    ? getBronzeDatasets(supabase, options)
+    : (async () => {
+        let rawCatalogQuery = supabase
+          .schema("bronze")
+          .from("cbs_raw_endpoint_payloads")
+          .select("dataset_id,payload,ingested_at")
+          .eq("endpoint", "catalog_table")
+          .order("dataset_id", { ascending: true })
+          .limit(options.limit);
 
-  if (options.dataset) rawCatalogQuery = rawCatalogQuery.eq("dataset_id", options.dataset);
+        if (options.dataset) rawCatalogQuery = rawCatalogQuery.eq("dataset_id", options.dataset);
 
-  const [{ data: rawCatalogRows, error: rawCatalogError }, bronzeStatusRows, silverStatusRows, silverDatasetRows] =
+        const { data, error } = await rawCatalogQuery;
+        if (error) throw error;
+        return data ?? [];
+      })();
+
+  const [rawCatalogRows, bronzeStatusRows, silverStatusRows, silverDatasetRows] =
     await Promise.all([
-      rawCatalogQuery,
+      rawCatalogRowsPromise,
       getOverviewStatusRows(
         supabase,
         "bronze",
@@ -1359,21 +1474,24 @@ async function runSilverOverview(supabase, options) {
       ),
     ]);
 
-  if (rawCatalogError) throw rawCatalogError;
-
   const bronzeStatusById = new Map(bronzeStatusRows.map((row) => [row.dataset_id, row]));
   const silverStatusById = new Map(silverStatusRows.map((row) => [row.dataset_id, row]));
   const silverDatasetById = new Map(silverDatasetRows.map((row) => [row.dataset_id, row]));
+  const themeByDataset = themeSummaryByDataset(await getThemeRowsForDatasetIds(supabase, rawCatalogRows.map((row) => row.dataset_id)));
 
-  const baseRows = (rawCatalogRows ?? [])
+  const baseRows = rawCatalogRows
     .map((row) => {
       const payload = row.payload ?? {};
       const bronzeStatus = bronzeStatusById.get(row.dataset_id);
       const silverStatus = silverStatusById.get(row.dataset_id);
       const silverDataset = silverDatasetById.get(row.dataset_id);
+      const theme = themeByDataset.get(row.dataset_id) ?? {};
 
       return {
         datasetId: row.dataset_id,
+        rootThemes: theme.topThemeTitles ?? [],
+        assignedThemes: theme.assignedThemeTitles ?? [],
+        themePaths: theme.themePaths ?? [],
         title: payload.ShortTitle || payload.Title || bronzeStatus?.title || row.dataset_id,
         description: payload.ShortDescription ?? "",
         catalog: payload.Catalog ?? null,
@@ -1432,6 +1550,7 @@ async function runSilverOverview(supabase, options) {
     scope: {
       dataset: options.dataset || null,
       query: options.query || null,
+      rootTheme: options.rootTheme || null,
       limit: options.limit,
       withBronzeCounts: options.withBronzeCounts,
       withSilverCounts: options.withSilverCounts,
@@ -1477,7 +1596,13 @@ async function main() {
   }
 
   const datasets = await getBronzeDatasets(supabase, options);
-  console.log(`Found ${datasets.length} Bronze dataset(s) to load into Silver.`);
+  console.log(
+    `Found ${datasets.length} Bronze dataset(s) to load into Silver${options.rootTheme ? ` for root theme "${options.rootTheme}"` : ""}.`
+  );
+
+  if (options.rootTheme && datasets.length === 0) {
+    console.log(`No Bronze datasets matched root theme "${options.rootTheme}". Check bronze.cbs_dataset_theme_hierarchy.`);
+  }
 
   for (const dataset of datasets) {
     const datasetId = dataset.dataset_id;

@@ -32,6 +32,8 @@ The ingestion job writes:
 - `bronze.cbs_dimension_values`
 - `bronze.cbs_themes`
 - `bronze.cbs_table_themes`
+- `bronze.cbs_theme_hierarchy`
+- `bronze.cbs_dataset_theme_hierarchy`
 - `bronze.cbs_featured`
 - `bronze.cbs_table_featured`
 - `bronze.cbs_typed_dataset_rows` when using the all-data job
@@ -97,13 +99,42 @@ Silver coverage overview:
 npm run overview:cbs:silver
 npm run overview:cbs:silver -- --query wijken --limit 50
 npm run overview:cbs:silver -- --dataset 85039NED
+npm run overview:cbs:silver -- --root-theme "Bouwen en wonen" --limit 50
 npm run overview:cbs:silver -- --limit 500 --write-json
 ```
 
 The Silver overview scans datasets currently available in Bronze, compares them with Silver load status, and reports Bronze API record count, Bronze raw rows loaded, Silver observations loaded, percentage loaded from Bronze to Silver, partial/completed state, rejected rows, and Silver load errors where available.
 Both Silver loading and Silver coverage overview are handled by `scripts/load-cbs-silver.mjs`; `overview:cbs:silver` is a convenience wrapper that runs that script in overview mode.
 
+Silver loading by CBS root theme:
+
+```bash
+npm run plan:cbs:silver -- --query "Bouwen en wonen" --limit 100
+npm run load:cbs:silver -- --root-theme "Bouwen en wonen" --limit 25
+npm run load:cbs:silver -- --root-theme "Bouwen en wonen" --limit 25 --metadata-only
+```
+
+`--root-theme` uses `bronze.cbs_dataset_theme_hierarchy.top_theme_title`, so run the latest `supabase/bronze_schema.sql` before relying on theme-based Silver loads.
+
 CBS catalog paging is explicit and deterministic: Dutch catalog tables are requested with `Language eq 'nl'` and `$orderby=ID asc`. This makes `--table-offset` stable across resumed batches unless CBS changes catalog contents.
+
+CBS theme hierarchy:
+
+- `bronze.cbs_theme_hierarchy` resolves CBS parent/child theme paths from `bronze.cbs_themes`.
+- `bronze.cbs_dataset_theme_hierarchy` links each dataset to its assigned theme, top-level theme, and full theme path.
+- `npm run plan:cbs:silver` uses this hierarchy when scoring and filtering Silver load candidates. If the view has not been applied yet, the planner falls back to building the hierarchy in memory from `bronze.cbs_themes` and `bronze.cbs_table_themes`.
+
+Useful theme query:
+
+```sql
+select
+  top_theme_title,
+  assigned_theme_title,
+  count(distinct dataset_id) as datasets
+from bronze.cbs_dataset_theme_hierarchy
+group by top_theme_title, assigned_theme_title
+order by top_theme_title, datasets desc;
+```
 
 Options:
 
