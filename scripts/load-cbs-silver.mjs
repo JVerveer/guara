@@ -31,6 +31,7 @@ function loadLocalEnv() {
 function parseArgs(argv) {
   const options = {
     dataset: "",
+    domain: "",
     limit: 100,
     rootTheme: "",
     batchSize: 1000,
@@ -54,6 +55,7 @@ function parseArgs(argv) {
 
     if (arg === "overview" || arg === "--overview") options.overview = true;
     else if (arg === "--dataset") options.dataset = argv[++i] ?? "";
+    else if (arg === "--domain") options.domain = argv[++i] ?? "";
     else if (arg === "--root-theme") options.rootTheme = argv[++i] ?? "";
     else if (arg === "--query") {
       options.query = argv[++i] ?? "";
@@ -101,6 +103,7 @@ function parseArgs(argv) {
     else if (arg === "--help") {
       console.log(`Usage:
   npm run load:cbs:silver -- --dataset 86205NED
+  npm run load:cbs:silver -- --domain bouwen-en-wonen --limit 25
   npm run load:cbs:silver -- --root-theme "Bouwen en wonen" --limit 25
   npm run load:cbs:silver -- --limit 100
   npm run load:cbs:silver -- --dataset 86205NED --force
@@ -112,6 +115,7 @@ function parseArgs(argv) {
   npm run overview:cbs:silver -- --dataset 85039NED
 
 Selection options:
+  --domain bouwen-en-wonen         Load or overview datasets linked to a canonical Guara/CBS domain.
   --root-theme "Bouwen en wonen"  Load or overview datasets linked to a CBS top-level root theme.
 
 Overview options:
@@ -219,6 +223,12 @@ async function deleteSilverDatasetRows(supabase, datasetId) {
     "cbs_observation_measures",
     "cbs_observation_dimensions",
     "cbs_observations",
+    "cbs_gold_readiness",
+    "cbs_dataset_domains",
+    "cbs_indicator_candidates",
+    "cbs_dataset_grain",
+    "cbs_region_values",
+    "cbs_period_values",
     "cbs_dataset_featured",
     "cbs_dataset_themes",
     "cbs_dimension_values",
@@ -596,6 +606,405 @@ function spatialCoverageForLevels(levels) {
   return null;
 }
 
+function periodTypeFromKey(periodKey) {
+  const key = String(periodKey ?? "").trim().toUpperCase();
+  if (/^\d{4}JJ/.test(key) || /^\d{4}$/.test(key)) return "year";
+  if (/^\d{4}KW\d{2}/.test(key)) return "quarter";
+  if (/^\d{4}MM\d{2}/.test(key)) return "month";
+  if (/^\d{4}HJ\d{2}/.test(key)) return "half-year";
+  return "other";
+}
+
+function periodDateBounds(periodKey) {
+  const key = String(periodKey ?? "").trim().toUpperCase();
+  const year = Number(key.slice(0, 4));
+  if (!Number.isInteger(year) || year < 1970 || year > 2026) {
+    return { year: null, start: null, end: null };
+  }
+
+  const monthMatch = key.match(/MM(\d{2})/);
+  if (monthMatch) {
+    const month = Number(monthMatch[1]);
+    if (month >= 1 && month <= 12) {
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      return {
+        year,
+        start: `${year}-${String(month).padStart(2, "0")}-01`,
+        end: `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+      };
+    }
+  }
+
+  const quarterMatch = key.match(/KW(\d{2})/);
+  if (quarterMatch) {
+    const quarter = Number(quarterMatch[1]);
+    if (quarter >= 1 && quarter <= 4) {
+      const startMonth = (quarter - 1) * 3 + 1;
+      const endMonth = startMonth + 2;
+      const lastDay = new Date(Date.UTC(year, endMonth, 0)).getUTCDate();
+      return {
+        year,
+        start: `${year}-${String(startMonth).padStart(2, "0")}-01`,
+        end: `${year}-${String(endMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+      };
+    }
+  }
+
+  const halfYearMatch = key.match(/HJ(\d{2})/);
+  if (halfYearMatch) {
+    const halfYear = Number(halfYearMatch[1]);
+    if (halfYear === 1 || halfYear === 2) {
+      const startMonth = halfYear === 1 ? 1 : 7;
+      const endMonth = halfYear === 1 ? 6 : 12;
+      const lastDay = new Date(Date.UTC(year, endMonth, 0)).getUTCDate();
+      return {
+        year,
+        start: `${year}-${String(startMonth).padStart(2, "0")}-01`,
+        end: `${year}-${String(endMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+      };
+    }
+  }
+
+  return { year, start: `${year}-01-01`, end: `${year}-12-31` };
+}
+
+function periodRowsFromDimensionValues(datasetId, dimensionValues, sourceVersion) {
+  return dimensionValues
+    .filter((value) => value.dimension_key === "Perioden")
+    .map((value) => {
+      const periodKey = String(value.value_key ?? "");
+      const bounds = periodDateBounds(periodKey);
+      return {
+        dataset_id: datasetId,
+        period_key: periodKey,
+        year: bounds.year,
+        period_type: periodTypeFromKey(periodKey),
+        period_start_date: bounds.start,
+        period_end_date: bounds.end,
+        label: value.title ?? null,
+        source_value: periodKey,
+        source_version: sourceVersion,
+        silver_loaded_at: new Date().toISOString(),
+      };
+    })
+    .filter((row) => row.period_key);
+}
+
+function isGeographyDimensionKey(key) {
+  const normalized = String(key ?? "").toLowerCase();
+  return (
+    normalized.includes("regio") ||
+    normalized.includes("gebieden") ||
+    normalized.includes("gemeente") ||
+    normalized.includes("wijk") ||
+    normalized.includes("buurt")
+  );
+}
+
+function regionCodeParts(valueKey, regionLevel) {
+  const key = String(valueKey ?? "").trim().toUpperCase();
+  if (regionLevel === "province" && key.startsWith("PV")) return { provinceCode: key, municipalityCode: null };
+  if (regionLevel === "municipality" && key.startsWith("GM")) return { provinceCode: null, municipalityCode: key };
+  if (regionLevel === "neighborhood" && (key.startsWith("WK") || key.startsWith("BU"))) {
+    return { provinceCode: null, municipalityCode: key.slice(0, 6) || null };
+  }
+  return { provinceCode: null, municipalityCode: null };
+}
+
+function regionRowsFromDimensionValues(datasetId, dimensionValues, sourceVersion) {
+  return dimensionValues
+    .filter((value) => isGeographyDimensionKey(value.dimension_key) || levelFromCbsGeoValue(value))
+    .map((value) => {
+      const regionLevel = levelFromCbsGeoValue(value) ?? "other";
+      const parts = regionCodeParts(value.value_key, regionLevel);
+      return {
+        dataset_id: datasetId,
+        dimension_key: value.dimension_key,
+        region_code: String(value.value_key ?? ""),
+        region_name: value.title ?? null,
+        region_level: regionLevel,
+        province_code: parts.provinceCode,
+        municipality_code: parts.municipalityCode,
+        valid_from: null,
+        valid_to: null,
+        source_value: String(value.value_key ?? ""),
+        source_version: sourceVersion,
+        silver_loaded_at: new Date().toISOString(),
+      };
+    })
+    .filter((row) => row.region_code);
+}
+
+function datasetGrainRow(datasetId, dimensionProperties, dimensionValues, dataset, sourceVersion) {
+  const periodRows = periodRowsFromDimensionValues(datasetId, dimensionValues, sourceVersion);
+  const years = Array.from(new Set(periodRows.map((row) => row.year).filter(Boolean))).sort((a, b) => a - b);
+  const periodTypes = Array.from(new Set(periodRows.map((row) => row.period_type).filter(Boolean))).sort();
+  const geographyValues = dimensionValues.filter((value) => isGeographyDimensionKey(value.dimension_key) || levelFromCbsGeoValue(value));
+  const geographicLevels = geographyLevelsFromDimensionValues(geographyValues);
+  const regionRows = regionRowsFromDimensionValues(datasetId, dimensionValues, sourceVersion);
+  const regionLevelSet = new Set(regionRows.map((row) => row.region_level));
+  const spatialDimensionKeys = Array.from(new Set(regionRows.map((row) => row.dimension_key).filter(Boolean))).sort();
+  const notes = [];
+
+  if (years.length) notes.push("Years classified from Perioden dimension values.");
+  else if (dataset?.period) notes.push("No Perioden dimension values available; catalog Period may still describe coverage.");
+  if (spatialDimensionKeys.length) notes.push("Spatial grain classified from CBS geography dimension values.");
+  else notes.push("No recognizable CBS geography dimension found.");
+
+  const periodDimension = dimensionProperties.find((property) => property.Key === "Perioden" || property.Type === "TimeDimension");
+
+  return {
+    dataset_id: datasetId,
+    has_country_level: regionLevelSet.has("country"),
+    has_province_level: regionLevelSet.has("province"),
+    has_municipality_level: regionLevelSet.has("municipality"),
+    has_neighborhood_level: regionLevelSet.has("neighborhood"),
+    has_other_region_level: regionLevelSet.has("other"),
+    has_year: years.length > 0,
+    min_year: years.length ? Math.min(...years) : null,
+    max_year: years.length ? Math.max(...years) : null,
+    years,
+    period_types: periodTypes,
+    spatial_dimension_keys: spatialDimensionKeys,
+    period_dimension_key: periodDimension?.Key ?? null,
+    spatial_coverage: spatialCoverageForLevels(geographicLevels),
+    confidence: years.length && spatialDimensionKeys.length
+      ? "cbs-dimensions"
+      : years.length || spatialDimensionKeys.length
+        ? "partial-cbs-dimensions"
+        : "unqualified",
+    classification_notes: notes,
+    source_version: sourceVersion,
+    silver_loaded_at: new Date().toISOString(),
+  };
+}
+
+function propertyById(properties) {
+  return new Map(properties.map((property) => [String(property.ID ?? property.Key), property]));
+}
+
+function topicPathForMeasure(property, propertiesById) {
+  const titles = [];
+  let cursor = property;
+  const seen = new Set();
+
+  while (cursor && !seen.has(String(cursor.ID ?? cursor.Key))) {
+    seen.add(String(cursor.ID ?? cursor.Key));
+    if (cursor.Title) titles.unshift(cursor.Title);
+    const parentId = cursor.ParentID === undefined || cursor.ParentID === null ? null : String(cursor.ParentID);
+    cursor = parentId ? propertiesById.get(parentId) : null;
+  }
+
+  return titles.join(" > ") || property.Title || property.Key || null;
+}
+
+function indicatorCandidateRows(datasetId, measureProperties, properties, sourceVersion) {
+  const propertiesById = propertyById(properties);
+  return measureProperties.map((property) => {
+    const title = property.Title ?? property.Key ?? "";
+    const unit = property.Unit ?? "";
+    const combined = `${title} ${unit}`.toLowerCase();
+    const isPercentage = combined.includes("%") || combined.includes("percentage") || combined.includes("procent");
+    const isIndex = combined.includes("index");
+    const isCount = /aantal|number|personen|huishoudens|woningen|bedrijven/.test(combined);
+
+    return {
+      dataset_id: datasetId,
+      measure_key: property.Key,
+      indicator_title: property.Title ?? property.Key,
+      unit: property.Unit ?? null,
+      decimals: property.Decimals ?? null,
+      parent_measure_key: property.ParentID === undefined || property.ParentID === null ? null : String(property.ParentID),
+      topic_path: topicPathForMeasure(property, propertiesById),
+      is_additive: isPercentage || isIndex ? false : isCount ? true : null,
+      is_percentage: isPercentage,
+      is_count: isCount,
+      is_index: isIndex,
+      confidence: property.Title || property.Unit ? "source-metadata" : "low",
+      source_version: sourceVersion,
+      silver_loaded_at: new Date().toISOString(),
+    };
+  });
+}
+
+function cbsDomainRows(sourceVersion) {
+  return loadCbsDomains().map((domain) => ({
+    domain_id: domain.domain_id,
+    canonical_name: domain.canonical_name,
+    cbs_root_theme_title: domain.cbs_root_theme_title,
+    aliases: domain.aliases ?? [],
+    source_version: sourceVersion,
+    silver_loaded_at: new Date().toISOString(),
+  }));
+}
+
+async function datasetDomainRows(supabase, datasetId, sourceVersion) {
+  const domains = loadCbsDomains();
+  const domainByRootTheme = new Map(domains.map((domain) => [normalizeDomainText(domain.cbs_root_theme_title), domain]));
+
+  const { data, error } = await supabase
+    .schema("bronze")
+    .from("cbs_dataset_theme_hierarchy")
+    .select("dataset_id,top_theme_title,assigned_theme_title,theme_path")
+    .eq("dataset_id", datasetId);
+
+  if (error) {
+    if (isMissingPublicTableError(error)) {
+      console.warn(`Skipped Silver domain mapping for ${datasetId}: run supabase/bronze_schema.sql to create bronze.cbs_dataset_theme_hierarchy.`);
+      return [];
+    }
+    throw error;
+  }
+
+  return (data ?? [])
+    .map((row) => {
+      const domain = domainByRootTheme.get(normalizeDomainText(row.top_theme_title));
+      if (!domain) return null;
+      return {
+        dataset_id: datasetId,
+        domain_id: domain.domain_id,
+        root_theme_title: row.top_theme_title ?? "",
+        assigned_theme_title: row.assigned_theme_title ?? "",
+        theme_path: row.theme_path ?? "",
+        confidence: "theme-root-match",
+        assignment_reason: `CBS top-level theme "${row.top_theme_title}" maps to Guara domain "${domain.domain_id}".`,
+        source_version: sourceVersion,
+        silver_loaded_at: new Date().toISOString(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function goldReadinessRow({
+  datasetId,
+  domains,
+  grain,
+  dimensions,
+  measures,
+  expectedObservations,
+  observationsLoaded,
+  qualityStatus,
+  sourceVersion,
+}) {
+  const spatialLevels = [
+    grain.has_country_level ? "country" : null,
+    grain.has_province_level ? "province" : null,
+    grain.has_municipality_level ? "municipality" : null,
+    grain.has_neighborhood_level ? "neighborhood" : null,
+    grain.has_other_region_level ? "other" : null,
+  ].filter(Boolean);
+  const yearCoverage = grain.min_year && grain.max_year ? grain.max_year - grain.min_year + 1 : 0;
+  let priorityScore = 0;
+  if (domains.length) priorityScore += 20;
+  if (grain.has_year) priorityScore += 20;
+  if (grain.has_municipality_level || grain.has_province_level || grain.has_country_level) priorityScore += 20;
+  if (measures > 0) priorityScore += 20;
+  if (observationsLoaded > 0) priorityScore += 10;
+  if (qualityStatus === "passed") priorityScore += 10;
+  priorityScore = Math.min(100, priorityScore);
+
+  const suggestedGoldModel = domains.length === 1
+    ? `gold.${domains[0].domain_id.replaceAll("-", "_")}_facts`
+    : domains.length > 1
+      ? "gold.cross_domain_facts"
+      : "gold.unclassified_cbs_facts";
+  const recommendedAction = priorityScore >= 80
+    ? "ready_for_gold_candidate"
+    : priorityScore >= 50
+      ? "review_before_gold"
+      : "keep_in_silver";
+
+  return {
+    dataset_id: datasetId,
+    domain_ids: domains.map((domain) => domain.domain_id),
+    priority_score: priorityScore,
+    record_count: expectedObservations ?? null,
+    observation_count: observationsLoaded ?? 0,
+    year_coverage: yearCoverage || null,
+    min_year: grain.min_year,
+    max_year: grain.max_year,
+    spatial_levels: spatialLevels,
+    measure_count: measures,
+    dimension_count: dimensions,
+    quality_status: qualityStatus ?? null,
+    suggested_gold_model: suggestedGoldModel,
+    recommended_action: recommendedAction,
+    reason: [
+      domains.length ? `Mapped to ${domains.length} domain(s).` : "No domain mapping found.",
+      grain.has_year ? `Year coverage ${grain.min_year}-${grain.max_year}.` : "No year coverage classified.",
+      spatialLevels.length ? `Spatial levels: ${spatialLevels.join(", ")}.` : "No spatial level classified.",
+      `${measures} measure(s), ${dimensions} dimension(s).`,
+    ].join(" "),
+    source_version: sourceVersion,
+    silver_loaded_at: new Date().toISOString(),
+  };
+}
+
+async function upsertGoldReadinessForDataset(supabase, datasetId, sourceVersion, result) {
+  let grain = result.metadataResult?.grain ?? null;
+  let domainRows = result.metadataResult?.domainRows ?? null;
+
+  if (!grain) {
+    const { data, error } = await supabase
+      .schema("silver")
+      .from("cbs_dataset_grain")
+      .select("*")
+      .eq("dataset_id", datasetId)
+      .maybeSingle();
+
+    if (error) throw error;
+    grain = data;
+  }
+
+  if (!domainRows) {
+    const { data, error } = await supabase
+      .schema("silver")
+      .from("cbs_dataset_domains")
+      .select("domain_id")
+      .eq("dataset_id", datasetId);
+
+    if (error) throw error;
+    domainRows = data ?? [];
+  }
+
+  if (!grain) return;
+
+  const dimensionCount = result.metadataResult?.dimensions ?? result.dimensionCount ?? await getExactDatasetCount(
+    supabase,
+    "silver",
+    "cbs_dimensions",
+    "dimension_key",
+    datasetId
+  );
+  const measureCount = result.metadataResult?.measures ?? result.measureCount ?? await getExactDatasetCount(
+    supabase,
+    "silver",
+    "cbs_measures",
+    "measure_key",
+    datasetId
+  );
+
+  const row = goldReadinessRow({
+    datasetId,
+    domains: domainRows ?? [],
+    grain,
+    dimensions: dimensionCount,
+    measures: measureCount,
+    expectedObservations: result.expectedObservations,
+    observationsLoaded: result.observations ?? 0,
+    qualityStatus: result.quality?.qualityStatus ?? null,
+    sourceVersion,
+  });
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_gold_readiness",
+    [row],
+    { onConflict: "dataset_id" }
+  );
+}
+
 function isPublicDimensionValueCandidate(dimension) {
   const key = String(dimension.dimension_key ?? "");
   const type = String(dimension.type ?? "");
@@ -917,6 +1326,60 @@ async function loadMetadataForDataset(supabase, datasetId, sourceVersion) {
     { onConflict: "dataset_id,measure_key" }
   );
 
+  const periodRows = periodRowsFromDimensionValues(datasetId, dimensionValues, sourceVersion);
+  const regionRows = regionRowsFromDimensionValues(datasetId, dimensionValues, sourceVersion);
+  const grain = datasetGrainRow(datasetId, dimensionProperties, dimensionValues, catalog, sourceVersion);
+  const indicatorRows = indicatorCandidateRows(datasetId, measureProperties, properties, sourceVersion);
+  const domainRows = await datasetDomainRows(supabase, datasetId, sourceVersion);
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_period_values",
+    periodRows,
+    { onConflict: "dataset_id,period_key" }
+  );
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_region_values",
+    regionRows,
+    { onConflict: "dataset_id,dimension_key,region_code" }
+  );
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_dataset_grain",
+    [grain],
+    { onConflict: "dataset_id" }
+  );
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_indicator_candidates",
+    indicatorRows,
+    { onConflict: "dataset_id,measure_key" }
+  );
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_domains",
+    cbsDomainRows(sourceVersion),
+    { onConflict: "domain_id" }
+  );
+
+  await upsertOrThrow(
+    supabase,
+    "silver",
+    "cbs_dataset_domains",
+    domainRows,
+    { onConflict: "dataset_id,domain_id,root_theme_title,assigned_theme_title,theme_path" }
+  );
+
   const themesResult = await loadThemesForDataset(supabase, datasetId, sourceVersion);
   const featuredResult = await loadFeaturedForDataset(supabase, datasetId, sourceVersion);
 
@@ -924,6 +1387,12 @@ async function loadMetadataForDataset(supabase, datasetId, sourceVersion) {
     dimensions: dimensionProperties.length,
     dimensionValues: dimensionValues.length,
     measures: measureProperties.length,
+    periods: periodRows.length,
+    regions: regionRows.length,
+    indicators: indicatorRows.length,
+    domains: domainRows.length,
+    grain,
+    domainRows,
     themes: themesResult.datasetThemes,
     featured: featuredResult.datasetFeatured,
     schemaHash: currentSchemaHash,
@@ -1250,8 +1719,57 @@ async function getOverviewStatusRows(supabase, schema, table, selectWithCounts, 
   }
 }
 
+async function getGoldReadinessOverviewRows(supabase) {
+  try {
+    return await getOverviewRows(() =>
+      supabase
+        .schema("silver")
+        .from("cbs_gold_readiness")
+        .select("dataset_id,domain_ids,priority_score,recommended_action,suggested_gold_model,reason")
+    );
+  } catch (error) {
+    if (isMissingPublicTableError(error)) return [];
+    throw error;
+  }
+}
+
 function normalizeText(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeDomainText(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+function loadCbsDomains() {
+  const path = resolve(process.cwd(), "config/cbs-domains.json");
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function resolveCbsDomain(value) {
+  if (!value) return null;
+  const domains = loadCbsDomains();
+  const normalized = normalizeDomainText(value);
+  const domain = domains.find((item) => {
+    const candidates = [
+      item.domain_id,
+      item.canonical_name,
+      item.cbs_root_theme_title,
+      ...(item.aliases ?? []),
+    ];
+    return candidates.some((candidate) => normalizeDomainText(candidate) === normalized);
+  });
+
+  if (!domain) {
+    const available = domains.map((item) => item.domain_id).join(", ");
+    throw new Error(`Unknown CBS domain "${value}". Available domains: ${available}`);
+  }
+
+  return domain;
 }
 
 async function getDatasetIdsForRootTheme(supabase, rootTheme) {
@@ -1416,6 +1934,8 @@ function compactSilverOverviewTable(rows) {
     bronzeStatus: row.bronzeStatus ?? "",
     silverStatus: row.silverStatus ?? "",
     rejected: row.silverRejectedRows,
+    goldScore: row.goldPriorityScore ?? "",
+    goldAction: row.goldRecommendedAction ?? "",
   }));
 }
 
@@ -1449,7 +1969,7 @@ async function runSilverOverview(supabase, options) {
         return data ?? [];
       })();
 
-  const [rawCatalogRows, bronzeStatusRows, silverStatusRows, silverDatasetRows] =
+  const [rawCatalogRows, bronzeStatusRows, silverStatusRows, silverDatasetRows, goldReadinessRows] =
     await Promise.all([
       rawCatalogRowsPromise,
       getOverviewStatusRows(
@@ -1472,11 +1992,13 @@ async function runSilverOverview(supabase, options) {
           .from("cbs_datasets")
           .select("dataset_id,silver_loaded_at")
       ),
+      getGoldReadinessOverviewRows(supabase),
     ]);
 
   const bronzeStatusById = new Map(bronzeStatusRows.map((row) => [row.dataset_id, row]));
   const silverStatusById = new Map(silverStatusRows.map((row) => [row.dataset_id, row]));
   const silverDatasetById = new Map(silverDatasetRows.map((row) => [row.dataset_id, row]));
+  const goldReadinessById = new Map(goldReadinessRows.map((row) => [row.dataset_id, row]));
   const themeByDataset = themeSummaryByDataset(await getThemeRowsForDatasetIds(supabase, rawCatalogRows.map((row) => row.dataset_id)));
 
   const baseRows = rawCatalogRows
@@ -1485,6 +2007,7 @@ async function runSilverOverview(supabase, options) {
       const bronzeStatus = bronzeStatusById.get(row.dataset_id);
       const silverStatus = silverStatusById.get(row.dataset_id);
       const silverDataset = silverDatasetById.get(row.dataset_id);
+      const goldReadiness = goldReadinessById.get(row.dataset_id);
       const theme = themeByDataset.get(row.dataset_id) ?? {};
 
       return {
@@ -1513,6 +2036,10 @@ async function runSilverOverview(supabase, options) {
         silverMeasuresLoaded: silverStatus?.measures_loaded ?? 0,
         silverRejectedRows: silverStatus?.rejected_rows ?? 0,
         silverError: silverStatus?.error_message ?? null,
+        goldPriorityScore: goldReadiness?.priority_score ?? null,
+        goldRecommendedAction: goldReadiness?.recommended_action ?? null,
+        goldSuggestedModel: goldReadiness?.suggested_gold_model ?? null,
+        goldReadinessReason: goldReadiness?.reason ?? null,
       };
     })
     .filter((row) => matchesOverviewQuery(row, options.query));
@@ -1550,6 +2077,7 @@ async function runSilverOverview(supabase, options) {
     scope: {
       dataset: options.dataset || null,
       query: options.query || null,
+      domain: options.domain || null,
       rootTheme: options.rootTheme || null,
       limit: options.limit,
       withBronzeCounts: options.withBronzeCounts,
@@ -1576,6 +2104,14 @@ async function runSilverOverview(supabase, options) {
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
+  const selectedDomain = resolveCbsDomain(options.domain);
+
+  if (selectedDomain) {
+    if (options.rootTheme && normalizeDomainText(options.rootTheme) !== normalizeDomainText(selectedDomain.cbs_root_theme_title)) {
+      throw new Error(`--domain ${options.domain} maps to root theme "${selectedDomain.cbs_root_theme_title}", but --root-theme was "${options.rootTheme}". Use one selector.`);
+    }
+    options.rootTheme = selectedDomain.cbs_root_theme_title;
+  }
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -1597,7 +2133,7 @@ async function main() {
 
   const datasets = await getBronzeDatasets(supabase, options);
   console.log(
-    `Found ${datasets.length} Bronze dataset(s) to load into Silver${options.rootTheme ? ` for root theme "${options.rootTheme}"` : ""}.`
+    `Found ${datasets.length} Bronze dataset(s) to load into Silver${selectedDomain ? ` for domain "${selectedDomain.domain_id}"` : options.rootTheme ? ` for root theme "${options.rootTheme}"` : ""}.`
   );
 
   if (options.rootTheme && datasets.length === 0) {
@@ -1673,8 +2209,10 @@ async function main() {
           expectedObservations,
           schemaHash: metadataResult?.schemaHash ?? bronzeStatus?.schema_hash ?? null,
           quality,
+          metadataResult,
         };
 
+        await upsertGoldReadinessForDataset(supabase, datasetId, sourceVersion, result);
         await finishRun(supabase, runId, finalStatus, result);
         await updateDatasetStatus(supabase, datasetId, sourceVersion, finalStatus, result);
         await publishPublicQualityChecks(supabase, datasetId, "silver", quality);

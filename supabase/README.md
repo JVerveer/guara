@@ -9,7 +9,7 @@ Run `bronze_schema.sql` next for raw CBS bronze tables:
 -- paste supabase/bronze_schema.sql
 ```
 
-Run `silver_schema.sql` after your Silver base tables exist. This migration adds lineage, quality checks, expected row counts, and schema snapshots without recreating loaded Silver data:
+Run `silver_schema.sql` after your Silver base tables exist. This migration adds lineage, quality checks, expected row counts, schema snapshots, source-normalized period/region metadata, indicator candidates, domain mappings, dataset grain, and Gold readiness without recreating loaded Silver data:
 
 ```sql
 -- Supabase SQL editor
@@ -81,6 +81,16 @@ npm run ingest:cbs:bronze:all -- --limit 25 --batch-size 2000
 npm run ingest:cbs:bronze:all -- --dataset 85322NED --batch-size 2000 --upsert-batch-size 100
 ```
 
+Fast direct-Postgres Bronze row ingestion:
+
+```bash
+npm run ingest:cbs:bronze:fast -- --dry-run --dataset 85039NED
+npm run ingest:cbs:bronze:fast -- --dataset 85039NED --max-rows-per-dataset 100000
+npm run ingest:cbs:bronze:fast -- --failed-only --limit 25 --batch-size 5000
+```
+
+The fast path requires `SUPABASE_DB_URL` in `.env.local`. It uses the CBS ODataFeed endpoint for `TypedDataSet` rows, then writes batches through a direct Postgres connection into `bronze.cbs_typed_dataset_rows` using `bronze.cbs_typed_dataset_rows_stage` and a SQL merge. Use the normal `ingest:cbs:bronze:all -- --metadata-only` flow first for catalog metadata, properties, dimensions, themes, featured metadata, and public previews; use `ingest:cbs:bronze:fast` when the bottleneck is raw row loading.
+
 Bronze coverage overview:
 
 ```bash
@@ -99,6 +109,7 @@ Silver coverage overview:
 npm run overview:cbs:silver
 npm run overview:cbs:silver -- --query wijken --limit 50
 npm run overview:cbs:silver -- --dataset 85039NED
+npm run overview:cbs:silver -- --domain bouwen-en-wonen --limit 50
 npm run overview:cbs:silver -- --root-theme "Bouwen en wonen" --limit 50
 npm run overview:cbs:silver -- --limit 500 --write-json
 ```
@@ -109,12 +120,31 @@ Both Silver loading and Silver coverage overview are handled by `scripts/load-cb
 Silver loading by CBS root theme:
 
 ```bash
+npm run plan:cbs:silver -- --domain bouwen-en-wonen --limit 100
+npm run load:cbs:silver -- --domain bouwen-en-wonen --limit 25
 npm run plan:cbs:silver -- --query "Bouwen en wonen" --limit 100
 npm run load:cbs:silver -- --root-theme "Bouwen en wonen" --limit 25
 npm run load:cbs:silver -- --root-theme "Bouwen en wonen" --limit 25 --metadata-only
 ```
 
-`--root-theme` uses `bronze.cbs_dataset_theme_hierarchy.top_theme_title`, so run the latest `supabase/bronze_schema.sql` before relying on theme-based Silver loads.
+Silver metadata enrichment:
+
+- `silver.cbs_period_values` parses CBS `Perioden` dimension keys into year, period type, and approximate date bounds.
+- `silver.cbs_region_values` classifies recognizable CBS geography values as country, province, municipality, neighborhood, or other.
+- `silver.cbs_dataset_grain` stores the dataset grain: year coverage, period types, spatial levels, spatial coverage, and classification confidence.
+- `silver.cbs_indicator_candidates` stores source-specific candidate indicators from CBS DataProperties.
+- `silver.cbs_domains` and `silver.cbs_dataset_domains` persist Guara/CBS domain mappings from CBS root themes.
+- `silver.cbs_gold_readiness` scores Silver datasets as Gold modelling candidates.
+
+To backfill these enrichment tables for already-loaded datasets without loading observation rows again:
+
+```bash
+npm run load:cbs:silver -- --dataset 85039NED --metadata-only --no-skip-unchanged
+npm run load:cbs:silver -- --domain bouwen-en-wonen --limit 100 --metadata-only --no-skip-unchanged
+npm run load:cbs:silver -- --root-theme "Nederland regionaal" --limit 100 --metadata-only --no-skip-unchanged
+```
+
+Canonical Guara domains are defined in `config/cbs-domains.json`. They use CBS root themes as the domain backbone, so `--domain bouwen-en-wonen` resolves to `--root-theme "Bouwen en wonen"`. `--root-theme` uses `bronze.cbs_dataset_theme_hierarchy.top_theme_title`, so run the latest `supabase/bronze_schema.sql` before relying on theme-based Silver loads.
 
 CBS catalog paging is explicit and deterministic: Dutch catalog tables are requested with `Language eq 'nl'` and `$orderby=ID asc`. This makes `--table-offset` stable across resumed batches unless CBS changes catalog contents.
 

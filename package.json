@@ -20,7 +20,8 @@
     "plan:cbs:silver": "node scripts/plan-cbs-silver.mjs",
     "overview:cbs:silver": "node scripts/load-cbs-silver.mjs --overview",
     "overview:cbs:bronze": "node scripts/ingest-cbs-bronze-all.mjs --overview",
-    "ingest:cbs:bronze:all": "node scripts/ingest-cbs-bronze-all.mjs"
+    "ingest:cbs:bronze:all": "node scripts/ingest-cbs-bronze-all.mjs",
+    "ingest:cbs:bronze:fast": "node scripts/ingest-cbs-bronze-fast.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -67,6 +68,7 @@
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
     "next-themes": "0.4.6",
+    "pg": "^8.22.0",
     "react-day-picker": "8.10.1",
     "react-dnd": "16.0.1",
     "react-dnd-html5-backend": "16.0.1",

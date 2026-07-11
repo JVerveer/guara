@@ -1,0 +1,140 @@
+[
+  {
+    "domain_id": "archief",
+    "canonical_name": "Archief",
+    "cbs_root_theme_title": "Archief",
+    "aliases": ["archief", "archive", "archived"]
+  },
+  {
+    "domain_id": "arbeid-en-sociale-zekerheid",
+    "canonical_name": "Arbeid en sociale zekerheid",
+    "cbs_root_theme_title": "Arbeid en sociale zekerheid",
+    "aliases": ["arbeid", "sociale zekerheid", "labor", "work", "employment"]
+  },
+  {
+    "domain_id": "bedrijven",
+    "canonical_name": "Bedrijven",
+    "cbs_root_theme_title": "Bedrijven",
+    "aliases": ["bedrijven", "business", "companies"]
+  },
+  {
+    "domain_id": "bevolking",
+    "canonical_name": "Bevolking",
+    "cbs_root_theme_title": "Bevolking",
+    "aliases": ["bevolking", "population", "demography", "demographics"]
+  },
+  {
+    "domain_id": "bouwen-en-wonen",
+    "canonical_name": "Bouwen en wonen",
+    "cbs_root_theme_title": "Bouwen en wonen",
+    "aliases": ["bouwen en wonen", "housing", "wonen", "bouw", "real estate"]
+  },
+  {
+    "domain_id": "caribisch-nederland",
+    "canonical_name": "Caribisch Nederland",
+    "cbs_root_theme_title": "Caribisch Nederland",
+    "aliases": ["caribisch nederland", "caribbean netherlands"]
+  },
+  {
+    "domain_id": "energie",
+    "canonical_name": "Energie",
+    "cbs_root_theme_title": "Energie",
+    "aliases": ["energie", "energy"]
+  },
+  {
+    "domain_id": "financiele-en-zakelijke-diensten",
+    "canonical_name": "Financiele en zakelijke diensten",
+    "cbs_root_theme_title": "Financiële en zakelijke diensten",
+    "aliases": ["financiele diensten", "financiële diensten", "zakelijke diensten", "financial services"]
+  },
+  {
+    "domain_id": "gezondheid-en-welzijn",
+    "canonical_name": "Gezondheid en welzijn",
+    "cbs_root_theme_title": "Gezondheid en welzijn",
+    "aliases": ["gezondheid", "welzijn", "health", "healthcare", "care"]
+  },
+  {
+    "domain_id": "handel-en-horeca",
+    "canonical_name": "Handel en horeca",
+    "cbs_root_theme_title": "Handel en horeca",
+    "aliases": ["handel", "horeca", "trade", "hospitality"]
+  },
+  {
+    "domain_id": "inkomen-en-bestedingen",
+    "canonical_name": "Inkomen en bestedingen",
+    "cbs_root_theme_title": "Inkomen en bestedingen",
+    "aliases": ["inkomen", "bestedingen", "income", "spending"]
+  },
+  {
+    "domain_id": "internationale-handel",
+    "canonical_name": "Internationale handel",
+    "cbs_root_theme_title": "Internationale handel",
+    "aliases": ["internationale handel", "international trade", "import", "export"]
+  },
+  {
+    "domain_id": "industrie",
+    "canonical_name": "Industrie",
+    "cbs_root_theme_title": "Industrie",
+    "aliases": ["industrie", "industry", "manufacturing"]
+  },
+  {
+    "domain_id": "landbouw",
+    "canonical_name": "Landbouw",
+    "cbs_root_theme_title": "Landbouw",
+    "aliases": ["landbouw", "agriculture"]
+  },
+  {
+    "domain_id": "macro-economie",
+    "canonical_name": "Macro-economie",
+    "cbs_root_theme_title": "Macro-economie",
+    "aliases": ["macro-economie", "macroeconomics", "economy"]
+  },
+  {
+    "domain_id": "natuur-en-milieu",
+    "canonical_name": "Natuur en milieu",
+    "cbs_root_theme_title": "Natuur en milieu",
+    "aliases": ["natuur", "milieu", "environment", "nature"]
+  },
+  {
+    "domain_id": "nederland-regionaal",
+    "canonical_name": "Nederland regionaal",
+    "cbs_root_theme_title": "Nederland regionaal",
+    "aliases": ["nederland regionaal", "regional", "regionaal", "municipality", "gemeente"]
+  },
+  {
+    "domain_id": "onderwijs",
+    "canonical_name": "Onderwijs",
+    "cbs_root_theme_title": "Onderwijs",
+    "aliases": ["onderwijs", "education"]
+  },
+  {
+    "domain_id": "overheid",
+    "canonical_name": "Overheid",
+    "cbs_root_theme_title": "Overheid",
+    "aliases": ["overheid", "government", "public administration"]
+  },
+  {
+    "domain_id": "prijzen",
+    "canonical_name": "Prijzen",
+    "cbs_root_theme_title": "Prijzen",
+    "aliases": ["prijzen", "prices", "inflation"]
+  },
+  {
+    "domain_id": "veiligheid-en-recht",
+    "canonical_name": "Veiligheid en recht",
+    "cbs_root_theme_title": "Veiligheid en recht",
+    "aliases": ["veiligheid", "recht", "safety", "crime", "justice"]
+  },
+  {
+    "domain_id": "verkeer-en-vervoer",
+    "canonical_name": "Verkeer en vervoer",
+    "cbs_root_theme_title": "Verkeer en vervoer",
+    "aliases": ["verkeer", "vervoer", "traffic", "transport"]
+  },
+  {
+    "domain_id": "vrije-tijd-en-cultuur",
+    "canonical_name": "Vrije tijd en cultuur",
+    "cbs_root_theme_title": "Vrije tijd en cultuur",
+    "aliases": ["vrije tijd", "cultuur", "culture", "leisure"]
+  }
+]

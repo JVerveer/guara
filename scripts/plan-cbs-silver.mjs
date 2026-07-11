@@ -96,17 +96,6 @@ async function getRows(queryFactory, pageSize = 1000) {
   return rows;
 }
 
-async function getRowsOptional(queryFactory, pageSize = 1000) {
-  try {
-    return await getRows(queryFactory, pageSize);
-  } catch (error) {
-    if (error?.code === "PGRST205" || String(error?.message ?? "").includes("Could not find")) {
-      return null;
-    }
-    throw error;
-  }
-}
-
 function includesAny(text, terms) {
   const normalized = String(text ?? "").toLowerCase();
   return terms.filter((term) => normalized.includes(term));
@@ -174,9 +163,7 @@ function scoreDataset(row) {
     row.title,
     row.description,
     row.spatial_coverage,
-    row.top_theme_titles?.join(" "),
     row.theme_titles?.join(" "),
-    row.theme_paths?.join(" "),
     row.featured_titles?.join(" "),
   ].join(" ");
   const matchedTerms = includesAny(searchableText, IMPORTANT_TERMS);
@@ -215,9 +202,7 @@ function matchesQuery(row, query) {
     row.description,
     row.status,
     row.spatial_coverage,
-    row.top_theme_titles?.join(" "),
     row.theme_titles?.join(" "),
-    row.theme_paths?.join(" "),
     row.featured_titles?.join(" "),
   ].some((value) => String(value ?? "").toLowerCase().includes(normalized));
 }
@@ -231,93 +216,9 @@ function compactRows(rows) {
     properties: row.property_count ?? 0,
     levels: (row.geographic_levels ?? []).join(","),
     years: row.year_start && row.year_end ? `${row.year_start}-${row.year_end}` : "",
-    themes: (row.top_theme_titles ?? row.theme_titles ?? []).slice(0, 2).join(", "),
     title: String(row.title ?? "").slice(0, 58),
     reason: row.reasons.slice(0, 3).join("; "),
   }));
-}
-
-function uniqueValues(values) {
-  return Array.from(new Set(values.filter(Boolean)));
-}
-
-function buildThemeHierarchyFallback(tableThemes, themes) {
-  const themeById = new Map(themes.map((theme) => [theme.id, theme]));
-  const resolvedById = new Map();
-
-  function resolve(themeId, seen = new Set()) {
-    if (resolvedById.has(themeId)) return resolvedById.get(themeId);
-    const theme = themeById.get(themeId);
-    if (!theme) return null;
-    if (seen.has(themeId)) {
-      const cyclic = {
-        theme_id: theme.id,
-        assigned_theme_title: theme.title,
-        top_theme_id: theme.id,
-        top_theme_title: theme.title,
-        theme_path: theme.title,
-      };
-      resolvedById.set(themeId, cyclic);
-      return cyclic;
-    }
-
-    const nextSeen = new Set(seen);
-    nextSeen.add(themeId);
-    const parent = theme.parent_id ? resolve(theme.parent_id, nextSeen) : null;
-    const topThemeId = parent?.top_theme_id ?? theme.id;
-    const topThemeTitle = parent?.top_theme_title ?? theme.title;
-    const themePath = parent?.theme_path ? `${parent.theme_path} > ${theme.title}` : theme.title;
-    const resolved = {
-      theme_id: theme.id,
-      assigned_theme_title: theme.title,
-      top_theme_id: topThemeId,
-      top_theme_title: topThemeTitle,
-      theme_path: themePath,
-    };
-    resolvedById.set(themeId, resolved);
-    return resolved;
-  }
-
-  return tableThemes
-    .map((link) => {
-      const hierarchy = resolve(link.theme_id);
-      if (!hierarchy) return null;
-      return {
-        dataset_id: link.table_identifier,
-        assigned_theme_id: hierarchy.theme_id,
-        assigned_theme_title: hierarchy.assigned_theme_title,
-        top_theme_id: hierarchy.top_theme_id,
-        top_theme_title: hierarchy.top_theme_title,
-        theme_path: hierarchy.theme_path,
-      };
-    })
-    .filter(Boolean);
-}
-
-function buildThemeMaps(themeHierarchyRows) {
-  const themeTitlesByDataset = new Map();
-  const topThemeTitlesByDataset = new Map();
-  const themePathsByDataset = new Map();
-
-  for (const row of themeHierarchyRows) {
-    const datasetId = row.dataset_id;
-    if (!datasetId) continue;
-
-    themeTitlesByDataset.set(
-      datasetId,
-      uniqueValues([...(themeTitlesByDataset.get(datasetId) ?? []), row.assigned_theme_title])
-    );
-    topThemeTitlesByDataset.set(
-      datasetId,
-      uniqueValues([...(topThemeTitlesByDataset.get(datasetId) ?? []), row.top_theme_title])
-    );
-    themePathsByDataset.set(
-      datasetId,
-      uniqueValues([...(themePathsByDataset.get(datasetId) ?? []), row.theme_path])
-    );
-  }
-
-  return { themeTitlesByDataset, topThemeTitlesByDataset, themePathsByDataset };
 }
 
 function writeJson(report, options) {
@@ -348,13 +249,12 @@ async function main() {
     .select("dataset_id,title,record_count,loaded_row_count,status,last_ingested_at,error_message");
   if (options.dataset) statusQuery = statusQuery.eq("dataset_id", options.dataset);
 
-  const [statuses, catalogRows, dimensions, themeHierarchyRowsOptional, tableThemes, themes, tableFeatured, featured] = await Promise.all([
+  const [statuses, catalogRows, dimensions, tableThemes, themes, tableFeatured, featured] = await Promise.all([
     getRows(() => statusQuery.order("dataset_id", { ascending: true })),
     getRows(() => supabase.from("dataset_catalog").select("*")),
     getRows(() => supabase.from("dataset_dimensions").select("dataset_id,key,type,values_count")),
-    getRowsOptional(() => supabase.schema("bronze").from("cbs_dataset_theme_hierarchy").select("dataset_id,assigned_theme_id,assigned_theme_title,top_theme_id,top_theme_title,theme_path")),
     getRows(() => supabase.schema("bronze").from("cbs_table_themes").select("table_identifier,theme_id")),
-    getRows(() => supabase.schema("bronze").from("cbs_themes").select("id,parent_id,title,number")),
+    getRows(() => supabase.schema("bronze").from("cbs_themes").select("id,title,number")),
     getRows(() => supabase.schema("bronze").from("cbs_table_featured").select("table_identifier,featured_id")),
     getRows(() => supabase.schema("bronze").from("cbs_featured").select("id,title,number")),
   ]);
@@ -367,9 +267,16 @@ async function main() {
     dimensionsByDataset.set(dimension.dataset_id, rows);
   }
 
+  const themeById = new Map(themes.map((theme) => [theme.id, theme]));
   const featuredById = new Map(featured.map((item) => [item.id, item]));
-  const themeHierarchyRows = themeHierarchyRowsOptional ?? buildThemeHierarchyFallback(tableThemes, themes);
-  const { themeTitlesByDataset, topThemeTitlesByDataset, themePathsByDataset } = buildThemeMaps(themeHierarchyRows);
+  const themeTitlesByDataset = new Map();
+  for (const link of tableThemes) {
+    const theme = themeById.get(link.theme_id);
+    if (!theme) continue;
+    const titles = themeTitlesByDataset.get(link.table_identifier) ?? [];
+    titles.push(theme.title);
+    themeTitlesByDataset.set(link.table_identifier, titles);
+  }
   const featuredTitlesByDataset = new Map();
   for (const link of tableFeatured) {
     const item = featuredById.get(link.featured_id);
@@ -392,8 +299,6 @@ async function main() {
         property_count: datasetDimensions.length,
         dimension_count: datasetDimensions.filter((dimension) => String(dimension.type ?? "").includes("Dimension") || String(dimension.type ?? "").includes("Geo")).length,
         theme_titles: themeTitlesByDataset.get(status.dataset_id) ?? [],
-        top_theme_titles: topThemeTitlesByDataset.get(status.dataset_id) ?? [],
-        theme_paths: themePathsByDataset.get(status.dataset_id) ?? [],
         featured_titles: featuredTitlesByDataset.get(status.dataset_id) ?? [],
       });
     })
@@ -437,3 +342,4 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+22  
