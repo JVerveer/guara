@@ -37,13 +37,15 @@ function parseArgs(argv) {
     limit: 10,
     all: false,
     failedOnly: false,
+    includeArchive: false,
     tableOffset: 0,
     catalogPageSize: 100,
     batchSize: 5000,
-    upsertBatchSize: 0,
+    upsertBatchSize: 500,
     maxRowsPerDataset: 0,
     requestDelayMs: 50,
     requestTimeoutMs: 60000,
+    writeTimeoutMs: 120000,
     retries: 2,
     force: false,
     resumeRows: true,
@@ -57,6 +59,25 @@ function parseArgs(argv) {
     else if (arg === "--limit") options.limit = Number(argv[++i] ?? options.limit);
     else if (arg === "--all") options.all = true;
     else if (arg === "--failed-only") options.failedOnly = true;
+    else if (arg === "--include-archive" || arg === "--include-archief") options.includeArchive = true;
+    else if (arg === "--large-chunks") {
+      options.batchSize = 10000;
+      options.upsertBatchSize = 1000;
+      options.requestTimeoutMs = Math.max(options.requestTimeoutMs, 120000);
+      options.writeTimeoutMs = Math.max(options.writeTimeoutMs, 180000);
+    }
+    else if (arg === "--huge-chunks") {
+      options.batchSize = 20000;
+      options.upsertBatchSize = 1000;
+      options.requestTimeoutMs = Math.max(options.requestTimeoutMs, 180000);
+      options.writeTimeoutMs = Math.max(options.writeTimeoutMs, 240000);
+    }
+    else if (arg === "--wide-table-chunks") {
+      options.batchSize = 2500;
+      options.upsertBatchSize = 250;
+      options.requestTimeoutMs = Math.max(options.requestTimeoutMs, 120000);
+      options.writeTimeoutMs = Math.max(options.writeTimeoutMs, 120000);
+    }
     else if (arg === "--table-offset") options.tableOffset = Number(argv[++i] ?? options.tableOffset);
     else if (arg === "--catalog-page-size") options.catalogPageSize = Number(argv[++i] ?? options.catalogPageSize);
     else if (arg === "--batch-size") options.batchSize = Number(argv[++i] ?? options.batchSize);
@@ -64,6 +85,7 @@ function parseArgs(argv) {
     else if (arg === "--max-rows-per-dataset") options.maxRowsPerDataset = Number(argv[++i] ?? 0);
     else if (arg === "--request-delay-ms") options.requestDelayMs = Number(argv[++i] ?? options.requestDelayMs);
     else if (arg === "--request-timeout-ms") options.requestTimeoutMs = Number(argv[++i] ?? options.requestTimeoutMs);
+    else if (arg === "--write-timeout-ms") options.writeTimeoutMs = Number(argv[++i] ?? options.writeTimeoutMs);
     else if (arg === "--retries") options.retries = Number(argv[++i] ?? options.retries);
     else if (arg === "--force") options.force = true;
     else if (arg === "--no-resume-rows") options.resumeRows = false;
@@ -87,10 +109,15 @@ Options:
   --limit 10                      Number of catalog tables when not using --all.
   --all                           Page through the full Dutch CBS catalog.
   --failed-only                   Only process failed/partial/metadata-only Bronze statuses.
+  --include-archive               Include CBS root theme Archief. Excluded by default.
+  --large-chunks                  Preset: --batch-size 10000 --upsert-batch-size 1000.
+  --huge-chunks                   Preset: --batch-size 20000 --upsert-batch-size 1000.
+  --wide-table-chunks             Preset: --batch-size 2500 --upsert-batch-size 250.
   --force                         Delete existing Bronze rows for the dataset before loading.
   --batch-size 5000               CBS fetch and Postgres merge batch size.
-  --upsert-batch-size 500         Accepted for compatibility; fast mode uses --batch-size.
+  --upsert-batch-size 500         Postgres staging/merge chunk size after each CBS fetch.
   --max-rows-per-dataset 100000   Cap row loading per dataset.
+  --write-timeout-ms 120000       Timeout for each Postgres write chunk.
   --no-resume-rows                Start from row offset 0.
   --dry-run                       Fetch counts and plan without writing.
 `);
@@ -233,7 +260,7 @@ function pct(part, total) {
   return Math.min(100, Number(((part / total) * 100).toFixed(2)));
 }
 
-function postgresClient() {
+function postgresClient(options) {
   const connectionString = process.env.SUPABASE_DB_URL;
   if (!connectionString) throw new Error("Missing SUPABASE_DB_URL in .env.local.");
 
@@ -243,12 +270,13 @@ function postgresClient() {
   url.searchParams.delete("sslkey");
   url.searchParams.delete("sslrootcert");
   url.searchParams.delete("uselibpqcompat");
+  url.searchParams.set("application_name", "guara-cbs-bronze-fast");
 
   return new Client({
     connectionString: url.toString(),
     ssl: process.env.SUPABASE_DB_SSL_DISABLE === "true" ? false : { rejectUnauthorized: false },
-    statement_timeout: 0,
-    query_timeout: 0,
+    statement_timeout: Math.max(1, options.writeTimeoutMs),
+    query_timeout: Math.max(1, options.writeTimeoutMs),
   });
 }
 
@@ -358,17 +386,30 @@ async function upsertCatalogTable(client, table) {
 }
 
 async function shouldIncludeDataset(client, table, options) {
-  if (options.force || options.dryRun) return true;
+  if (options.dryRun) return true;
 
   const result = await client.query(
     `
-      select status, last_cbs_updated_at
-      from bronze.cbs_dataset_ingestion_status
-      where dataset_id = $1
+      select
+        status.status,
+        status.last_cbs_updated_at,
+        exists (
+          select 1
+          from bronze.cbs_dataset_theme_hierarchy theme
+          where theme.dataset_id = $1
+            and lower(theme.top_theme_title) = 'archief'
+        ) as is_archive
+      from (select $1::text as dataset_id) selected
+      left join bronze.cbs_dataset_ingestion_status status
+        on status.dataset_id = selected.dataset_id
     `,
     [table.Identifier]
   );
   const status = result.rows[0];
+
+  if (!options.includeArchive && status?.is_archive) return false;
+
+  if (options.force) return true;
 
   if (options.failedOnly) {
     return [
@@ -497,7 +538,7 @@ async function deleteDatasetRows(client, datasetId) {
   await client.query("delete from bronze.cbs_typed_dataset_rows where dataset_id = $1", [datasetId]);
 }
 
-async function writeRowsViaStage(client, loadId, datasetId, rows, skip, runId, sourceVersion) {
+async function writeRowsViaStage(client, loadId, datasetId, rows, skip, runId, sourceVersion, options) {
   const datasetIds = [];
   const rowIds = [];
   const rowIndexes = [];
@@ -532,12 +573,7 @@ async function writeRowsViaStage(client, loadId, datasetId, rows, skip, runId, s
         select dataset_id, row_id, row_index, ingestion_run_id, source_version, raw, ingested_at
         from bronze.cbs_typed_dataset_rows_stage
         where load_id = $1
-        on conflict (dataset_id, row_id) do update set
-          row_index = excluded.row_index,
-          ingestion_run_id = excluded.ingestion_run_id,
-          source_version = excluded.source_version,
-          raw = excluded.raw,
-          ingested_at = excluded.ingested_at
+        on conflict (dataset_id, row_id) do nothing
       `,
       [loadId]
     );
@@ -549,6 +585,18 @@ async function writeRowsViaStage(client, loadId, datasetId, rows, skip, runId, s
     await client.query("rollback");
     throw error;
   }
+}
+
+function rowChunks(rows, chunkSize) {
+  const size = Math.max(1, chunkSize);
+  const chunks = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push({
+      startIndex: index,
+      rows: rows.slice(index, index + size),
+    });
+  }
+  return chunks;
 }
 
 async function ingestDatasetRows(client, table, recordCount, options, runId) {
@@ -583,11 +631,18 @@ async function ingestDatasetRows(client, table, recordCount, options, runId) {
 
   for (let skip = startSkip; skip < maxRows; skip += options.batchSize) {
     const top = Math.min(options.batchSize, maxRows - skip);
+    console.log(`  fetching rows ${skip + 1}-${skip + top} (${datasetId})`);
     const rows = await getTypedRows(datasetId, skip, top, options);
     if (rows.length === 0) break;
 
     if (!options.dryRun) {
-      await writeRowsViaStage(client, loadId, datasetId, rows, skip, runId, sourceVersion);
+      const writeBatchSize = Math.max(1, Math.min(options.upsertBatchSize || options.batchSize, rows.length));
+      for (const chunk of rowChunks(rows, writeBatchSize)) {
+        const chunkStart = skip + chunk.startIndex;
+        const chunkEnd = chunkStart + chunk.rows.length;
+        console.log(`  writing rows ${chunkStart + 1}-${chunkEnd} (${datasetId})`);
+        await writeRowsViaStage(client, loadId, datasetId, chunk.rows, chunkStart, runId, sourceVersion, options);
+      }
     }
 
     written += rows.length;
@@ -653,7 +708,7 @@ async function main() {
     return;
   }
 
-  const client = postgresClient();
+  const client = postgresClient(options);
   try {
     await client.connect();
   } catch (error) {
@@ -665,7 +720,7 @@ async function main() {
 
     for (const table of tables) {
       if (!(await shouldIncludeDataset(client, table, options))) {
-        console.log(`Skipped ${table.Identifier}: not selected by status/source filters.`);
+        console.log(`Skipped ${table.Identifier}: not selected by archive/status/source filters.`);
         continue;
       }
 
