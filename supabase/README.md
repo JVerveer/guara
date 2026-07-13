@@ -1,12 +1,24 @@
 # Supabase Ingestion
 
-Run `schema.sql` first for the app-facing public cache tables, source summaries, and public quality checks.
+Run the Supabase SQL files in this order:
 
-Run `bronze_schema.sql` next for raw CBS bronze tables:
+1. `schema.sql` for app-facing public cache tables, source summaries, and public quality checks.
+2. `bronze_schema.sql` for CBS Bronze tables, views, fast-ingest staging, and retention policy.
+3. `bronze_performance.sql` after Bronze exists, especially when `bronze.cbs_typed_dataset_rows` starts getting large.
+4. `silver_schema.sql` after the Silver base tables have been created by the Silver loader.
+
+Run `bronze_schema.sql` for raw CBS bronze tables:
 
 ```sql
 -- Supabase SQL editor
 -- paste supabase/bronze_schema.sql
+```
+
+For larger Bronze loads, also run `bronze_performance.sql`. It removes a redundant raw-row index, adds faster resume/staging indexes, tunes autovacuum for the large JSONB row table, and includes an optional cleanup for duplicated TypedDataSet batch payloads from older runs:
+
+```sql
+-- Supabase SQL editor
+-- paste supabase/bronze_performance.sql
 ```
 
 Run `silver_schema.sql` after your Silver base tables exist. This migration adds lineage, quality checks, expected row counts, schema snapshots, source-normalized period/region metadata, indicator candidates, domain mappings, dataset grain, and Gold readiness without recreating loaded Silver data:
@@ -14,13 +26,6 @@ Run `silver_schema.sql` after your Silver base tables exist. This migration adds
 ```sql
 -- Supabase SQL editor
 -- paste supabase/silver_schema.sql
-```
-
-For larger Bronze loads, also run `bronze_performance.sql`. It removes a redundant raw-row index, adds a faster resume index, tunes autovacuum for the large JSONB row table, and includes an optional cleanup for duplicated TypedDataSet batch payloads from older runs:
-
-```sql
--- Supabase SQL editor
--- paste supabase/bronze_performance.sql
 ```
 
 In Supabase project settings, make sure the `bronze` schema is exposed to the API before running the ingestion job. Keep RLS enabled and do not add public policies to bronze tables; the job uses the service-role key.
@@ -37,10 +42,12 @@ The ingestion job writes:
 - `bronze.cbs_featured`
 - `bronze.cbs_table_featured`
 - `bronze.cbs_typed_dataset_rows` when using the all-data job
+- `bronze.cbs_typed_dataset_rows_stage` for direct-Postgres fast row loads
 - `bronze.cbs_raw_endpoint_payloads`
 - `bronze.cbs_ingestion_runs`
 - `bronze.cbs_dataset_ingestion_status`
 - `bronze.cbs_schema_snapshots`
+- `bronze.cbs_dataset_retention_policy`
 - `public.dataset_catalog`
 - `public.dataset_dimensions`
 - `public.dataset_preview_rows` with a capped 25-row app preview
@@ -100,6 +107,15 @@ Chunk presets:
 - `--wide-table-chunks`: fetches 2,500 CBS rows and writes Postgres chunks of 250. Use for very wide tables with many columns/properties.
 
 Larger CBS fetch chunks are not always faster. Wide CBS tables can time out when requesting 10,000+ rows because the API has to generate and transfer very large JSON responses.
+
+Archief hot-row purge:
+
+```bash
+npm run purge:cbs:bronze:archief -- --dry-run --limit-datasets 25
+npm run purge:cbs:bronze:archief -- --limit-datasets 25
+```
+
+This removes `Archief` rows from `bronze.cbs_typed_dataset_rows` and duplicate `typed_dataset_batch:%` payloads from hot Supabase storage, resets the dataset status to `metadata_loaded`, and records a deferred cold-storage policy in `bronze.cbs_dataset_retention_policy`. It keeps CBS catalog metadata, themes, DataProperties, dimensions, record counts, and source pointers so the rows can later be reloaded from CBS into Cloudflare R2.
 
 Bronze coverage overview:
 

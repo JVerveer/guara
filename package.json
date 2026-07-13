@@ -21,7 +21,8 @@
     "overview:cbs:silver": "node scripts/load-cbs-silver.mjs --overview",
     "overview:cbs:bronze": "node scripts/ingest-cbs-bronze-all.mjs --overview",
     "ingest:cbs:bronze:all": "node scripts/ingest-cbs-bronze-all.mjs",
-    "ingest:cbs:bronze:fast": "node scripts/ingest-cbs-bronze-fast.mjs"
+    "ingest:cbs:bronze:fast": "node scripts/ingest-cbs-bronze-fast.mjs",
+    "purge:cbs:bronze:archief": "node scripts/purge-cbs-archief-bronze.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

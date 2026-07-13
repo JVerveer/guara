@@ -252,7 +252,10 @@ async function getTypedRows(datasetId, skip, top, options) {
     $skip: skip,
   })}`;
   const payload = await getJson(url, options);
-  return payload.value ?? [];
+  return {
+    rows: payload.value ?? [],
+    hasNext: Boolean(payload["odata.nextLink"] || payload["@odata.nextLink"]),
+  };
 }
 
 function pct(part, total) {
@@ -629,10 +632,12 @@ async function ingestDatasetRows(client, table, recordCount, options, runId) {
   let written = 0;
   const loadId = runId;
 
-  for (let skip = startSkip; skip < maxRows; skip += options.batchSize) {
+  let skip = startSkip;
+
+  while (skip < maxRows) {
     const top = Math.min(options.batchSize, maxRows - skip);
     console.log(`  fetching rows ${skip + 1}-${skip + top} (${datasetId})`);
-    const rows = await getTypedRows(datasetId, skip, top, options);
+    const { rows, hasNext } = await getTypedRows(datasetId, skip, top, options);
     if (rows.length === 0) break;
 
     if (!options.dryRun) {
@@ -646,8 +651,10 @@ async function ingestDatasetRows(client, table, recordCount, options, runId) {
     }
 
     written += rows.length;
-    console.log(`  rows ${skip + rows.length}/${maxRows} (${datasetId})`);
-    if (rows.length < top) break;
+    skip += rows.length;
+    console.log(`  rows ${skip}/${maxRows} (${datasetId})`);
+
+    if (rows.length < top && !hasNext) break;
   }
 
   return written;

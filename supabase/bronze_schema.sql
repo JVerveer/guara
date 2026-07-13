@@ -89,6 +89,17 @@ create table if not exists bronze.cbs_typed_dataset_rows (
   primary key (dataset_id, row_id)
 );
 
+create table if not exists bronze.cbs_typed_dataset_rows_stage (
+  load_id uuid not null,
+  dataset_id text not null,
+  row_id text not null,
+  row_index bigint,
+  ingestion_run_id uuid,
+  source_version text,
+  raw jsonb not null,
+  ingested_at timestamptz not null default now()
+);
+
 create table if not exists bronze.cbs_raw_endpoint_payloads (
   dataset_id text not null,
   endpoint text not null,
@@ -138,6 +149,17 @@ create table if not exists bronze.cbs_schema_snapshots (
   properties jsonb not null,
   captured_at timestamptz not null default now(),
   primary key (dataset_id, source_version, schema_hash)
+);
+
+create table if not exists bronze.cbs_dataset_retention_policy (
+  dataset_id text primary key,
+  root_theme_title text,
+  retention_tier text not null,
+  keep_raw_rows boolean not null default false,
+  storage_provider text,
+  storage_location text,
+  reason text,
+  updated_at timestamptz not null default now()
 );
 
 alter table bronze.cbs_dataset_ingestion_status
@@ -227,6 +249,12 @@ create index if not exists cbs_typed_dataset_rows_row_index_idx
 create index if not exists cbs_typed_dataset_rows_dataset_row_index_desc_idx
   on bronze.cbs_typed_dataset_rows (dataset_id, row_index desc);
 
+create index if not exists cbs_typed_dataset_rows_stage_load_idx
+  on bronze.cbs_typed_dataset_rows_stage (load_id);
+
+create index if not exists cbs_typed_dataset_rows_stage_dataset_idx
+  on bronze.cbs_typed_dataset_rows_stage (dataset_id);
+
 create index if not exists cbs_raw_endpoint_payloads_dataset_idx
   on bronze.cbs_raw_endpoint_payloads (dataset_id);
 
@@ -241,6 +269,12 @@ create index if not exists cbs_dataset_ingestion_status_quality_idx
 
 create index if not exists cbs_schema_snapshots_dataset_idx
   on bronze.cbs_schema_snapshots (dataset_id, captured_at desc);
+
+create index if not exists cbs_dataset_retention_policy_tier_idx
+  on bronze.cbs_dataset_retention_policy (retention_tier);
+
+create index if not exists cbs_dataset_retention_policy_root_theme_idx
+  on bronze.cbs_dataset_retention_policy (root_theme_title);
 
 create or replace view bronze.cbs_theme_hierarchy as
 with recursive theme_tree as (
@@ -330,9 +364,11 @@ alter table bronze.cbs_table_themes enable row level security;
 alter table bronze.cbs_featured enable row level security;
 alter table bronze.cbs_table_featured enable row level security;
 alter table bronze.cbs_typed_dataset_rows enable row level security;
+alter table bronze.cbs_typed_dataset_rows_stage enable row level security;
 alter table bronze.cbs_raw_endpoint_payloads enable row level security;
 alter table bronze.cbs_ingestion_runs enable row level security;
 alter table bronze.cbs_dataset_ingestion_status enable row level security;
 alter table bronze.cbs_schema_snapshots enable row level security;
+alter table bronze.cbs_dataset_retention_policy enable row level security;
 
 -- No public policies on bronze tables. Use the Supabase service-role key for ingestion.

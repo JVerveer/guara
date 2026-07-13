@@ -6,6 +6,12 @@ drop index if exists bronze.cbs_typed_dataset_rows_dataset_idx;
 create index if not exists cbs_typed_dataset_rows_dataset_row_index_desc_idx
   on bronze.cbs_typed_dataset_rows (dataset_id, row_index desc);
 
+create index if not exists cbs_typed_dataset_rows_stage_load_idx
+  on bronze.cbs_typed_dataset_rows_stage (load_id);
+
+create index if not exists cbs_typed_dataset_rows_stage_dataset_idx
+  on bronze.cbs_typed_dataset_rows_stage (dataset_id);
+
 alter table if exists bronze.cbs_typed_dataset_rows set (
   autovacuum_vacuum_scale_factor = 0.02,
   autovacuum_analyze_scale_factor = 0.01,
@@ -13,6 +19,8 @@ alter table if exists bronze.cbs_typed_dataset_rows set (
 );
 
 analyze bronze.cbs_typed_dataset_rows;
+analyze bronze.cbs_typed_dataset_rows_stage;
+analyze bronze.cbs_dataset_ingestion_status;
 
 -- Optional one-time cleanup if earlier runs stored full TypedDataSet batch payloads.
 -- The canonical raw rows remain in bronze.cbs_typed_dataset_rows.
