@@ -96,9 +96,11 @@ npm run ingest:cbs:bronze:fast -- --dataset 85039NED --max-rows-per-dataset 1000
 npm run ingest:cbs:bronze:fast -- --failed-only --limit 25 --batch-size 5000 --upsert-batch-size 500
 npm run ingest:cbs:bronze:fast -- --failed-only --limit 2000 --batch-size 5000 --upsert-batch-size 500
 npm run ingest:cbs:bronze:fast -- --failed-only --limit 2000 --large-chunks
+npm run ingest:cbs:bronze:fast -- --root-theme "Bevolking" --failed-only --limit 2000 --large-chunks
 ```
 
 The fast path requires `SUPABASE_DB_URL` in `.env.local`. It uses the CBS ODataFeed endpoint for `TypedDataSet` rows, then writes batches through a direct Postgres connection into `bronze.cbs_typed_dataset_rows` using `bronze.cbs_typed_dataset_rows_stage` and a SQL merge. Use the normal `ingest:cbs:bronze:all -- --metadata-only` flow first for catalog metadata, properties, dimensions, themes, featured metadata, and public previews; use `ingest:cbs:bronze:fast` when the bottleneck is raw row loading. For wide CBS tables, keep `--upsert-batch-size` lower than `--batch-size`; this fetches efficient CBS pages but writes smaller Postgres chunks. Datasets linked to CBS root theme `Archief` are skipped by default; pass `--include-archive` only when you intentionally want archive tables.
+Use `--root-theme "Bevolking"` or another CBS root theme title to load one category at a time. The filter uses `bronze.cbs_dataset_theme_hierarchy`, so run `bronze_schema.sql` and refresh Bronze classification metadata before relying on it.
 
 Chunk presets:
 

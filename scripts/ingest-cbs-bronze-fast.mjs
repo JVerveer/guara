@@ -34,6 +34,7 @@ function parseArgs(argv) {
   const options = {
     dataset: "",
     query: "",
+    rootTheme: "",
     limit: 10,
     all: false,
     failedOnly: false,
@@ -56,6 +57,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === "--dataset") options.dataset = argv[++i] ?? "";
     else if (arg === "--query") options.query = argv[++i] ?? "";
+    else if (arg === "--root-theme") options.rootTheme = argv[++i] ?? "";
     else if (arg === "--limit") options.limit = Number(argv[++i] ?? options.limit);
     else if (arg === "--all") options.all = true;
     else if (arg === "--failed-only") options.failedOnly = true;
@@ -106,6 +108,7 @@ Recommended flow:
 Options:
   --dataset 85039NED              Ingest one dataset.
   --query wonen                   Search CBS catalog title/description/period.
+  --root-theme "Bevolking"        Only load datasets in a CBS root theme.
   --limit 10                      Number of catalog tables when not using --all.
   --all                           Page through the full Dutch CBS catalog.
   --failed-only                   Only process failed/partial/metadata-only Bronze statuses.
@@ -146,6 +149,14 @@ function escapeODataString(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeTheme(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
 }
 
 async function getJson(url, options) {
@@ -238,6 +249,88 @@ async function getCatalogTables(options) {
   }
 
   return tables;
+}
+
+async function getCatalogTablesFromBronze(client, datasetIds) {
+  if (datasetIds.length === 0) return [];
+
+  const rows = [];
+  for (let index = 0; index < datasetIds.length; index += 200) {
+    const chunk = datasetIds.slice(index, index + 200);
+    const result = await client.query(
+      `
+        with raw_catalog as (
+          select
+            dataset_id as identifier,
+            payload as raw
+          from bronze.cbs_raw_endpoint_payloads
+          where endpoint = 'catalog_table'
+            and dataset_id = any($1::text[])
+        ),
+        table_catalog as (
+          select
+            identifier,
+            raw
+          from bronze.cbs_catalog_tables
+          where identifier = any($1::text[])
+        )
+        select distinct on (identifier)
+          identifier,
+          raw
+        from (
+          select identifier, raw, 1 as priority from raw_catalog
+          union all
+          select identifier, raw, 2 as priority from table_catalog
+        ) catalog
+        order by identifier, priority
+      `,
+      [chunk]
+    );
+    rows.push(...result.rows);
+  }
+
+  const order = new Map(datasetIds.map((id, index) => [id, index]));
+  return rows
+    .map((row) => ({
+      ...row.raw,
+      Identifier: row.raw?.Identifier ?? row.identifier,
+    }))
+    .sort((a, b) => (order.get(a.Identifier) ?? 0) - (order.get(b.Identifier) ?? 0));
+}
+
+async function getRootThemeDatasetIds(client, options) {
+  const result = await client.query(
+    `
+      select distinct
+        h.dataset_id,
+        h.top_theme_title,
+        status.status,
+        status.last_cbs_updated_at
+      from bronze.cbs_dataset_theme_hierarchy h
+      left join bronze.cbs_dataset_ingestion_status status
+        on status.dataset_id = h.dataset_id
+      where h.top_theme_title is not null
+      order by h.dataset_id
+    `
+  );
+
+  const requestedTheme = normalizeTheme(options.rootTheme);
+  const ids = result.rows
+    .filter((row) => normalizeTheme(row.top_theme_title) === requestedTheme)
+    .filter((row) => options.includeArchive || normalizeTheme(row.top_theme_title) !== "archief")
+    .filter((row) => {
+      if (!options.failedOnly) return true;
+      return [
+        STATUS.FAILED,
+        STATUS.METADATA_LOADED,
+        STATUS.PARTIAL,
+        "metadata_completed",
+        "rows_partial",
+      ].includes(row.status);
+    })
+    .map((row) => row.dataset_id);
+
+  return ids.slice(Math.max(0, options.tableOffset), Math.max(0, options.tableOffset) + Math.max(1, options.limit));
 }
 
 async function getTypedDataSetCount(datasetId, options) {
@@ -389,8 +482,6 @@ async function upsertCatalogTable(client, table) {
 }
 
 async function shouldIncludeDataset(client, table, options) {
-  if (options.dryRun) return true;
-
   const result = await client.query(
     `
       select
@@ -401,16 +492,31 @@ async function shouldIncludeDataset(client, table, options) {
           from bronze.cbs_dataset_theme_hierarchy theme
           where theme.dataset_id = $1
             and lower(theme.top_theme_title) = 'archief'
-        ) as is_archive
+        ) as is_archive,
+        coalesce(
+          array_agg(distinct theme.top_theme_title) filter (where theme.top_theme_title is not null),
+          '{}'::text[]
+        ) as root_themes
       from (select $1::text as dataset_id) selected
       left join bronze.cbs_dataset_ingestion_status status
         on status.dataset_id = selected.dataset_id
+      left join bronze.cbs_dataset_theme_hierarchy theme
+        on theme.dataset_id = selected.dataset_id
+      group by status.status, status.last_cbs_updated_at
     `,
     [table.Identifier]
   );
   const status = result.rows[0];
 
   if (!options.includeArchive && status?.is_archive) return false;
+  if (options.rootTheme) {
+    const requestedTheme = normalizeTheme(options.rootTheme);
+    const rootThemes = status?.root_themes ?? [];
+    const matchesRootTheme = rootThemes.some((theme) => normalizeTheme(theme) === requestedTheme);
+    if (!matchesRootTheme) return false;
+  }
+
+  if (options.dryRun) return true;
 
   if (options.force) return true;
 
@@ -706,15 +812,6 @@ async function ingestTable(client, table, options) {
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
-  const tables = await getCatalogTables(options);
-
-  console.log(`Found ${tables.length} CBS table(s) for fast Bronze row ingestion.`);
-
-  if (options.dryRun) {
-    for (const table of tables) await ingestTable(null, table, options);
-    return;
-  }
-
   const client = postgresClient(options);
   try {
     await client.connect();
@@ -724,10 +821,22 @@ async function main() {
 
   try {
     await ensureFastIngestObjects(client);
+    const tables = options.rootTheme && !options.dataset
+      ? await getCatalogTablesFromBronze(client, await getRootThemeDatasetIds(client, options))
+      : await getCatalogTables(options);
+
+    console.log(
+      `Found ${tables.length} CBS table(s) for fast Bronze row ingestion${options.rootTheme ? ` in root theme "${options.rootTheme}"` : ""}.`
+    );
 
     for (const table of tables) {
       if (!(await shouldIncludeDataset(client, table, options))) {
-        console.log(`Skipped ${table.Identifier}: not selected by archive/status/source filters.`);
+        console.log(`Skipped ${table.Identifier}: not selected by archive/root-theme/status/source filters.`);
+        continue;
+      }
+
+      if (options.dryRun) {
+        await ingestTable(null, table, options);
         continue;
       }
 
