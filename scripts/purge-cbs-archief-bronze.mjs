@@ -8,7 +8,11 @@ function parseArgs(argv) {
     dataset: "",
     analyze: true,
     includeRawBatchPayloads: true,
-    rowChunkSize: 100000,
+    rowChunkSize: 10000,
+    pauseMs: 100,
+    statementTimeoutMs: 300000,
+    lockTimeoutMs: 30000,
+    includePayloadOnlyCandidates: false,
   };
 
   for (let index = 2; index < argv.length; index += 1) {
@@ -17,6 +21,10 @@ function parseArgs(argv) {
     else if (arg === "--limit-datasets") options.limitDatasets = Number(argv[++index] ?? options.limitDatasets);
     else if (arg === "--dataset") options.dataset = argv[++index] ?? "";
     else if (arg === "--row-chunk-size") options.rowChunkSize = Number(argv[++index] ?? options.rowChunkSize);
+    else if (arg === "--pause-ms") options.pauseMs = Number(argv[++index] ?? options.pauseMs);
+    else if (arg === "--statement-timeout-ms") options.statementTimeoutMs = Number(argv[++index] ?? options.statementTimeoutMs);
+    else if (arg === "--lock-timeout-ms") options.lockTimeoutMs = Number(argv[++index] ?? options.lockTimeoutMs);
+    else if (arg === "--include-payload-only-candidates") options.includePayloadOnlyCandidates = true;
     else if (arg === "--no-analyze") options.analyze = false;
     else if (arg === "--keep-typed-batch-payloads") options.includeRawBatchPayloads = false;
     else if (arg === "--help") {
@@ -32,7 +40,12 @@ Options:
   --dry-run                       Show candidate datasets without deleting.
   --limit-datasets 25             Number of Archief datasets to purge this run.
   --dataset 00370                 Purge one specific Archief dataset.
-  --row-chunk-size 100000         Delete raw rows in row_index chunks.
+  --row-chunk-size 10000          Delete raw rows in smaller chunks.
+  --pause-ms 100                  Pause between delete chunks to reduce database pressure.
+  --statement-timeout-ms 300000   Per-statement timeout for purge queries.
+  --lock-timeout-ms 30000         Per-statement lock timeout for purge queries.
+  --include-payload-only-candidates
+                                  Also scan raw endpoint payloads for Archief datasets with no loaded rows.
   --keep-typed-batch-payloads     Keep duplicate typed_dataset_batch raw payloads.
   --no-analyze                    Skip analyze after purge.
 `);
@@ -41,6 +54,19 @@ Options:
   }
 
   return options;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function configureSession(client, options) {
+  await client.query("select set_config('statement_timeout', $1, false)", [
+    `${Math.max(0, options.statementTimeoutMs)}ms`,
+  ]);
+  await client.query("select set_config('lock_timeout', $1, false)", [
+    `${Math.max(0, options.lockTimeoutMs)}ms`,
+  ]);
 }
 
 async function ensureRetentionTable(client) {
@@ -84,15 +110,7 @@ async function getPurgeCandidates(client, options) {
       left join bronze.cbs_dataset_ingestion_status s on s.dataset_id = h.dataset_id
       where lower(h.top_theme_title) = 'archief'
         ${datasetFilter}
-        and (
-          coalesce(s.loaded_row_count, 0) > 0
-          or exists (
-            select 1
-            from bronze.cbs_raw_endpoint_payloads payload
-            where payload.dataset_id = h.dataset_id
-              and payload.endpoint like 'typed_dataset_batch:%'
-          )
-        )
+        and coalesce(s.loaded_row_count, 0) > 0
       group by h.dataset_id
       order by coalesce(max(s.loaded_row_count), 0) desc, h.dataset_id
       ${limitClause}
@@ -100,7 +118,35 @@ async function getPurgeCandidates(client, options) {
     params
   );
 
-  return result.rows;
+  if (!options.includePayloadOnlyCandidates || options.dataset || result.rows.length > 0) {
+    return result.rows;
+  }
+
+  const payloadOnlyResult = await client.query(
+    `
+      select
+        h.dataset_id,
+        max(h.top_theme_title) as root_theme_title,
+        coalesce(max(s.loaded_row_count), 0)::bigint as loaded_row_count,
+        coalesce(max(s.record_count), 0)::bigint as record_count,
+        max(s.status) as status
+      from bronze.cbs_dataset_theme_hierarchy h
+      left join bronze.cbs_dataset_ingestion_status s on s.dataset_id = h.dataset_id
+      where lower(h.top_theme_title) = 'archief'
+        and exists (
+          select 1
+          from bronze.cbs_raw_endpoint_payloads payload
+          where payload.dataset_id = h.dataset_id
+            and payload.endpoint like 'typed_dataset_batch:%'
+        )
+      group by h.dataset_id
+      order by h.dataset_id
+      ${limitClause}
+    `,
+    params
+  );
+
+  return payloadOnlyResult.rows;
 }
 
 async function purgeDataset(client, candidate, options) {
@@ -114,6 +160,7 @@ async function purgeDataset(client, candidate, options) {
           select ctid
           from bronze.cbs_typed_dataset_rows
           where dataset_id = $1
+          order by row_index
           limit $2
         )
         delete from bronze.cbs_typed_dataset_rows rows
@@ -133,6 +180,7 @@ async function purgeDataset(client, candidate, options) {
 
     if (remaining.rows.length === 0) break;
     console.log(`    deleted ${totalRowsDeleted} row(s) so far for ${candidate.dataset_id}; more rows remain`);
+    if (options.pauseMs > 0) await sleep(options.pauseMs);
   }
 
   let payloadDelete = { rowCount: 0 };
@@ -223,10 +271,13 @@ async function main() {
   const options = parseArgs(process.argv);
   const client = createPostgresClient({
     applicationName: "guara-purge-cbs-archief-bronze",
+    statementTimeoutMs: Math.max(1, options.statementTimeoutMs),
+    queryTimeoutMs: Math.max(1, options.statementTimeoutMs + 30000),
   });
   await client.connect();
 
   try {
+    await configureSession(client, options);
     await ensureRetentionTable(client);
     const candidates = await getPurgeCandidates(client, options);
 
