@@ -1,7 +1,6 @@
 {
   "common": {
     "search": "Search",
-    "searchEverything": "Search everything…",
     "settings": "Settings",
     "save": "Save",
     "cancel": "Cancel",
@@ -28,11 +27,8 @@
     "newResearch": "New Research",
     "recent": "Recent",
     "savedReports": "Saved Reports",
-    "mapExplorer": "Map Explorer",
     "datasetExplorer": "Dataset Explorer",
     "sourceBrowser": "Source Browser",
-    "researchGraph": "Research Graph",
-    "collections": "Collections",
     "settings": "Settings"
   },
   "research": {
@@ -49,8 +45,7 @@
     },
     "quickAccess": {
       "datasets": "Datasets",
-      "sources": "Sources",
-      "graph": "Graph"
+      "sources": "Sources"
     },
     "resultHeading": "Research result",
     "sourcesAndConfidence": "{{count}} sources · {{confidence}}% confidence",

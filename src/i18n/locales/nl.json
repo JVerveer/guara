@@ -1,7 +1,6 @@
 {
   "common": {
     "search": "Zoeken",
-    "searchEverything": "Doorzoek alles…",
     "settings": "Instellingen",
     "save": "Opslaan",
     "cancel": "Annuleren",
@@ -28,11 +27,8 @@
     "newResearch": "Nieuw onderzoek",
     "recent": "Recent",
     "savedReports": "Opgeslagen rapporten",
-    "mapExplorer": "Kaartverkenner",
     "datasetExplorer": "Gegevensverkenner",
     "sourceBrowser": "Bronnenverkenner",
-    "researchGraph": "Onderzoeksgraph",
-    "collections": "Collecties",
     "settings": "Instellingen"
   },
   "research": {
@@ -49,8 +45,7 @@
     },
     "quickAccess": {
       "datasets": "Datasets",
-      "sources": "Bronnen",
-      "graph": "Graaf"
+      "sources": "Bronnen"
     },
     "resultHeading": "Onderzoeksresultaat",
     "sourcesAndConfidence": "{{count}} bronnen · {{confidence}}% betrouwbaarheid",

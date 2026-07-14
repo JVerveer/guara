@@ -1,22 +1,5 @@
 #!/usr/bin/env node
-import pg from "pg";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
-const { Client } = pg;
-
-function loadLocalEnv() {
-  for (const file of [".env.local", ".env"]) {
-    const path = resolve(process.cwd(), file);
-    if (!existsSync(path)) continue;
-
-    for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
-      const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
-      if (!match || process.env[match[1]]) continue;
-      process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, "");
-    }
-  }
-}
+import { createPostgresClient, loadLocalEnv } from "./lib/runtime.mjs";
 
 function parseArgs(argv) {
   const options = {
@@ -58,22 +41,6 @@ Options:
   }
 
   return options;
-}
-
-function postgresClient() {
-  const connectionString = process.env.SUPABASE_DB_URL;
-  if (!connectionString) throw new Error("Missing SUPABASE_DB_URL in .env.local.");
-
-  const url = new URL(connectionString);
-  ["sslmode", "sslcert", "sslkey", "sslrootcert", "uselibpqcompat"].forEach((key) => url.searchParams.delete(key));
-  url.searchParams.set("application_name", "guara-purge-cbs-archief-bronze");
-
-  return new Client({
-    connectionString: url.toString(),
-    ssl: process.env.SUPABASE_DB_SSL_DISABLE === "true" ? false : { rejectUnauthorized: false },
-    statement_timeout: 0,
-    query_timeout: 0,
-  });
 }
 
 async function ensureRetentionTable(client) {
@@ -254,7 +221,9 @@ async function analyzeTables(client) {
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
-  const client = postgresClient();
+  const client = createPostgresClient({
+    applicationName: "guara-purge-cbs-archief-bronze",
+  });
   await client.connect();
 
   try {

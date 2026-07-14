@@ -25,7 +25,7 @@ export function MapToolbar({
           <Layers size={16} aria-hidden="true" />
         </div>
         <div>
-          <h1 className="text-sm font-semibold text-foreground">Map Explorer</h1>
+          <h1 className="text-sm font-semibold text-foreground">Municipality map</h1>
           <p className="text-[11px] text-muted-foreground">Municipality evidence layer</p>
         </div>
       </div>

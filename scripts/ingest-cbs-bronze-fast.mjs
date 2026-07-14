@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import pg from "pg";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
-const { Client } = pg;
+import {
+  createPostgresClient,
+  explainPostgresConnectionError,
+  loadLocalEnv,
+  normalizeKey,
+} from "./lib/runtime.mjs";
 
 const CBS_ODATA_BASE = "https://opendata.cbs.nl/ODataApi/odata";
 const CBS_ODATA_FEED_BASE = "https://opendata.cbs.nl/ODataFeed/odata";
@@ -16,19 +17,6 @@ const STATUS = {
   COMPLETE: "complete",
   FAILED: "failed",
 };
-
-function loadLocalEnv() {
-  for (const file of [".env.local", ".env"]) {
-    const path = resolve(process.cwd(), file);
-    if (!existsSync(path)) continue;
-
-    for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
-      const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
-      if (!match || process.env[match[1]]) continue;
-      process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, "");
-    }
-  }
-}
 
 function parseArgs(argv) {
   const options = {
@@ -149,14 +137,6 @@ function escapeODataString(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function normalizeTheme(value) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "");
 }
 
 async function getJson(url, options) {
@@ -314,10 +294,10 @@ async function getRootThemeDatasetIds(client, options) {
     `
   );
 
-  const requestedTheme = normalizeTheme(options.rootTheme);
+  const requestedTheme = normalizeKey(options.rootTheme);
   const ids = result.rows
-    .filter((row) => normalizeTheme(row.top_theme_title) === requestedTheme)
-    .filter((row) => options.includeArchive || normalizeTheme(row.top_theme_title) !== "archief")
+    .filter((row) => normalizeKey(row.top_theme_title) === requestedTheme)
+    .filter((row) => options.includeArchive || normalizeKey(row.top_theme_title) !== "archief")
     .filter((row) => {
       if (!options.failedOnly) return true;
       return [
@@ -354,79 +334,6 @@ async function getTypedRows(datasetId, skip, top, options) {
 function pct(part, total) {
   if (!total || total <= 0) return null;
   return Math.min(100, Number(((part / total) * 100).toFixed(2)));
-}
-
-function postgresClient(options) {
-  const connectionString = process.env.SUPABASE_DB_URL;
-  if (!connectionString) throw new Error("Missing SUPABASE_DB_URL in .env.local.");
-
-  const url = new URL(connectionString);
-  url.searchParams.delete("sslmode");
-  url.searchParams.delete("sslcert");
-  url.searchParams.delete("sslkey");
-  url.searchParams.delete("sslrootcert");
-  url.searchParams.delete("uselibpqcompat");
-  url.searchParams.set("application_name", "guara-cbs-bronze-fast");
-
-  return new Client({
-    connectionString: url.toString(),
-    ssl: process.env.SUPABASE_DB_SSL_DISABLE === "true" ? false : { rejectUnauthorized: false },
-    statement_timeout: Math.max(1, options.writeTimeoutMs),
-    query_timeout: Math.max(1, options.writeTimeoutMs),
-  });
-}
-
-function explainPostgresConnectionError(error) {
-  if (error?.code === "ENOTFOUND" && String(error.hostname ?? "").startsWith("db.")) {
-    return [
-      error.message,
-      "",
-      "The direct Supabase database hostname could not be resolved by DNS.",
-      "Use the Session pooler connection string from Supabase instead:",
-      "  Supabase project -> Connect -> Session pooler -> URI",
-      "",
-      "It usually looks like:",
-      "  postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require",
-      "",
-      "Put that URI in .env.local as SUPABASE_DB_URL.",
-    ].join("\n");
-  }
-
-  if (error?.code === "ENETUNREACH" || error?.code === "EHOSTUNREACH") {
-    return [
-      error.message,
-      "",
-      "The direct Supabase database endpoint is probably not reachable from this network.",
-      "Use the Session pooler connection string from Supabase Connect instead of the direct db.<project-ref>.supabase.co host.",
-    ].join("\n");
-  }
-
-  if (error?.code === "28P01" || String(error?.message ?? "").includes("password authentication failed")) {
-    return [
-      error.message,
-      "",
-      "Postgres rejected the credentials in SUPABASE_DB_URL.",
-      "For Supabase Session pooler, the username usually includes the project ref:",
-      "  postgres.<project-ref>",
-      "",
-      "For this project that should look like:",
-      "  postgres.kmwmbmpnipwygkvnqeai",
-      "",
-      "Also check that the database password is correct and URL-encoded if it contains special characters like @, #, %, /, :, ?, &, +, or spaces.",
-    ].join("\n");
-  }
-
-  if (String(error?.message ?? "").includes("self-signed certificate")) {
-    return [
-      error.message,
-      "",
-      "The database accepted the connection details, but local TLS verification rejected the certificate chain.",
-      "The fast ingestion script now strips sslmode from SUPABASE_DB_URL and applies its own SSL setting with rejectUnauthorized=false.",
-      "Retry the command. If this persists, remove sslmode=require from SUPABASE_DB_URL or set SUPABASE_DB_SSL_DISABLE=true only for a local connectivity test.",
-    ].join("\n");
-  }
-
-  return error?.message ?? String(error);
 }
 
 async function ensureFastIngestObjects(client) {
@@ -510,9 +417,9 @@ async function shouldIncludeDataset(client, table, options) {
 
   if (!options.includeArchive && status?.is_archive) return false;
   if (options.rootTheme) {
-    const requestedTheme = normalizeTheme(options.rootTheme);
+    const requestedTheme = normalizeKey(options.rootTheme);
     const rootThemes = status?.root_themes ?? [];
-    const matchesRootTheme = rootThemes.some((theme) => normalizeTheme(theme) === requestedTheme);
+    const matchesRootTheme = rootThemes.some((theme) => normalizeKey(theme) === requestedTheme);
     if (!matchesRootTheme) return false;
   }
 
@@ -812,7 +719,11 @@ async function ingestTable(client, table, options) {
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
-  const client = postgresClient(options);
+  const client = createPostgresClient({
+    applicationName: "guara-cbs-bronze-fast",
+    statementTimeoutMs: Math.max(1, options.writeTimeoutMs),
+    queryTimeoutMs: Math.max(1, options.writeTimeoutMs),
+  });
   try {
     await client.connect();
   } catch (error) {

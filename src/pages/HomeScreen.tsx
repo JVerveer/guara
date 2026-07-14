@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search, ArrowUpRight, Database, Globe, Network } from "lucide-react";
+import { Search, ArrowUpRight, Database, Globe } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { fonts } from "@/theme/tokens";
@@ -96,7 +96,6 @@ export function HomeScreen({ setScreen, setResearchQuestion }: HomeScreenProps) 
           {[
             { icon: <Database size={13} />, key: "research.quickAccess.datasets", target: "datasets" as Screen },
             { icon: <Globe size={13} />, key: "research.quickAccess.sources", target: "sources" as Screen },
-            { icon: <Network size={13} />, key: "research.quickAccess.graph", target: "graph" as Screen },
           ].map(({ icon, key, target }) => (
             <button
               key={key}
