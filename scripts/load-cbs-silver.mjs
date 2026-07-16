@@ -45,6 +45,8 @@ function parseArgs(argv) {
     withBronzeCounts: false,
     withSilverCounts: false,
     concurrency: 4,
+    loadConcurrency: 1,
+    skipPublicRefresh: false,
     output: "table",
     writeJson: false,
     jsonPath: "",
@@ -88,6 +90,8 @@ function parseArgs(argv) {
       options.concurrency = Number(argv[++i] ?? options.concurrency);
       options.overview = true;
     }
+    else if (arg === "--load-concurrency") options.loadConcurrency = Number(argv[++i] ?? options.loadConcurrency);
+    else if (arg === "--skip-public-refresh") options.skipPublicRefresh = true;
     else if (arg === "--output") {
       options.output = argv[++i] ?? options.output;
       options.overview = true;
@@ -117,6 +121,8 @@ function parseArgs(argv) {
 Selection options:
   --domain bouwen-en-wonen         Load or overview datasets linked to a canonical Guara/CBS domain.
   --root-theme "Bouwen en wonen"  Load or overview datasets linked to a CBS top-level root theme.
+  --load-concurrency 1            Number of datasets to load in parallel.
+  --skip-public-refresh           Skip app-facing public catalog/summary refresh during the load.
 
 Overview options:
   --query term             Filter by dataset id/title/description/period/catalog.
@@ -2101,6 +2107,112 @@ async function runSilverOverview(supabase, options) {
   }
 }
 
+async function loadSilverDataset(supabase, dataset, options) {
+  const datasetId = dataset.dataset_id;
+  const sourceVersion = dataset.payload?.Updated ?? null;
+
+  try {
+    if (await shouldSkipDataset(supabase, datasetId, sourceVersion, options)) {
+      console.log(`Skipped ${datasetId}: already completed for source version ${sourceVersion}.`);
+      return { datasetId, status: STATUS.SKIPPED };
+    }
+
+    if (options.force) {
+      console.log(`Force enabled: deleting Silver rows for ${datasetId}`);
+      await deleteSilverDatasetRows(supabase, datasetId);
+    }
+
+    const bronzeStatus = await getBronzeStatus(supabase, datasetId);
+    const expectedObservations = bronzeStatus?.loaded_row_count ?? bronzeStatus?.record_count ?? null;
+    const runId = await startRun(supabase, datasetId, sourceVersion, expectedObservations);
+
+    try {
+      console.log(`Loading Silver dataset ${datasetId}`);
+
+      let metadataResult = null;
+
+      if (!options.rowsOnly) {
+        metadataResult = await loadMetadataForDataset(supabase, datasetId, sourceVersion);
+        const metadataQuality = silverQualityChecks({
+          metadataResult,
+          expectedObservations,
+          observationsLoaded: await getExactDatasetCount(supabase, "silver", "cbs_observations", "row_id", datasetId),
+          rejected: 0,
+          status: STATUS.METADATA_LOADED,
+        });
+        await updateDatasetStatus(supabase, datasetId, sourceVersion, STATUS.METADATA_LOADED, {
+          expectedObservations,
+          schemaHash: metadataResult.schemaHash,
+          quality: metadataQuality,
+        });
+      }
+
+      let result = { observations: 0, dimensionLinks: 0, measures: 0, rejected: 0, expectedObservations };
+
+      if (!options.metadataOnly) {
+        result = await loadRowsForDataset(supabase, datasetId, sourceVersion, options);
+      }
+
+      const totalObservations = await getExactDatasetCount(supabase, "silver", "cbs_observations", "row_id", datasetId);
+      const totalRejected = await getExactDatasetCount(supabase, "silver", "cbs_rejected_rows", "row_id", datasetId);
+      const finalStatus = options.metadataOnly
+        ? STATUS.METADATA_LOADED
+        : expectedObservations !== null && totalObservations + totalRejected < expectedObservations
+          ? STATUS.PARTIAL
+          : totalRejected > 0
+            ? STATUS.COMPLETE_WITH_WARNINGS
+            : STATUS.COMPLETE;
+      const quality = silverQualityChecks({
+        metadataResult,
+        expectedObservations,
+        observationsLoaded: totalObservations,
+        rejected: totalRejected,
+        status: finalStatus,
+      });
+      result = {
+        ...result,
+        observations: totalObservations,
+        rejected: totalRejected,
+        expectedObservations,
+        schemaHash: metadataResult?.schemaHash ?? bronzeStatus?.schema_hash ?? null,
+        quality,
+        metadataResult,
+      };
+
+      await upsertGoldReadinessForDataset(supabase, datasetId, sourceVersion, result);
+      await finishRun(supabase, runId, finalStatus, result);
+      await updateDatasetStatus(supabase, datasetId, sourceVersion, finalStatus, result);
+
+      if (!options.skipPublicRefresh) {
+        await publishPublicQualityChecks(supabase, datasetId, "silver", quality);
+        await publishPublicSilverDataset(supabase, datasetId);
+        await publishSourceLayerSummary(supabase, "silver");
+      }
+
+      console.log(
+        `Silver ${finalStatus} ${datasetId}: ${result.observations}/${expectedObservations ?? "unknown"} observations, ${result.dimensionLinks} dimension links, ${result.measures} measures, ${result.rejected} rejected`
+      );
+
+      return { datasetId, status: finalStatus, result };
+    } catch (error) {
+      await finishRun(supabase, runId, STATUS.FAILED, { expectedObservations }, error.message);
+      await updateDatasetStatus(supabase, datasetId, sourceVersion, STATUS.FAILED, { expectedObservations }, error.message);
+
+      if (!options.skipPublicRefresh) {
+        await publishPublicSilverDataset(supabase, datasetId).catch((publishError) => {
+          console.warn(`Skipped public silver catalog publish for ${datasetId}: ${publishError.message}`);
+        });
+        await publishSourceLayerSummary(supabase, "silver").catch(() => {});
+      }
+
+      throw error;
+    }
+  } catch (error) {
+    console.error(`Failed Silver load for ${datasetId}: ${error.message}`);
+    return { datasetId, status: STATUS.FAILED, error: error.message };
+  }
+}
+
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
@@ -2140,101 +2252,26 @@ async function main() {
     console.log(`No Bronze datasets matched root theme "${options.rootTheme}". Check bronze.cbs_dataset_theme_hierarchy.`);
   }
 
-  for (const dataset of datasets) {
-    const datasetId = dataset.dataset_id;
-    const sourceVersion = dataset.payload?.Updated ?? null;
+  console.log(
+    `Silver load settings: batch size ${options.batchSize}, dataset concurrency ${Math.max(1, options.loadConcurrency)}, public refresh ${options.skipPublicRefresh ? "skipped" : "enabled"}.`
+  );
 
-    try {
-      if (await shouldSkipDataset(supabase, datasetId, sourceVersion, options)) {
-        console.log(`Skipped ${datasetId}: already completed for source version ${sourceVersion}.`);
-        continue;
-      }
+  const results = await mapWithConcurrency(datasets, options.loadConcurrency, (dataset) =>
+    loadSilverDataset(supabase, dataset, options)
+  );
 
-      if (options.force) {
-        console.log(`Force enabled: deleting Silver rows for ${datasetId}`);
-        await deleteSilverDatasetRows(supabase, datasetId);
-      }
-
-      const bronzeStatus = await getBronzeStatus(supabase, datasetId);
-      const expectedObservations = bronzeStatus?.loaded_row_count ?? bronzeStatus?.record_count ?? null;
-      const runId = await startRun(supabase, datasetId, sourceVersion, expectedObservations);
-
-      try {
-        console.log(`Loading Silver dataset ${datasetId}`);
-
-        let metadataResult = null;
-
-        if (!options.rowsOnly) {
-          metadataResult = await loadMetadataForDataset(supabase, datasetId, sourceVersion);
-          const metadataQuality = silverQualityChecks({
-            metadataResult,
-            expectedObservations,
-            observationsLoaded: await getExactDatasetCount(supabase, "silver", "cbs_observations", "row_id", datasetId),
-            rejected: 0,
-            status: STATUS.METADATA_LOADED,
-          });
-          await updateDatasetStatus(supabase, datasetId, sourceVersion, STATUS.METADATA_LOADED, {
-            expectedObservations,
-            schemaHash: metadataResult.schemaHash,
-            quality: metadataQuality,
-          });
-        }
-
-        let result = { observations: 0, dimensionLinks: 0, measures: 0, rejected: 0, expectedObservations };
-
-        if (!options.metadataOnly) {
-          result = await loadRowsForDataset(supabase, datasetId, sourceVersion, options);
-        }
-
-        const totalObservations = await getExactDatasetCount(supabase, "silver", "cbs_observations", "row_id", datasetId);
-        const totalRejected = await getExactDatasetCount(supabase, "silver", "cbs_rejected_rows", "row_id", datasetId);
-        const finalStatus = options.metadataOnly
-          ? STATUS.METADATA_LOADED
-          : expectedObservations !== null && totalObservations + totalRejected < expectedObservations
-            ? STATUS.PARTIAL
-            : totalRejected > 0
-              ? STATUS.COMPLETE_WITH_WARNINGS
-              : STATUS.COMPLETE;
-        const quality = silverQualityChecks({
-          metadataResult,
-          expectedObservations,
-          observationsLoaded: totalObservations,
-          rejected: totalRejected,
-          status: finalStatus,
-        });
-        result = {
-          ...result,
-          observations: totalObservations,
-          rejected: totalRejected,
-          expectedObservations,
-          schemaHash: metadataResult?.schemaHash ?? bronzeStatus?.schema_hash ?? null,
-          quality,
-          metadataResult,
-        };
-
-        await upsertGoldReadinessForDataset(supabase, datasetId, sourceVersion, result);
-        await finishRun(supabase, runId, finalStatus, result);
-        await updateDatasetStatus(supabase, datasetId, sourceVersion, finalStatus, result);
-        await publishPublicQualityChecks(supabase, datasetId, "silver", quality);
-        await publishPublicSilverDataset(supabase, datasetId);
-        await publishSourceLayerSummary(supabase, "silver");
-
-        console.log(
-          `Silver ${finalStatus} ${datasetId}: ${result.observations}/${expectedObservations ?? "unknown"} observations, ${result.dimensionLinks} dimension links, ${result.measures} measures, ${result.rejected} rejected`
-        );
-      } catch (error) {
-        await finishRun(supabase, runId, STATUS.FAILED, { expectedObservations }, error.message);
-        await updateDatasetStatus(supabase, datasetId, sourceVersion, STATUS.FAILED, { expectedObservations }, error.message);
-        await publishPublicSilverDataset(supabase, datasetId).catch((publishError) => {
-          console.warn(`Skipped public silver catalog publish for ${datasetId}: ${publishError.message}`);
-        });
-        await publishSourceLayerSummary(supabase, "silver").catch(() => {});
-        throw error;
-      }
-    } catch (error) {
-      console.error(`Failed Silver load for ${datasetId}: ${error.message}`);
-    }
+  if (options.skipPublicRefresh) {
+    console.log("Refreshing Silver source layer summary once after load...");
+    await publishSourceLayerSummary(supabase, "silver").catch((error) => {
+      console.warn(`Skipped final source layer summary refresh: ${error.message}`);
+    });
   }
+
+  const summary = results.reduce((acc, result) => {
+    acc[result.status] = (acc[result.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  console.log(`Silver load summary: ${JSON.stringify(summary)}`);
 }
 
 main().catch((error) => {

@@ -31,6 +31,7 @@ function parseArgs(argv) {
     catalogPageSize: 100,
     batchSize: 5000,
     upsertBatchSize: 500,
+    writeBufferRows: 0,
     maxRowsPerDataset: 0,
     requestDelayMs: 50,
     requestTimeoutMs: 60000,
@@ -68,10 +69,28 @@ function parseArgs(argv) {
       options.requestTimeoutMs = Math.max(options.requestTimeoutMs, 120000);
       options.writeTimeoutMs = Math.max(options.writeTimeoutMs, 120000);
     }
+    else if (arg === "--large-writes") {
+      options.upsertBatchSize = Math.max(options.upsertBatchSize, 5000);
+      options.writeTimeoutMs = Math.max(options.writeTimeoutMs, 240000);
+    }
+    else if (arg === "--huge-writes") {
+      options.upsertBatchSize = Math.max(options.upsertBatchSize, 10000);
+      options.writeTimeoutMs = Math.max(options.writeTimeoutMs, 360000);
+    }
+    else if (arg === "--single-write-per-fetch") {
+      options.upsertBatchSize = 0;
+      options.writeTimeoutMs = Math.max(options.writeTimeoutMs, 420000);
+    }
+    else if (arg === "--buffered-writes") {
+      options.writeBufferRows = Math.max(options.writeBufferRows, 50000);
+      options.upsertBatchSize = 0;
+      options.writeTimeoutMs = Math.max(options.writeTimeoutMs, 900000);
+    }
     else if (arg === "--table-offset") options.tableOffset = Number(argv[++i] ?? options.tableOffset);
     else if (arg === "--catalog-page-size") options.catalogPageSize = Number(argv[++i] ?? options.catalogPageSize);
     else if (arg === "--batch-size") options.batchSize = Number(argv[++i] ?? options.batchSize);
-    else if (arg === "--upsert-batch-size") options.upsertBatchSize = Number(argv[++i] ?? 0);
+    else if (arg === "--upsert-batch-size" || arg === "--write-batch-size") options.upsertBatchSize = Number(argv[++i] ?? 0);
+    else if (arg === "--write-buffer-rows") options.writeBufferRows = Number(argv[++i] ?? options.writeBufferRows);
     else if (arg === "--max-rows-per-dataset") options.maxRowsPerDataset = Number(argv[++i] ?? 0);
     else if (arg === "--request-delay-ms") options.requestDelayMs = Number(argv[++i] ?? options.requestDelayMs);
     else if (arg === "--request-timeout-ms") options.requestTimeoutMs = Number(argv[++i] ?? options.requestTimeoutMs);
@@ -104,9 +123,15 @@ Options:
   --large-chunks                  Preset: --batch-size 10000 --upsert-batch-size 1000.
   --huge-chunks                   Preset: --batch-size 20000 --upsert-batch-size 1000.
   --wide-table-chunks             Preset: --batch-size 2500 --upsert-batch-size 250.
+  --large-writes                  Preset: write 5000 rows per Postgres merge.
+  --huge-writes                   Preset: write 10000 rows per Postgres merge.
+  --single-write-per-fetch        Write each CBS fetch as one Postgres merge.
+  --buffered-writes               Buffer 50000 fetched rows, then write them in one Postgres merge.
   --force                         Delete existing Bronze rows for the dataset before loading.
-  --batch-size 5000               CBS fetch and Postgres merge batch size.
-  --upsert-batch-size 500         Postgres staging/merge chunk size after each CBS fetch.
+  --batch-size 5000               CBS fetch batch size.
+  --upsert-batch-size 500         Postgres staging/merge chunk size after each CBS fetch. Use 0 for one write per fetch.
+  --write-batch-size 500          Alias for --upsert-batch-size.
+  --write-buffer-rows 50000       Accumulate multiple CBS pages before writing. Use 0 to write each page immediately.
   --max-rows-per-dataset 100000   Cap row loading per dataset.
   --write-timeout-ms 120000       Timeout for each Postgres write chunk.
   --no-resume-rows                Start from row offset 0.
@@ -646,6 +671,27 @@ async function ingestDatasetRows(client, table, recordCount, options, runId) {
   const loadId = runId;
 
   let skip = startSkip;
+  let writeBuffer = [];
+  let writeBufferStart = startSkip;
+
+  const flushWriteBuffer = async (reason) => {
+    if (writeBuffer.length === 0 || options.dryRun) return;
+
+    const writeBatchSize = Math.max(1, Math.min(options.upsertBatchSize || writeBuffer.length, writeBuffer.length));
+    console.log(
+      `  flushing ${writeBuffer.length} buffered row(s) (${reason}) from ${writeBufferStart + 1}-${writeBufferStart + writeBuffer.length} (${datasetId})`
+    );
+
+    for (const chunk of rowChunks(writeBuffer, writeBatchSize)) {
+      const chunkStart = writeBufferStart + chunk.startIndex;
+      const chunkEnd = chunkStart + chunk.rows.length;
+      console.log(`  writing rows ${chunkStart + 1}-${chunkEnd} (${datasetId})`);
+      await writeRowsViaStage(client, loadId, datasetId, chunk.rows, chunkStart, runId, sourceVersion, options);
+    }
+
+    writeBuffer = [];
+    writeBufferStart = skip;
+  };
 
   while (skip < maxRows) {
     const top = Math.min(options.batchSize, maxRows - skip);
@@ -654,21 +700,24 @@ async function ingestDatasetRows(client, table, recordCount, options, runId) {
     if (rows.length === 0) break;
 
     if (!options.dryRun) {
-      const writeBatchSize = Math.max(1, Math.min(options.upsertBatchSize || options.batchSize, rows.length));
-      for (const chunk of rowChunks(rows, writeBatchSize)) {
-        const chunkStart = skip + chunk.startIndex;
-        const chunkEnd = chunkStart + chunk.rows.length;
-        console.log(`  writing rows ${chunkStart + 1}-${chunkEnd} (${datasetId})`);
-        await writeRowsViaStage(client, loadId, datasetId, chunk.rows, chunkStart, runId, sourceVersion, options);
-      }
+      if (writeBuffer.length === 0) writeBufferStart = skip;
+      writeBuffer.push(...rows);
     }
 
     written += rows.length;
     skip += rows.length;
     console.log(`  rows ${skip}/${maxRows} (${datasetId})`);
 
+    if (options.writeBufferRows > 0) {
+      if (writeBuffer.length >= options.writeBufferRows) await flushWriteBuffer("buffer target reached");
+    } else {
+      await flushWriteBuffer("page complete");
+    }
+
     if (rows.length < top && !hasNext) break;
   }
+
+  await flushWriteBuffer("dataset complete");
 
   return written;
 }
@@ -719,6 +768,12 @@ async function ingestTable(client, table, options) {
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
+  const effectiveWriteBatchSize =
+    options.writeBufferRows > 0 && options.upsertBatchSize === 0
+      ? options.writeBufferRows
+      : options.upsertBatchSize > 0
+        ? options.upsertBatchSize
+        : options.batchSize;
   const client = createPostgresClient({
     applicationName: "guara-cbs-bronze-fast",
     statementTimeoutMs: Math.max(1, options.writeTimeoutMs),
@@ -738,6 +793,9 @@ async function main() {
 
     console.log(
       `Found ${tables.length} CBS table(s) for fast Bronze row ingestion${options.rootTheme ? ` in root theme "${options.rootTheme}"` : ""}.`
+    );
+    console.log(
+      `Batch settings: fetch ${options.batchSize} row(s), write ${effectiveWriteBatchSize} row(s), buffer ${options.writeBufferRows || "off"}, write timeout ${options.writeTimeoutMs}ms.`
     );
 
     for (const table of tables) {
