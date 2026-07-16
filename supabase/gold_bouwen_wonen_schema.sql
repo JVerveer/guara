@@ -135,6 +135,14 @@ create index if not exists fact_housing_observation_year_geography_idx
 create index if not exists fact_housing_observation_geo_indicator_date_idx
   on gold_bouwen_wonen.fact_housing_observation(geography_key, housing_indicator_key, date_key);
 
+create index if not exists fact_housing_observation_measure_year_geo_name_idx
+  on gold_bouwen_wonen.fact_housing_observation(measure_key, calendar_year, lower(geography_name))
+  where observation_value is not null and is_missing = false;
+
+create index if not exists fact_housing_observation_measure_year_value_idx
+  on gold_bouwen_wonen.fact_housing_observation(measure_key, calendar_year, observation_value desc)
+  where observation_value is not null and is_missing = false;
+
 create unique index if not exists fact_housing_observation_source_grain_uidx
   on gold_bouwen_wonen.fact_housing_observation(
     dataset_key,

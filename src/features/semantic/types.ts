@@ -1,4 +1,4 @@
-export type SemanticObjectType = "dataset" | "measure" | "geography" | "category" | "analysis" | "evidence";
+export type SemanticObjectType = "dataset" | "measure" | "metric" | "geography" | "category" | "dimension_value" | "analysis" | "evidence";
 
 export type SemanticIntent =
   | "catalogue_search"

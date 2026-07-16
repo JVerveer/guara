@@ -321,6 +321,12 @@ as $$
           ) then 0.20
           else 0
         end
+        +
+        coalesce((
+          select (count(*)::numeric / greatest(array_length(q.original_tokens, 1), 1)) * 0.45
+          from unnest(q.original_tokens) token
+          where lower(concat_ws(' ', d.primary_name, d.title, d.synonyms_text)) like '%' || token || '%'
+        ), 0)
       ) as lexical_score,
       case
         when q.embedding is not null and d.embedding is not null then 1 - (d.embedding <=> q.embedding)

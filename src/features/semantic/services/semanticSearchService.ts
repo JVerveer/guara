@@ -1,7 +1,7 @@
 import { getSupabaseClient, isSupabaseConfigured } from "@/data/supabase/client";
 import type { SemanticAnswer, SemanticIntent, SemanticQueryPlan, SemanticSearchResult } from "../types";
 
-const MUNICIPALITIES = ["Amsterdam", "Rotterdam", "Utrecht", "Groningen", "Eindhoven", "Den Haag", "Maastricht", "Nijmegen"];
+const MUNICIPALITIES = ["Amsterdam", "Rotterdam", "Utrecht", "Groningen", "Eindhoven", "Den Haag", "Maastricht", "Nijmegen", "Tilburg", "Almere", "Breda", "Haarlem", "Arnhem", "Amersfoort"];
 
 function hashEmbedding(text: string): string {
   const vector = new Array(64).fill(0);
@@ -28,6 +28,7 @@ function classifyIntent(question: string): SemanticIntent {
   if (/compare|vergelijk/.test(lower)) return "compare_geographies";
   if (/change|changed|trend|since|after|ontwikkeling|verander/.test(lower)) return "trend";
   if (/which municipalities|municipalities.*most|top|highest|lowest|outliers|gemeenten|meeste|hoogste|laagste/.test(lower)) return "rank_geographies";
+  if (/\b(show|give|list|toon|laat zien)\b/.test(lower) && MUNICIPALITIES.some((name) => lower.includes(name.toLowerCase()))) return "compare_geographies";
   return "catalogue_search";
 }
 
@@ -45,8 +46,22 @@ function extractGeographies(question: string, results: SemanticSearchResult[]): 
   return Array.from(new Set([...named, ...retrieved])).slice(0, 6);
 }
 
-function firstMeasure(results: SemanticSearchResult[]): SemanticSearchResult | undefined {
-  return results.find((result) => result.object_type === "measure" && result.metadata?.measure_key);
+function normalize(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function firstMeasure(question: string, results: SemanticSearchResult[]): SemanticSearchResult | undefined {
+  const normalizedQuestion = normalize(question);
+  const metrics = results.filter((result) => ["measure", "metric"].includes(result.object_type) && result.metadata?.measure_key);
+  return metrics.find((result) => result.metadata?.has_fact_data === true && normalizedQuestion.includes(normalize(result.title)))
+    ?? metrics.find((result) => normalizedQuestion.includes(normalize(result.title)))
+    ?? metrics.find((result) => result.metadata?.has_fact_data === true)
+    ?? results.find((result) => ["measure", "metric"].includes(result.object_type) && result.metadata?.measure_key);
 }
 
 function calculationCode(intent: SemanticIntent): string | undefined {
@@ -60,18 +75,42 @@ function calculationCode(intent: SemanticIntent): string | undefined {
 async function hybridSearch(question: string, objectTypes?: string[]): Promise<SemanticSearchResult[]> {
   if (!isSupabaseConfigured()) return [];
   const supabase = await getSupabaseClient();
-  const { data, error } = await (supabase as any).rpc("guara_hybrid_search", {
+  const searchObjectTypes = objectTypes?.map((type) => type === "measure" ? "metric" : type === "category" ? "dimension_value" : type);
+  const { data, error } = await (supabase as any).rpc("guara_search_documents", {
     search_query: question,
     query_embedding: hashEmbedding(question),
-    match_count: 12,
-    object_types: objectTypes ?? null,
+    match_count: 30,
+    object_types: searchObjectTypes ?? null,
+    investigation: null,
+    filters: {
+      strict_gold_only: true,
+      domain_id: "bouwen-en-wonen",
+    },
+    development_mode: false,
   });
   if (error) throw error;
-  return (data ?? []) as SemanticSearchResult[];
+  return (data ?? []).map((row: any) => ({
+    catalogue_item_id: row.search_document_id,
+    object_type: row.object_type === "metric" ? "metric" : row.object_type,
+    object_id: row.object_id,
+    title: row.title,
+    subtitle: row.subtitle,
+    description: row.description,
+    dataset_code: row.dataset_code,
+    measure_code: row.metadata?.measure_code ?? row.metadata?.metric_code ?? null,
+    geography_code: row.metadata?.geography_code ?? null,
+    unit_code: row.metadata?.unit_code ?? null,
+    domain_id: row.metadata?.domain_id ?? null,
+    provider: row.source_name,
+    rank_score: Number(row.rank_score ?? 0),
+    lexical_score: Number(row.lexical_score ?? 0),
+    vector_score: Number(row.vector_score ?? 0),
+    metadata: row.metadata ?? {},
+  })) as SemanticSearchResult[];
 }
 
 function buildPlan(question: string, intent: SemanticIntent, results: SemanticSearchResult[]): SemanticQueryPlan {
-  const measure = firstMeasure(results);
+  const measure = firstMeasure(question, results);
   const year = extractYear(question);
   const geographyNames = extractGeographies(question, results);
   const analytical = ["rank_geographies", "compare_geographies", "trend", "measure_definition"].includes(intent);
@@ -96,7 +135,7 @@ function buildPlan(question: string, intent: SemanticIntent, results: SemanticSe
     measure_key: String(measure.metadata.measure_key),
     metric_id: measure.metadata.metric_id == null ? undefined : String(measure.metadata.metric_id),
     metric_code: typeof measure.metadata.metric_code === "string" ? measure.metadata.metric_code : undefined,
-    calculation_code: calculationCode(intent),
+    calculation_code: calculationCode(intent) ?? "lookup",
     measure_label: measure.title,
     year,
     geography_names: geographyNames,
@@ -189,7 +228,9 @@ export const semanticSearchService = {
     const normalized = question.trim() || "Dutch public data";
     const intent = classifyIntent(normalized);
     const objectTypes =
-      intent === "dataset_lookup" ? ["dataset"] : intent === "measure_definition" ? ["measure"] : undefined;
+      intent === "dataset_lookup" ? ["dataset"]
+        : intent === "measure_definition" ? ["measure"]
+          : ["measure", "dataset", "geography"];
     const matches = await hybridSearch(normalized, objectTypes);
     const plan = buildPlan(normalized, intent, matches);
     const execution = await executePlan(plan);
