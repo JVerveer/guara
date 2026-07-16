@@ -3,6 +3,7 @@ import type { AnalyticalQueryPlan } from "../types";
 const INTENTS = new Set(["lookup", "ranking", "trend", "comparison", "absolute_change", "percentage_change", "share_of_total"]);
 const OPERATORS = new Set(["eq", "neq", "in", "not_in", "gt", "gte", "lt", "lte", "between"]);
 const MAX_LIMIT = 100;
+const LOGICAL_ID = /^[a-z][a-z0-9_]*$/i;
 
 export function validateAnalyticalQueryPlan(plan: unknown): { ok: true; plan: AnalyticalQueryPlan } | { ok: false; errors: string[] } {
   const errors: string[] = [];
@@ -17,8 +18,18 @@ export function validateAnalyticalQueryPlan(plan: unknown): { ok: true; plan: An
 
   for (const [index, filter] of (value.filters ?? []).entries()) {
     if (!filter.dimensionId || typeof filter.dimensionId !== "string") errors.push(`filters[${index}].dimensionId is required.`);
+    if (filter.dimensionId && !LOGICAL_ID.test(filter.dimensionId)) errors.push(`filters[${index}].dimensionId must be a logical field, not SQL.`);
     if (!OPERATORS.has(filter.operator)) errors.push(`filters[${index}].operator is not allowed.`);
     if (!Array.isArray(filter.values)) errors.push(`filters[${index}].values must be an array.`);
+  }
+
+  for (const [index, group] of (value.groupBy ?? []).entries()) {
+    if (!group.dimensionId || typeof group.dimensionId !== "string") errors.push(`groupBy[${index}].dimensionId is required.`);
+    if (group.dimensionId && !LOGICAL_ID.test(group.dimensionId)) errors.push(`groupBy[${index}].dimensionId must be a logical field, not SQL.`);
+  }
+
+  if (value.timeRange?.startPeriod && value.timeRange?.endPeriod && Number(value.timeRange.startPeriod) > Number(value.timeRange.endPeriod)) {
+    errors.push("timeRange startPeriod must be before endPeriod.");
   }
 
   if (value.limit != null && (!Number.isInteger(value.limit) || value.limit < 1 || value.limit > MAX_LIMIT)) {
@@ -29,7 +40,7 @@ export function validateAnalyticalQueryPlan(plan: unknown): { ok: true; plan: An
     for (const [index, order] of value.orderBy.entries()) {
       if (!order.field || typeof order.field !== "string") errors.push(`orderBy[${index}].field is required.`);
       if (!["asc", "desc"].includes(order.direction)) errors.push(`orderBy[${index}].direction must be asc or desc.`);
-      if (/[.;\s]/.test(order.field)) errors.push(`orderBy[${index}].field must be a logical field, not SQL.`);
+      if (!LOGICAL_ID.test(order.field)) errors.push(`orderBy[${index}].field must be a logical field, not SQL.`);
     }
   }
 

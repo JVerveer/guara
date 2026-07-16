@@ -406,7 +406,14 @@ async function loadSourceDocuments(client, options, provider) {
           'dimension_id', dimension_id::text,
           'dimension_code', dimension_code,
           'dimension_type', dimension_type,
-          'metadata_origin', metadata_origin
+          'metadata_origin', metadata_origin,
+          'trusted_layer', 'semantic',
+          'source_layer', 'semantic',
+          'lineage', jsonb_build_object(
+            'primary_layer', 'semantic',
+            'semantic_table', 'semantic.dimension',
+            'semantic_primary_key', dimension_id::text
+          )
         ) as metadata,
         metadata_origin as source_quality,
         15 as popularity_score
@@ -446,7 +453,18 @@ async function loadSourceDocuments(client, options, provider) {
         null::text as geography_type,
         null::integer as year_start,
         null::integer as year_end,
-        jsonb_build_object('source_key', source_key::text, 'source_code', source_code, 'source_type', source_type) as metadata,
+        jsonb_build_object(
+          'source_key', source_key::text,
+          'source_code', source_code,
+          'source_type', source_type,
+          'trusted_layer', 'semantic',
+          'source_layer', 'semantic',
+          'lineage', jsonb_build_object(
+            'primary_layer', 'semantic',
+            'gold_table', 'gold.dim_source',
+            'gold_primary_key', source_key::text
+          )
+        ) as metadata,
         coalesce(reliability_classification, 'source') as source_quality,
         20 as popularity_score
       from gold.dim_source

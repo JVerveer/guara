@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { bouwenWonenDatasetSynonyms, bouwenWonenMeasureSynonyms } from "./lib/bouwen-wonen-search-terms.mjs";
 import { createPostgresClient, explainPostgresConnectionError, loadLocalEnv } from "./lib/runtime.mjs";
 
 function parseArgs(argv) {
@@ -129,6 +130,7 @@ async function executeSqlFile(client, filePath) {
 
 async function ensureSchema(client) {
   await executeSqlFile(client, "supabase/semantic_catalogue_schema.sql");
+  await executeSqlFile(client, "supabase/answer_schema.sql");
   await executeSqlFile(client, "supabase/search_schema.sql");
 }
 
@@ -234,6 +236,36 @@ function item({ objectType, objectId, sourceSchema, sourceTable, sourcePk, title
     tags,
     metadata,
     embedding: embedding(combined),
+  };
+}
+
+function goldLineage(row, { goldTable, goldPrimaryKey, semanticObject = null } = {}) {
+  return {
+    trusted_layer: "gold",
+    source_layer: "gold",
+    source_provider: row.source_organization ?? "CBS",
+    source_system: row.source_system ?? "CBS",
+    source_dataset_code: row.dataset_code ?? null,
+    source_dataset_version: row.dataset_version ?? null,
+    source_url: row.source_url ?? null,
+    source_last_updated_at: row.last_updated_at_source ?? row.dataset_version ?? null,
+    gold_loaded_at: row.loaded_at ?? null,
+    gold_updated_at: row.updated_at ?? null,
+    lineage: {
+      primary_layer: "gold",
+      derived_from_layers: ["cbs_api", "bronze", "silver", "gold"],
+      gold_table: goldTable,
+      gold_primary_key: goldPrimaryKey == null ? null : String(goldPrimaryKey),
+      semantic_object: semanticObject,
+      upstream_tables: [
+        "bronze.cbs_catalog_tables",
+        "bronze.cbs_typed_dataset_rows",
+        "silver.cbs_datasets",
+        "silver.cbs_observations",
+        "silver.cbs_observation_measures",
+        "silver.cbs_observation_dimensions",
+      ],
+    },
   };
 }
 
@@ -461,9 +493,19 @@ async function loadCatalogue(client, options) {
   const datasets = await client.query(
     `
       select d.*, coalesce(hd.domain_id, dd.domain_id) as domain_id
+        , exists (
+          select 1
+          from gold_bouwen_wonen.fact_housing_observation f
+          where f.housing_dataset_key = hd.housing_dataset_key
+          limit 1
+        ) as has_fact_data
+        , s.status as silver_status
+        , s.last_loaded_at as silver_loaded_at
+        , s.observations_loaded as silver_observations_loaded
       from gold.dim_dataset d
       left join gold_bouwen_wonen.dim_housing_dataset hd on hd.dataset_key = d.dataset_key
       left join silver.cbs_dataset_domains dd on dd.dataset_id = d.dataset_code
+      left join silver.cbs_dataset_load_status s on s.dataset_id = d.dataset_code
       ${domainWhere}
       order by d.dataset_code
       limit ${limitParam}
@@ -480,12 +522,31 @@ async function loadCatalogue(client, options) {
         u.is_index,
         u.unit_category,
         d.dataset_key,
-        coalesce(hd.domain_id, dd.domain_id) as domain_id
+        d.dataset_version,
+        d.source_url,
+        d.source_organization,
+        d.source_system,
+        d.last_updated_at_source,
+        d.loaded_at,
+        d.updated_at as dataset_updated_at,
+        s.status as silver_status,
+        s.last_loaded_at as silver_loaded_at,
+        s.observations_loaded as silver_observations_loaded,
+        coalesce(hd.domain_id, dd.domain_id) as domain_id,
+        hi.housing_indicator_key,
+        exists (
+          select 1
+          from gold_bouwen_wonen.fact_housing_observation f
+          where f.housing_indicator_key = hi.housing_indicator_key
+          limit 1
+        ) as has_fact_data
       from gold.dim_measure m
       join gold.dim_unit u on u.unit_key = m.unit_key
       left join gold.dim_dataset d on d.dataset_code = m.dataset_code and d.source_system = m.source_system
       left join gold_bouwen_wonen.dim_housing_dataset hd on hd.dataset_key = d.dataset_key
+      left join gold_bouwen_wonen.dim_housing_indicator hi on hi.measure_key = m.measure_key
       left join silver.cbs_dataset_domains dd on dd.dataset_id = m.dataset_code
+      left join silver.cbs_dataset_load_status s on s.dataset_id = m.dataset_code
       ${domainWhere}
       order by m.dataset_code, m.measure_code
       limit ${limitParam}
@@ -530,11 +591,23 @@ async function loadCatalogue(client, options) {
       title: row.dataset_title,
       subtitle: row.dataset_code,
       description: row.dataset_description,
-      searchText: `${row.dataset_code} ${row.dataset_title} ${row.dataset_description ?? ""}`,
+      searchText: `${row.dataset_code} ${row.dataset_title} ${row.dataset_description ?? ""} ${row.domain_id === "bouwen-en-wonen" ? bouwenWonenDatasetSynonyms(row).join(" ") : ""}`,
       datasetCode: row.dataset_code,
       domainId: row.domain_id,
-      tags: ["dataset", row.source_system, row.domain_id].filter(Boolean),
-      metadata: { dataset_key: row.dataset_key, source_url: row.source_url, dataset_version: row.dataset_version },
+      tags: ["dataset", row.source_system, row.domain_id, row.domain_id === "bouwen-en-wonen" ? "housing" : ""].filter(Boolean),
+      metadata: {
+        dataset_key: row.dataset_key,
+        source_url: row.source_url,
+        dataset_version: row.dataset_version,
+        ...goldLineage(row, { goldTable: "gold.dim_dataset", goldPrimaryKey: row.dataset_key, semanticObject: "dataset" }),
+        silver_status: row.silver_status ?? null,
+        silver_loaded_at: row.silver_loaded_at ?? null,
+        silver_observations_loaded: row.silver_observations_loaded ?? null,
+        domain_id: row.domain_id,
+        domain_name: row.domain_id === "bouwen-en-wonen" ? "Bouwen en wonen" : null,
+        searchable_domain: row.domain_id === "bouwen-en-wonen" ? "housing_construction" : null,
+        has_fact_data: Boolean(row.has_fact_data),
+      },
     })),
     ...measures.rows.map((row) => item({
       objectType: "measure",
@@ -545,19 +618,29 @@ async function loadCatalogue(client, options) {
       title: row.measure_name,
       subtitle: `${row.dataset_code} · ${row.unit_code}`,
       description: row.measure_description,
-      searchText: `${row.measure_code} ${row.measure_name} ${row.measure_description ?? ""} ${row.topic ?? ""} ${row.subtopic ?? ""} ${row.unit_code}`,
+      searchText: `${row.measure_code} ${row.measure_name} ${row.measure_description ?? ""} ${row.topic ?? ""} ${row.subtopic ?? ""} ${row.unit_code} ${row.domain_id === "bouwen-en-wonen" ? bouwenWonenMeasureSynonyms(row).join(" ") : ""}`,
       datasetCode: row.dataset_code,
       measureCode: row.measure_code,
       unitCode: row.unit_code,
       domainId: row.domain_id,
-      tags: ["measure", row.value_type, row.default_aggregation, row.domain_id].filter(Boolean),
+      tags: ["measure", row.value_type, row.default_aggregation, row.domain_id, row.domain_id === "bouwen-en-wonen" ? "housing" : ""].filter(Boolean),
       metadata: {
         measure_key: row.measure_key,
         dataset_key: row.dataset_key,
+        dataset_version: row.dataset_version,
+        ...goldLineage({ ...row, updated_at: row.dataset_updated_at }, { goldTable: "gold.dim_measure", goldPrimaryKey: row.measure_key, semanticObject: "metric" }),
+        silver_status: row.silver_status ?? null,
+        silver_loaded_at: row.silver_loaded_at ?? null,
+        silver_observations_loaded: row.silver_observations_loaded ?? null,
         metric_id: metricByMeasure.get(String(row.measure_key))?.metric_id,
         metric_code: metricByMeasure.get(String(row.measure_key))?.metric_code,
         aggregation: approvedAggregation(row),
         value_type: row.value_type,
+        domain_id: row.domain_id,
+        domain_name: row.domain_id === "bouwen-en-wonen" ? "Bouwen en wonen" : null,
+        searchable_domain: row.domain_id === "bouwen-en-wonen" ? "housing_construction" : null,
+        housing_indicator_key: row.housing_indicator_key,
+        has_fact_data: Boolean(row.has_fact_data),
         metadata_completeness_status: metricByMeasure.get(String(row.measure_key)) ? "complete" : "incomplete",
       },
     })),
@@ -573,7 +656,22 @@ async function loadCatalogue(client, options) {
       searchText: `${row.geography_code} ${row.geography_name} ${row.geography_type} ${row.municipality_code ?? ""} ${row.province_code ?? ""}`,
       geographyCode: row.geography_code,
       tags: ["geography", row.geography_type].filter(Boolean),
-      metadata: { geography_key: row.geography_key, geography_type: row.geography_type, country_code: row.country_code },
+      metadata: {
+        geography_key: row.geography_key,
+        geography_type: row.geography_type,
+        country_code: row.country_code,
+        trusted_layer: "gold",
+        source_layer: "gold",
+        source_provider: "CBS",
+        source_system: row.source_system ?? "CBS",
+        gold_updated_at: row.updated_at ?? null,
+        lineage: {
+          primary_layer: "gold",
+          derived_from_layers: ["cbs_api", "bronze", "silver", "gold"],
+          gold_table: "gold.dim_geography",
+          gold_primary_key: String(row.geography_key),
+        },
+      },
     })),
     ...categories.rows.map((row) => item({
       objectType: "category",
@@ -588,7 +686,22 @@ async function loadCatalogue(client, options) {
       datasetCode: row.dataset_code,
       domainId: row.domain_id,
       tags: ["category", row.dimension_code, row.domain_id].filter(Boolean),
-      metadata: { category_key: row.category_key, dimension_code: row.dimension_code, category_code: row.category_code },
+      metadata: {
+        category_key: row.category_key,
+        dimension_code: row.dimension_code,
+        category_code: row.category_code,
+        domain_id: row.domain_id,
+        trusted_layer: "gold",
+        source_layer: "gold",
+        source_provider: "CBS",
+        source_system: "CBS",
+        lineage: {
+          primary_layer: "gold",
+          derived_from_layers: ["cbs_api", "bronze", "silver", "gold"],
+          gold_table: "gold.dim_category",
+          gold_primary_key: String(row.category_key),
+        },
+      },
     })),
   ];
 
@@ -596,13 +709,17 @@ async function loadCatalogue(client, options) {
     ...datasets.rows.map((row) => ({
       objectType: "dataset",
       objectId: row.dataset_key,
-      synonyms: [row.dataset_code, row.dataset_title],
+      synonyms: row.domain_id === "bouwen-en-wonen"
+        ? bouwenWonenDatasetSynonyms(row)
+        : [row.dataset_code, row.dataset_title],
       weight: 1,
     })),
     ...measures.rows.map((row) => ({
       objectType: "metric",
       objectId: row.measure_key,
-      synonyms: [row.measure_code, row.measure_name],
+      synonyms: row.domain_id === "bouwen-en-wonen"
+        ? bouwenWonenMeasureSynonyms(row)
+        : [row.measure_code, row.measure_name],
       weight: 1,
     })),
     ...geographies.rows.map((row) => ({

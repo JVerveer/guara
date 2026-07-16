@@ -45,6 +45,12 @@ export interface SearchFilters {
   dataset_key?: string;
   dataset_code?: string;
   source?: string;
+  domain_id?: string;
+  searchable_domain?: string;
+  has_fact_data?: boolean;
+  strict_gold_only?: boolean;
+  trusted_layer?: "gold" | "semantic";
+  source_layer?: "gold" | "silver" | "bronze" | "semantic";
   language?: "nl" | "en";
   geography_type?: string;
   year?: number;
@@ -189,4 +195,31 @@ export interface GeneratedAnswer {
   summary: string;
   bullets: string[];
   warnings: QueryWarning[];
+}
+
+export type AnswerFeedbackType =
+  | "helpful"
+  | "not_helpful"
+  | "wrong_metric"
+  | "wrong_filter"
+  | "wrong_period"
+  | "wrong_entity"
+  | "wrong_calculation"
+  | "missing_context"
+  | "other";
+
+export interface StoredQueryRequest {
+  queryRequestId: string;
+}
+
+export interface StoredQueryExecution {
+  queryExecutionId: string;
+}
+
+export interface StoredGeneratedAnswer {
+  answerId: string;
+}
+
+export interface SavedAnalysis {
+  savedAnalysisId: string;
 }

@@ -13,20 +13,21 @@ export function validateQueryResult(compiled: CompiledQuery, result: QueryExecut
 
   if (result.rowCount === 0) {
     warnings.push({ type: "empty_result", severity: "warning", message: "The validated query returned no rows." });
+    errors.push({ code: "EMPTY_RESULT", message: "The query was valid, but returned no rows." });
   }
 
   const first = result.rows[0];
   if (first) {
     for (const column of compiled.expectedColumns) {
       if (!(column.name in first)) {
-        errors.push({ code: "expected_column_missing", field: column.name, message: `Expected column ${column.name} is missing.` });
+        errors.push({ code: "QUERY_PLAN_INVALID", field: column.name, message: `Expected column ${column.name} is missing.` });
       }
     }
 
     for (const row of result.rows) {
       for (const column of compiled.expectedColumns) {
         if (!isExpectedType(row[column.name], column.type)) {
-          errors.push({ code: "unexpected_column_type", field: column.name, message: `Column ${column.name} has an unexpected type.` });
+          errors.push({ code: "QUERY_PLAN_INVALID", field: column.name, message: `Column ${column.name} has an unexpected type.` });
           break;
         }
       }

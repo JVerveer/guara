@@ -17,7 +17,7 @@ export async function validateSemanticQueryPlan(plan: unknown): Promise<PlanVali
   if (!syntax.ok) {
     return {
       status: "invalid",
-      errors: syntax.errors.map((message) => ({ code: "plan_schema_invalid", message })),
+      errors: syntax.errors.map((message) => ({ code: "QUERY_PLAN_INVALID", message })),
       warnings: [],
       ambiguities: [],
     };
@@ -26,7 +26,7 @@ export async function validateSemanticQueryPlan(plan: unknown): Promise<PlanVali
   if (!isSupabaseConfigured()) {
     return {
       status: "invalid",
-      errors: [{ code: "supabase_not_configured", message: "Supabase is not configured." }],
+      errors: [{ code: "SUPABASE_NOT_CONFIGURED", message: "Supabase is not configured." }],
       warnings: [],
       ambiguities: [],
     };
@@ -44,24 +44,24 @@ export async function validateSemanticQueryPlan(plan: unknown): Promise<PlanVali
     .or(`metric_id.eq.${validatedPlan.metricId},metric_code.eq.${validatedPlan.metricId}`)
     .limit(2);
 
-  if (metricError) errors.push({ code: "metric_lookup_failed", message: "Metric validation failed." });
+  if (metricError) errors.push({ code: "METRIC_NOT_FOUND", message: "Metric validation failed." });
   const metric = metricRows?.[0];
-  if (!metric) errors.push({ code: "metric_not_found", field: "metricId", message: "Metric does not exist." });
-  if (metric && !metric.is_enabled) errors.push({ code: "metric_disabled", field: "metricId", message: "Metric is not enabled." });
-  if (metric && !metric.measure_key) errors.push({ code: "metric_without_gold_measure", field: "metricId", message: "Metric has no Gold measure." });
-  if (metric && !metric.aggregation) errors.push({ code: "metric_without_aggregation", field: "metricId", message: "Metric has no known aggregation." });
-  if (metric && !metric.unit_key) errors.push({ code: "metric_without_unit", field: "metricId", message: "Metric has no valid unit." });
+  if (!metric) errors.push({ code: "METRIC_NOT_FOUND", field: "metricId", message: "Metric does not exist." });
+  if (metric && !metric.is_enabled) errors.push({ code: "METRIC_NOT_FOUND", field: "metricId", message: "Metric is not enabled." });
+  if (metric && !metric.measure_key) errors.push({ code: "METRIC_NOT_FOUND", field: "metricId", message: "Metric has no Gold measure." });
+  if (metric && !metric.aggregation) errors.push({ code: "UNSUPPORTED_CALCULATION", field: "metricId", message: "Metric has no known aggregation." });
+  if (metric && !metric.unit_key) errors.push({ code: "QUERY_PLAN_INVALID", field: "metricId", message: "Metric has no valid unit." });
   if (metric?.metadata_completeness_status === "incomplete") {
     warnings.push({ type: "coverage_limitation", severity: "warning", message: "Metric semantic metadata is marked incomplete." });
   }
   if (metric?.is_non_additive && ["ranking", "trend", "comparison"].includes(validatedPlan.intent) && metric.aggregation === "sum") {
-    errors.push({ code: "unsafe_non_additive_sum", field: "metricId", message: "Non-additive metrics cannot be summed by default." });
+    errors.push({ code: "UNSUPPORTED_CALCULATION", field: "metricId", message: "Non-additive metrics cannot be summed by default." });
   }
   if (metric && validatedPlan.intent === "trend" && !metric.supports_time_comparison) {
-    errors.push({ code: "time_comparison_unsupported", message: "Metric does not support time comparison." });
+    errors.push({ code: "INCOMPARABLE_PERIODS", message: "Metric does not support time comparison." });
   }
   if (metric && ["ranking", "comparison"].includes(validatedPlan.intent) && !metric.supports_geography_comparison) {
-    errors.push({ code: "geography_comparison_unsupported", message: "Metric does not support geography comparison." });
+    errors.push({ code: "DIMENSION_NOT_ALLOWED", message: "Metric does not support geography comparison." });
   }
 
   const calculationCode = CALCULATION_BY_INTENT[validatedPlan.intent];
@@ -73,10 +73,10 @@ export async function validateSemanticQueryPlan(plan: unknown): Promise<PlanVali
     .limit(1);
   const calculation = calculationRows?.[0];
   if (!calculation || !calculation.is_enabled) {
-    errors.push({ code: "calculation_not_enabled", field: "intent", message: "Requested calculation is not enabled." });
+    errors.push({ code: "UNSUPPORTED_CALCULATION", field: "intent", message: "Requested calculation is not enabled." });
   }
   if (calculation?.required_period_count && !validatedPlan.timeRange?.periods && !(validatedPlan.comparison?.basePeriod && validatedPlan.comparison?.comparisonPeriod)) {
-    errors.push({ code: "required_periods_missing", field: "timeRange", message: "Calculation requires explicit comparable periods." });
+    errors.push({ code: "INVALID_TIME_RANGE", field: "timeRange", message: "Calculation requires explicit comparable periods." });
   }
 
   if (metric) {
@@ -87,8 +87,8 @@ export async function validateSemanticQueryPlan(plan: unknown): Promise<PlanVali
         .select("supports_grouping, dimension:dimension_id(dimension_code, is_enabled)")
         .eq("metric_id", metric.metric_id);
       const match = dimensionRows?.find((row: any) => row.dimension?.dimension_code === group.dimensionId);
-      if (!match?.dimension?.is_enabled) errors.push({ code: "dimension_not_enabled", field: "groupBy", message: `Dimension ${group.dimensionId} is not enabled.` });
-      if (!match?.supports_grouping) errors.push({ code: "grouping_not_supported", field: "groupBy", message: `Metric cannot be grouped by ${group.dimensionId}.` });
+      if (!match?.dimension?.is_enabled) errors.push({ code: "DIMENSION_NOT_ALLOWED", field: "groupBy", message: `Dimension ${group.dimensionId} is not enabled.` });
+      if (!match?.supports_grouping) errors.push({ code: "DIMENSION_NOT_ALLOWED", field: "groupBy", message: `Metric cannot be grouped by ${group.dimensionId}.` });
     }
 
     for (const filter of validatedPlan.filters) {
@@ -98,13 +98,13 @@ export async function validateSemanticQueryPlan(plan: unknown): Promise<PlanVali
         .select("supports_filtering, dimension:dimension_id(dimension_code, is_enabled)")
         .eq("metric_id", metric.metric_id);
       const match = dimensionRows?.find((row: any) => row.dimension?.dimension_code === filter.dimensionId);
-      if (!match?.dimension?.is_enabled) errors.push({ code: "dimension_not_enabled", field: "filters", message: `Dimension ${filter.dimensionId} is not enabled.` });
-      if (!match?.supports_filtering) errors.push({ code: "filtering_not_supported", field: "filters", message: `Metric cannot be filtered by ${filter.dimensionId}.` });
+      if (!match?.dimension?.is_enabled) errors.push({ code: "DIMENSION_NOT_ALLOWED", field: "filters", message: `Dimension ${filter.dimensionId} is not enabled.` });
+      if (!match?.supports_filtering) errors.push({ code: "DIMENSION_NOT_ALLOWED", field: "filters", message: `Metric cannot be filtered by ${filter.dimensionId}.` });
     }
   }
 
   if ((validatedPlan.limit ?? 20) > 100) {
-    errors.push({ code: "limit_too_high", field: "limit", message: "Maximum output rows is 100." });
+    errors.push({ code: "QUERY_TOO_EXPENSIVE", field: "limit", message: "Maximum output rows is 100." });
   }
 
   return {

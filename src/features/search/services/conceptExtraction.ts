@@ -1,6 +1,23 @@
 import type { AnalyticalIntent, ExtractedConcepts } from "../types";
 
-const MUNICIPALITIES = ["Amsterdam", "Rotterdam", "Utrecht", "Groningen", "Eindhoven", "Den Haag", "Maastricht", "Nijmegen"];
+const MUNICIPALITIES = ["Amsterdam", "Rotterdam", "Utrecht", "Groningen", "Eindhoven", "Den Haag", "Maastricht", "Nijmegen", "Tilburg", "Almere", "Breda", "Haarlem", "Arnhem", "Amersfoort"];
+const HOUSING_TERMS = [
+  "woningvoorraad",
+  "woningen",
+  "nieuwbouw",
+  "bouwvergunning",
+  "huizenprijs",
+  "huizenprijzen",
+  "woningprijs",
+  "huur",
+  "huurwoningen",
+  "koopwoning",
+  "housing stock",
+  "house prices",
+  "building permits",
+  "new construction",
+  "rental housing",
+];
 
 function calculation(query: string): AnalyticalIntent | undefined {
   const lower = query.toLowerCase();
@@ -17,16 +34,17 @@ export function extractConcepts(query: string): ExtractedConcepts {
   const lower = query.toLowerCase();
   const years = Array.from(query.matchAll(/\b(19[7-9]\d|20[0-2]\d)\b/g)).map((match) => Number(match[1]));
   const geography = MUNICIPALITIES.filter((name) => lower.includes(name.toLowerCase()));
-  const groupBy = /municipalit|gemeenten|gemeente/.test(lower) ? ["municipality"] : [];
+  const groupBy = /municipalit|gemeenten|gemeente/.test(lower) || (geography.length > 1 && /compare|vergelijk/.test(lower)) ? ["municipality"] : [];
   const calc = calculation(query);
   const firstYear = years[0];
+  const housingTerm = HOUSING_TERMS.find((term) => lower.includes(term));
 
   return {
     metricPhrase: query
       .replace(/\b(which|what|why|compare|municipalities|gemeenten|gemeente|highest|lowest|most|least|after|since|before)\b/gi, " ")
       .replace(/\b(19[7-9]\d|20[0-2]\d)\b/g, " ")
       .replace(/\s+/g, " ")
-      .trim(),
+      .trim() || housingTerm,
     groupBy,
     dimensionValues: [],
     geography,

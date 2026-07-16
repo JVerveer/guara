@@ -1,0 +1,60 @@
+export const SEARCH_FIXTURE = {
+  datasets: [
+    {
+      datasetCode: "85455NED",
+      title: "Kerncijfers wijken en buurten",
+      descriptionNl: "Kerncijfers over bevolking, wonen en inkomen per gemeente, wijk en buurt.",
+      descriptionEn: "Key figures for population, housing and income by municipality, district and neighbourhood.",
+      periods: [2020, 2021, 2022, 2023, 2024],
+      sourceVersion: "2026-07-01",
+    },
+    {
+      datasetCode: "82211NED",
+      title: "Voorraad woningen en nieuwbouw",
+      descriptionNl: "Woningvoorraad, nieuwbouw en onttrekkingen per gemeente.",
+      descriptionEn: "Housing stock, newly built dwellings and removals by municipality.",
+      periods: [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023],
+      sourceVersion: "2026-06-15",
+    },
+  ],
+  metrics: [
+    {
+      metricId: "housing_stock_total",
+      title: "Woningvoorraad totaal",
+      synonyms: ["woningen", "housing stock", "voorraad woningen"],
+      unit: "count",
+      aggregation: "sum",
+      dimensions: ["geography", "time", "dataset"],
+      definitionChanges: [{ year: 2021, description: "CBS changed the dwelling stock definition." }],
+    },
+    {
+      metricId: "housing_stock_per_capita",
+      title: "Woningvoorraad per inwoner",
+      synonyms: ["per capita housing", "woningen per inwoner"],
+      unit: "ratio",
+      aggregation: "none",
+      dimensions: ["geography", "time"],
+    },
+    {
+      metricId: "average_house_price",
+      title: "Gemiddelde huizenprijs",
+      synonyms: ["house price", "huizenprijs", "woningprijs"],
+      unit: "EUR",
+      aggregation: "avg",
+      dimensions: ["geography", "time"],
+    },
+  ],
+  observations: [
+    { municipality: "Amsterdam", year: 2023, category: "total", metricId: "housing_stock_total", value: 488000, status: "final" },
+    { municipality: "Rotterdam", year: 2023, category: "total", metricId: "housing_stock_total", value: 329000, status: "final" },
+    { municipality: "Utrecht", year: 2023, category: "total", metricId: "housing_stock_total", value: 171000, status: "preliminary" },
+    { municipality: "Groningen", year: 2023, category: "total", metricId: "housing_stock_total", value: null, status: "missing" },
+    { municipality: "Eindhoven", year: 2023, category: "total", metricId: "average_house_price", value: null, status: "suppressed" },
+  ],
+  investigationObjects: [
+    { objectType: "note", objectId: "note-public", investigationId: "00000000-0000-4000-8000-000000000001", visibility: "shared", title: "Amsterdam housing pressure" },
+    { objectType: "note", objectId: "note-private", investigationId: "00000000-0000-4000-8000-000000000001", visibility: "private", authorId: "00000000-0000-4000-8000-000000000099", title: "Private lead" },
+    { objectType: "claim", objectId: "claim-1", investigationId: "00000000-0000-4000-8000-000000000001", visibility: "shared", title: "Housing construction lagged demand" },
+    { objectType: "saved_analysis", objectId: "analysis-1", investigationId: "00000000-0000-4000-8000-000000000001", visibility: "shared", title: "Amsterdam versus Utrecht housing trend" },
+  ],
+};

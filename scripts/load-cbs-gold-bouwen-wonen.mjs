@@ -21,6 +21,7 @@ function parseArgs(argv) {
   const options = {
     ensureSchema: false,
     refresh: false,
+    resume: true,
     dataset: "",
     limit: 100,
     batchSize: 50000,
@@ -32,6 +33,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === "--ensure-schema") options.ensureSchema = true;
     else if (arg === "--refresh") options.refresh = true;
+    else if (arg === "--no-resume") options.resume = false;
     else if (arg === "--dataset") options.dataset = argv[++index] ?? "";
     else if (arg === "--limit") options.limit = Number(argv[++index] ?? options.limit);
     else if (arg === "--batch-size") options.batchSize = Number(argv[++index] ?? options.batchSize);
@@ -49,6 +51,7 @@ Options:
   --limit 100           Maximum Bouwen en wonen Silver datasets to load.
   --batch-size 50000    Silver observations read per batch.
   --write-batch-size    Domain fact rows written per insert chunk.
+  --no-resume           Reprocess selected datasets instead of skipping/resuming Gold facts.
   --refresh             Rebuild selected mart facts from Silver.
 `);
       process.exit(0);
@@ -167,6 +170,39 @@ async function getDatasetGrain(client, datasetId) {
     [datasetId]
   );
   return result.rows[0] ?? { period_dimension_key: "Perioden", spatial_dimension_keys: [] };
+}
+
+async function getDatasetFactCounts(client, datasetId, datasetKey) {
+  const result = await client.query(
+    `
+      select
+        (select count(*)::bigint from silver.cbs_observation_measures where dataset_id = $1) as expected_fact_rows,
+        (select count(*)::bigint from gold_bouwen_wonen.fact_housing_observation where dataset_key = $2) as loaded_fact_rows
+    `,
+    [datasetId, datasetKey]
+  );
+  return {
+    expectedFactRows: BigInt(result.rows[0]?.expected_fact_rows ?? 0),
+    loadedFactRows: BigInt(result.rows[0]?.loaded_fact_rows ?? 0),
+  };
+}
+
+async function getResumeRowIndex(client, datasetId, datasetKey) {
+  const result = await client.query(
+    `
+      select coalesce(max(o.row_index) + 1, 0) as resume_row_index
+      from silver.cbs_observations o
+      where o.dataset_id = $1
+        and exists (
+          select 1
+          from gold_bouwen_wonen.fact_housing_observation f
+          where f.dataset_key = $2
+            and f.source_row_id = o.row_id
+        )
+    `,
+    [datasetId, datasetKey]
+  );
+  return Number(result.rows[0]?.resume_row_index ?? 0);
 }
 
 async function upsertDates(client, datasetId) {
@@ -571,6 +607,27 @@ async function loadDataset(client, dataset, options) {
       await client.query("delete from gold_bouwen_wonen.fact_housing_observation where dataset_key = $1", [datasetKey]);
     }
 
+    let from = 0;
+    if (!options.refresh && options.resume) {
+      const counts = await getDatasetFactCounts(client, dataset.dataset_id, datasetKey);
+      if (counts.expectedFactRows > 0n && counts.loadedFactRows >= counts.expectedFactRows) {
+        await client.query("commit");
+        console.log(`  ${dataset.dataset_id}: already complete in Gold (${counts.loadedFactRows}/${counts.expectedFactRows} facts), skipped`);
+        return {
+          sourceRows: 0,
+          factRows: 0,
+          bridgeRows: 0,
+          skipped: true,
+          expectedFactRows: counts.expectedFactRows,
+          loadedFactRows: counts.loadedFactRows,
+        };
+      }
+      if (counts.loadedFactRows > 0n) {
+        from = await getResumeRowIndex(client, dataset.dataset_id, datasetKey);
+        console.log(`  ${dataset.dataset_id}: resuming from Silver row_index ${from} (${counts.loadedFactRows}/${counts.expectedFactRows} facts already in Gold)`);
+      }
+    }
+
     const grain = await getDatasetGrain(client, dataset.dataset_id);
     const periodDimensionKey = grain.period_dimension_key || "Perioden";
     const spatialDimensionKeys = new Set(grain.spatial_dimension_keys ?? []);
@@ -583,7 +640,6 @@ async function loadDataset(client, dataset, options) {
     const dateDetails = new Map((await client.query("select * from gold.dim_date")).rows.map((row) => [String(row.date_key), row]));
     const geographyDetails = new Map((await client.query("select * from gold.dim_geography")).rows.map((row) => [String(row.geography_key), row]));
 
-    let from = 0;
     let sourceRows = 0;
     let factRows = 0;
     let bridgeRows = 0;
@@ -733,9 +789,11 @@ async function loadBouwenWonenMart(client, options) {
     let sourceRows = 0;
     let factRows = 0;
     let bridgeRows = 0;
+    let skippedDatasets = 0;
 
     for (const dataset of datasets) {
       const result = await loadDataset(client, dataset, options);
+      if (result.skipped) skippedDatasets += 1;
       sourceRows += result.sourceRows;
       factRows += result.factRows;
       bridgeRows += result.bridgeRows;
@@ -754,7 +812,7 @@ async function loadBouwenWonenMart(client, options) {
       `,
       [runId, sourceRows, factRows, bridgeRows]
     );
-    return { sourceRows, factRows, bridgeRows };
+    return { sourceRows, factRows, bridgeRows, skippedDatasets };
   } catch (error) {
     await client.query(
       "update gold_bouwen_wonen.load_runs set status = 'failed', finished_at = now(), message = $2 where run_id = $1",
@@ -782,7 +840,7 @@ async function main() {
   try {
     if (options.ensureSchema) await ensureSchema(client);
     const result = await loadBouwenWonenMart(client, options);
-    console.log(`Bouwen en wonen mart complete: ${result.factRows} facts from ${result.sourceRows} Silver rows, ${result.bridgeRows} bridge rows`);
+    console.log(`Bouwen en wonen mart complete: ${result.factRows} facts from ${result.sourceRows} Silver rows, ${result.bridgeRows} bridge rows, ${result.skippedDatasets ?? 0} dataset(s) skipped`);
   } finally {
     await client.end();
   }
