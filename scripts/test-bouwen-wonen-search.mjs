@@ -101,6 +101,8 @@ async function main() {
         trustedLayer: row.metadata?.trusted_layer ?? null,
         sourceLayer: row.metadata?.source_layer ?? null,
         sourceUpdated: row.metadata?.source_last_updated_at ?? null,
+        goldLoaded: row.metadata?.gold_loaded_at ?? null,
+        silverLoaded: row.metadata?.silver_loaded_at ?? null,
         metricCode: row.metadata?.metric_code ?? null,
       })));
     }
