@@ -10,6 +10,9 @@ export interface EvidenceSource {
   dataset: string;
   confidence: number;
   variables: string[];
+  provenance?: string;
+  api?: string;
+  transformation?: string;
 }
 
 export interface AnswerPoint {
@@ -27,6 +30,10 @@ export interface ResearchQuery {
   answerTitle: string;
   answerSummary: string;
   answerBullets: string[];
+  answerId?: string | null;
+  intent?: string;
+  queryPlan?: Record<string, unknown>;
+  provenance?: string[];
 }
 
 export interface HousePriceDataPoint {

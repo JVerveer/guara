@@ -28,6 +28,13 @@ Run `silver_schema.sql` after your Silver base tables exist. This migration adds
 -- paste supabase/silver_schema.sql
 ```
 
+Run `gold_schema.sql` before loading analytical models. This creates physical Gold and Semantic tables for repeatable dimensional loads from Silver:
+
+```sql
+-- Supabase SQL editor
+-- paste supabase/gold_schema.sql
+```
+
 In Supabase project settings, make sure the `bronze` schema is exposed to the API before running the ingestion job. Keep RLS enabled and do not add public policies to bronze tables; the job uses the service-role key.
 
 The ingestion job writes:
@@ -173,6 +180,75 @@ npm run load:cbs:silver -- --root-theme "Nederland regionaal" --limit 100 --meta
 ```
 
 Canonical Guara domains are defined in `config/cbs-domains.json`. They use CBS root themes as the domain backbone, so `--domain bouwen-en-wonen` resolves to `--root-theme "Bouwen en wonen"`. `--root-theme` uses `bronze.cbs_dataset_theme_hierarchy.top_theme_title`, so run the latest `supabase/bronze_schema.sql` before relying on theme-based Silver loads.
+
+Gold dimensional loading:
+
+```bash
+npm run load:cbs:gold:dimensions -- --ensure-schema --domain bouwen-en-wonen --limit 100
+npm run load:cbs:gold:dimensions -- --dataset 85039NED
+npm run load:cbs:gold -- --ensure-schema --domain bouwen-en-wonen --limit 10
+npm run load:cbs:gold -- --domain bouwen-en-wonen --limit 100 --batch-size 50000 --write-batch-size 50000
+npm run load:cbs:gold -- --root-theme "Bouwen en wonen" --limit 100
+npm run load:cbs:gold -- --dataset 85039NED --force
+npm run load:cbs:gold -- --failed-only --limit 50
+npm run load:cbs:gold -- --dataset 85039NED --validate-only
+```
+
+The conformed dimension loader reads only from Silver and fills shared Gold dimensions without touching facts. The generic Gold fact loader also reads only from Silver, never from CBS APIs. It runs one database transaction per dataset, records lineage in `gold.cbs_load_runs`, continues after failed datasets, and writes validation checks to `gold.validation_result`.
+
+Direct Bouwen en wonen mart loading:
+
+```bash
+npm run load:cbs:gold:bouwen-en-wonen -- --ensure-schema --limit 100
+npm run load:cbs:gold:bouwen-en-wonen -- --dataset 85039NED
+npm run load:cbs:gold:bouwen-en-wonen -- --refresh --limit 100
+```
+
+The `gold_bouwen_wonen` mart loads from Silver directly into shared conformed Gold dimensions and domain-specific housing facts. It does not require `gold.fact_observation` to be populated first. This gives housing/building investigations a compact star surface:
+
+- `gold_bouwen_wonen.dim_housing_dataset`
+- `gold_bouwen_wonen.dim_housing_indicator`
+- `gold_bouwen_wonen.fact_housing_observation`
+- `gold_bouwen_wonen.bridge_housing_observation_category`
+
+Gold table grain:
+
+- `gold.dim_date`: one row per reporting period code and period type.
+- `gold.dim_geography`: one row per source geography code, geography type, source system, and validity start date.
+- `gold.dim_dataset`: one row per source dataset version.
+- `gold.dim_measure`: one row per dataset-specific analytical measure.
+- `gold.dim_unit`: one row per normalized unit.
+- `gold.dim_category`: one row per non-date, non-geography dimension value within a dataset.
+- `gold.fact_observation`: one row per dataset, measure, date, geography, category combination, and source observation.
+- `gold.bridge_observation_category`: category membership for each fact observation.
+- `semantic.metric`, `semantic.metric_dimension`, `semantic.synonym`, `semantic.caveat`, `semantic.definition_version`: metadata Guara can use for natural-language search, metric meaning, caveats, and definition history.
+
+Useful Gold validation queries:
+
+```sql
+select status, count(*) as datasets
+from gold.cbs_load_runs
+group by status
+order by datasets desc;
+
+select dataset_code, check_name, status, expected_value, actual_value, message, checked_at
+from gold.validation_result
+order by checked_at desc
+limit 100;
+
+select
+  d.dataset_code,
+  d.dataset_title,
+  count(*) as facts,
+  count(distinct f.measure_key) as measures,
+  count(distinct f.geography_key) as geographies,
+  count(distinct f.date_key) as periods
+from gold.fact_observation f
+join gold.dim_dataset d on d.dataset_key = f.dataset_key
+group by d.dataset_code, d.dataset_title
+order by facts desc
+limit 25;
+```
 
 CBS catalog paging is explicit and deterministic: Dutch catalog tables are requested with `Language eq 'nl'` and `$orderby=ID asc`. This makes `--table-offset` stable across resumed batches unless CBS changes catalog contents.
 

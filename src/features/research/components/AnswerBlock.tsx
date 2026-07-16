@@ -21,6 +21,20 @@ export function AnswerBlock({ result }: AnswerBlockProps) {
           ))}
         </ul>
       )}
+
+      {(result.intent || result.answerId || result.provenance?.length) && (
+        <div className="rounded-lg border border-border bg-card p-4 text-xs text-muted-foreground">
+          <div className="mb-2 flex flex-wrap gap-2">
+            {result.intent && <span className="rounded-md bg-muted px-2 py-1">Intent: {result.intent}</span>}
+            {result.answerId && <span className="rounded-md bg-muted px-2 py-1">Answer ID: {result.answerId}</span>}
+          </div>
+          {result.provenance?.length ? (
+            <ol className="list-decimal space-y-1 pl-4">
+              {result.provenance.map((step) => <li key={step}>{step}</li>)}
+            </ol>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

@@ -16,6 +16,9 @@ export function EvidenceCard({
   dataset,
   confidence,
   variables,
+  provenance,
+  api,
+  transformation,
   onViewDataset,
 }: EvidenceCardProps) {
   const { t } = useTranslation();
@@ -59,10 +62,10 @@ export function EvidenceCard({
       </div>
 
       {expanded && (
-        <div className="pt-2 border-t border-border">
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            {t("research.evidenceDescription")}
-          </p>
+        <div className="space-y-2 border-t border-border pt-2">
+          <p className="text-xs text-muted-foreground leading-relaxed">{transformation ?? t("research.evidenceDescription")}</p>
+          {api && <p className="text-xs text-muted-foreground leading-relaxed">API: {api}</p>}
+          {provenance && <p className="text-xs text-muted-foreground leading-relaxed">Provenance: {provenance}</p>}
         </div>
       )}
 

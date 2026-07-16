@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createPostgresClient, explainPostgresConnectionError } from "./lib/runtime.mjs";
 
 const STATUS = {
   PENDING: "pending",
@@ -47,6 +48,9 @@ function parseArgs(argv) {
     concurrency: 4,
     loadConcurrency: 1,
     skipPublicRefresh: false,
+    directPostgresRows: false,
+    writeBatchSize: 50000,
+    writeTimeoutMs: 900000,
     output: "table",
     writeJson: false,
     jsonPath: "",
@@ -92,6 +96,9 @@ function parseArgs(argv) {
     }
     else if (arg === "--load-concurrency") options.loadConcurrency = Number(argv[++i] ?? options.loadConcurrency);
     else if (arg === "--skip-public-refresh") options.skipPublicRefresh = true;
+    else if (arg === "--direct-postgres-rows") options.directPostgresRows = true;
+    else if (arg === "--write-batch-size") options.writeBatchSize = Number(argv[++i] ?? options.writeBatchSize);
+    else if (arg === "--write-timeout-ms") options.writeTimeoutMs = Number(argv[++i] ?? options.writeTimeoutMs);
     else if (arg === "--output") {
       options.output = argv[++i] ?? options.output;
       options.overview = true;
@@ -123,6 +130,9 @@ Selection options:
   --root-theme "Bouwen en wonen"  Load or overview datasets linked to a CBS top-level root theme.
   --load-concurrency 1            Number of datasets to load in parallel.
   --skip-public-refresh           Skip app-facing public catalog/summary refresh during the load.
+  --direct-postgres-rows          Use direct Postgres for Bronze row reads and Silver row writes.
+  --write-batch-size 50000        Direct Postgres insert chunk size for Silver rows.
+  --write-timeout-ms 900000       Direct Postgres statement/query timeout.
 
 Overview options:
   --query term             Filter by dataset id/title/description/period/catalog.
@@ -210,6 +220,18 @@ function dimensionPayloadRows(payloads) {
 
 function payloadByEndpoint(payloads, endpoint) {
   return payloads.find((row) => row.endpoint === endpoint)?.payload ?? null;
+}
+
+function rowChunks(rows, chunkSize) {
+  const size = Math.max(1, chunkSize);
+  const chunks = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push({
+      startIndex: index,
+      rows: rows.slice(index, index + size),
+    });
+  }
+  return chunks;
 }
 
 async function upsertOrThrow(supabase, schema, table, rows, options = {}) {
@@ -1559,6 +1581,144 @@ async function insertRejectedRow(supabase, row, sourceVersion, reason, errorMess
   if (error) throw error;
 }
 
+async function getMaxSilverRowIndexPg(pgClient, datasetId) {
+  const result = await pgClient.query(
+    `
+      select row_index
+      from silver.cbs_observations
+      where dataset_id = $1
+      order by row_index desc
+      limit 1
+    `,
+    [datasetId]
+  );
+
+  return result.rows[0]?.row_index === undefined || result.rows[0]?.row_index === null
+    ? -1
+    : Number(result.rows[0].row_index);
+}
+
+async function countSilverRowsPg(pgClient, table, datasetId) {
+  const result = await pgClient.query(
+    `select count(*)::bigint as count from silver.${table} where dataset_id = $1`,
+    [datasetId]
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function writeSilverRowsPg(pgClient, observationRows, dimensionRows, measureRows, options) {
+  const writeBatchSize = Math.max(1, options.writeBatchSize);
+
+  for (const chunk of rowChunks(observationRows, writeBatchSize)) {
+    const rows = chunk.rows;
+    await pgClient.query(
+      `
+        insert into silver.cbs_observations (
+          dataset_id, row_id, row_index, source_version, bronze_ingestion_run_id, bronze_source_version, silver_loaded_at
+        )
+        select *
+        from unnest($1::text[], $2::text[], $3::bigint[], $4::text[], $5::uuid[], $6::text[], $7::timestamptz[])
+          as rows(dataset_id, row_id, row_index, source_version, bronze_ingestion_run_id, bronze_source_version, silver_loaded_at)
+        on conflict (dataset_id, row_id) do update set
+          row_index = excluded.row_index,
+          source_version = excluded.source_version,
+          bronze_ingestion_run_id = excluded.bronze_ingestion_run_id,
+          bronze_source_version = excluded.bronze_source_version,
+          silver_loaded_at = excluded.silver_loaded_at
+      `,
+      [
+        rows.map((row) => row.dataset_id),
+        rows.map((row) => row.row_id),
+        rows.map((row) => row.row_index),
+        rows.map((row) => row.source_version),
+        rows.map((row) => row.bronze_ingestion_run_id),
+        rows.map((row) => row.bronze_source_version),
+        rows.map((row) => row.silver_loaded_at),
+      ]
+    );
+  }
+
+  for (const chunk of rowChunks(dimensionRows, writeBatchSize)) {
+    const rows = chunk.rows;
+    await pgClient.query(
+      `
+        insert into silver.cbs_observation_dimensions (
+          dataset_id, row_id, dimension_key, value_key, source_version, silver_loaded_at
+        )
+        select *
+        from unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::timestamptz[])
+          as rows(dataset_id, row_id, dimension_key, value_key, source_version, silver_loaded_at)
+        on conflict (dataset_id, row_id, dimension_key) do update set
+          value_key = excluded.value_key,
+          source_version = excluded.source_version,
+          silver_loaded_at = excluded.silver_loaded_at
+      `,
+      [
+        rows.map((row) => row.dataset_id),
+        rows.map((row) => row.row_id),
+        rows.map((row) => row.dimension_key),
+        rows.map((row) => row.value_key),
+        rows.map((row) => row.source_version),
+        rows.map((row) => row.silver_loaded_at),
+      ]
+    );
+  }
+
+  for (const chunk of rowChunks(measureRows, writeBatchSize)) {
+    const rows = chunk.rows;
+    await pgClient.query(
+      `
+        insert into silver.cbs_observation_measures (
+          dataset_id, row_id, measure_key, value_type, value_text, value_numeric, value_boolean, source_version, silver_loaded_at
+        )
+        select *
+        from unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::numeric[], $7::boolean[], $8::text[], $9::timestamptz[])
+          as rows(dataset_id, row_id, measure_key, value_type, value_text, value_numeric, value_boolean, source_version, silver_loaded_at)
+        on conflict (dataset_id, row_id, measure_key) do update set
+          value_type = excluded.value_type,
+          value_text = excluded.value_text,
+          value_numeric = excluded.value_numeric,
+          value_boolean = excluded.value_boolean,
+          source_version = excluded.source_version,
+          silver_loaded_at = excluded.silver_loaded_at
+      `,
+      [
+        rows.map((row) => row.dataset_id),
+        rows.map((row) => row.row_id),
+        rows.map((row) => row.measure_key),
+        rows.map((row) => row.value_type),
+        rows.map((row) => row.value_text),
+        rows.map((row) => row.value_numeric),
+        rows.map((row) => row.value_boolean),
+        rows.map((row) => row.source_version),
+        rows.map((row) => row.silver_loaded_at),
+      ]
+    );
+  }
+}
+
+async function insertRejectedRowsPg(pgClient, rows) {
+  if (rows.length === 0) return;
+  await pgClient.query(
+    `
+      insert into silver.cbs_rejected_rows (
+        dataset_id, row_id, row_index, reason, error_message, source_version
+      )
+      select *
+      from unnest($1::text[], $2::text[], $3::bigint[], $4::text[], $5::text[], $6::text[])
+        as rows(dataset_id, row_id, row_index, reason, error_message, source_version)
+    `,
+    [
+      rows.map((row) => row.dataset_id),
+      rows.map((row) => row.row_id),
+      rows.map((row) => row.row_index),
+      rows.map((row) => row.reason),
+      rows.map((row) => row.error_message),
+      rows.map((row) => row.source_version),
+    ]
+  );
+}
+
 function observationToRelationalRows(row, dimensionKeys, measureKeys, sourceVersion) {
   const now = new Date().toISOString();
 
@@ -1616,7 +1776,12 @@ function observationToRelationalRows(row, dimensionKeys, measureKeys, sourceVers
   return { observation, dimensions, measures };
 }
 
-async function loadRowsForDataset(supabase, datasetId, sourceVersion, options) {
+async function loadRowsForDataset(supabase, datasetId, sourceVersion, options, pgClient = null) {
+  if (options.directPostgresRows) {
+    if (!pgClient) throw new Error("--direct-postgres-rows requires a direct Postgres client.");
+    return loadRowsForDatasetPg(supabase, pgClient, datasetId, sourceVersion, options);
+  }
+
   const dimensionKeys = await getSilverKeys(supabase, datasetId, "cbs_dimensions", "dimension_key");
   const measureKeys = await getSilverKeys(supabase, datasetId, "cbs_measures", "measure_key");
 
@@ -1679,6 +1844,94 @@ async function loadRowsForDataset(supabase, datasetId, sourceVersion, options) {
 
     console.log(
       `Silver rows ${datasetId}: +${observationRows.length} obs, +${dimensionRows.length} dims, +${measureRows.length} measures, +${totals.rejected} rejected`
+    );
+
+    if (data.length < options.batchSize) break;
+  }
+
+  return totals;
+}
+
+async function loadRowsForDatasetPg(supabase, pgClient, datasetId, sourceVersion, options) {
+  const dimensionKeys = await getSilverKeys(supabase, datasetId, "cbs_dimensions", "dimension_key");
+  const measureKeys = await getSilverKeys(supabase, datasetId, "cbs_measures", "measure_key");
+
+  if (dimensionKeys.size === 0 && measureKeys.size === 0) {
+    throw new Error(`No Silver metadata found for ${datasetId}. Run metadata load first.`);
+  }
+
+  let from = 0;
+
+  if (!options.force) {
+    from = (await getMaxSilverRowIndexPg(pgClient, datasetId)) + 1;
+    if (from > 0) console.log(`Silver rows for ${datasetId}: resuming from row_index ${from}`);
+  }
+
+  const totals = {
+    observations: 0,
+    dimensionLinks: 0,
+    measures: 0,
+    rejected: 0,
+  };
+
+  while (true) {
+    const result = await pgClient.query(
+      `
+        select dataset_id, row_id, row_index, raw, ingestion_run_id, source_version
+        from bronze.cbs_typed_dataset_rows
+        where dataset_id = $1
+          and row_index >= $2
+        order by row_index asc
+        limit $3
+      `,
+      [datasetId, from, Math.max(1, options.batchSize)]
+    );
+
+    const data = result.rows;
+    if (data.length === 0) break;
+
+    const observationRows = [];
+    const dimensionRows = [];
+    const measureRows = [];
+    const rejectedRows = [];
+
+    for (const row of data) {
+      try {
+        const relational = observationToRelationalRows(row, dimensionKeys, measureKeys, sourceVersion);
+        observationRows.push(relational.observation);
+        dimensionRows.push(...relational.dimensions);
+        measureRows.push(...relational.measures);
+      } catch (error) {
+        totals.rejected += 1;
+        rejectedRows.push({
+          dataset_id: row.dataset_id,
+          row_id: row.row_id,
+          row_index: row.row_index,
+          reason: "row_parse_failed",
+          error_message: error.message,
+          source_version: sourceVersion,
+        });
+      }
+    }
+
+    await pgClient.query("begin");
+    try {
+      await writeSilverRowsPg(pgClient, observationRows, dimensionRows, measureRows, options);
+      await insertRejectedRowsPg(pgClient, rejectedRows);
+      await pgClient.query("commit");
+    } catch (error) {
+      await pgClient.query("rollback");
+      throw error;
+    }
+
+    totals.observations += observationRows.length;
+    totals.dimensionLinks += dimensionRows.length;
+    totals.measures += measureRows.length;
+
+    from = Number(data[data.length - 1].row_index) + 1;
+
+    console.log(
+      `Silver rows ${datasetId}: +${observationRows.length} obs, +${dimensionRows.length} dims, +${measureRows.length} measures, +${totals.rejected} rejected (direct pg)`
     );
 
     if (data.length < options.batchSize) break;
@@ -2110,8 +2363,23 @@ async function runSilverOverview(supabase, options) {
 async function loadSilverDataset(supabase, dataset, options) {
   const datasetId = dataset.dataset_id;
   const sourceVersion = dataset.payload?.Updated ?? null;
+  let pgClient = null;
 
   try {
+    if (options.directPostgresRows) {
+      pgClient = createPostgresClient({
+        applicationName: `guara-cbs-silver-${datasetId}`,
+        statementTimeoutMs: Math.max(1, options.writeTimeoutMs),
+        queryTimeoutMs: Math.max(1, options.writeTimeoutMs),
+      });
+
+      try {
+        await pgClient.connect();
+      } catch (error) {
+        throw new Error(explainPostgresConnectionError(error));
+      }
+    }
+
     if (await shouldSkipDataset(supabase, datasetId, sourceVersion, options)) {
       console.log(`Skipped ${datasetId}: already completed for source version ${sourceVersion}.`);
       return { datasetId, status: STATUS.SKIPPED };
@@ -2150,11 +2418,15 @@ async function loadSilverDataset(supabase, dataset, options) {
       let result = { observations: 0, dimensionLinks: 0, measures: 0, rejected: 0, expectedObservations };
 
       if (!options.metadataOnly) {
-        result = await loadRowsForDataset(supabase, datasetId, sourceVersion, options);
+        result = await loadRowsForDataset(supabase, datasetId, sourceVersion, options, pgClient);
       }
 
-      const totalObservations = await getExactDatasetCount(supabase, "silver", "cbs_observations", "row_id", datasetId);
-      const totalRejected = await getExactDatasetCount(supabase, "silver", "cbs_rejected_rows", "row_id", datasetId);
+      const totalObservations = pgClient
+        ? await countSilverRowsPg(pgClient, "cbs_observations", datasetId)
+        : await getExactDatasetCount(supabase, "silver", "cbs_observations", "row_id", datasetId);
+      const totalRejected = pgClient
+        ? await countSilverRowsPg(pgClient, "cbs_rejected_rows", datasetId)
+        : await getExactDatasetCount(supabase, "silver", "cbs_rejected_rows", "row_id", datasetId);
       const finalStatus = options.metadataOnly
         ? STATUS.METADATA_LOADED
         : expectedObservations !== null && totalObservations + totalRejected < expectedObservations
@@ -2210,6 +2482,8 @@ async function loadSilverDataset(supabase, dataset, options) {
   } catch (error) {
     console.error(`Failed Silver load for ${datasetId}: ${error.message}`);
     return { datasetId, status: STATUS.FAILED, error: error.message };
+  } finally {
+    if (pgClient) await pgClient.end().catch(() => {});
   }
 }
 

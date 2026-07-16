@@ -8,6 +8,7 @@
 
 import { getHousePriceData, getAgingData } from "../data/chartData";
 import { datasetService } from "@/features/datasets/services/datasetService";
+import { semanticSearchService } from "@/features/semantic/services/semanticSearchService";
 import type {
   AgingDataPoint,
   EvidenceSource,
@@ -22,6 +23,36 @@ export const researchService = {
    */
   async getResult(question?: string): Promise<ResearchQuery> {
     const normalizedQuestion = question?.trim() || "CBS StatLine datasets";
+
+    try {
+      const semanticAnswer = await semanticSearchService.answer(normalizedQuestion);
+      const evidenceSources: EvidenceSource[] = semanticAnswer.searchResults.slice(0, 3).map((item) => ({
+        provider: item.provider ?? "CBS",
+        dataset: `${item.dataset_code ?? item.object_type} ${item.title}`,
+        confidence: Math.round(Math.max(0, Math.min(100, item.rank_score * 100))),
+        variables: [item.object_type, item.measure_code, item.unit_code, item.domain_id].filter(Boolean) as string[],
+        provenance: `semantic.catalogue_item:${item.catalogue_item_id}`,
+        api: item.dataset_code ? `Supabase RPC guara_hybrid_search / dataset ${item.dataset_code}` : "Supabase RPC guara_hybrid_search",
+        transformation: "Hybrid lexical/vector catalogue retrieval followed by allowlisted query-plan resolution.",
+      }));
+
+      return {
+        question: semanticAnswer.question,
+        sourceCount: evidenceSources.length,
+        confidenceScore: semanticAnswer.confidence,
+        evidenceSources,
+        answerTitle: semanticAnswer.title,
+        answerSummary: semanticAnswer.summary,
+        answerBullets: semanticAnswer.bullets,
+        answerId: semanticAnswer.answerId,
+        intent: semanticAnswer.intent,
+        queryPlan: semanticAnswer.queryPlan as unknown as Record<string, unknown>,
+        provenance: semanticAnswer.provenance,
+      };
+    } catch (error) {
+      console.warn("Semantic answer failed; falling back to dataset catalogue search.", error);
+    }
+
     const matches = await datasetService.searchDatasets(normalizedQuestion, []);
     const evidenceSources: EvidenceSource[] = matches.slice(0, 3).map((dataset) => ({
       provider: dataset.provider,
