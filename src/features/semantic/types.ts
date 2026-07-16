@@ -30,7 +30,10 @@ export interface SemanticSearchResult {
 export interface SemanticQueryPlan {
   intent: SemanticIntent;
   source: "semantic_catalogue" | "gold_bouwen_wonen";
-  measure_key?: number;
+  measure_key?: string;
+  metric_id?: string;
+  metric_code?: string;
+  calculation_code?: string;
   measure_label?: string;
   year?: number;
   geography_names?: string[];

@@ -29,6 +29,14 @@ npm run load:cbs:gold:bouwen-en-wonen -- --ensure-schema --limit 100
 
 For Bouwen en wonen, this direct mart loader is the preferred path. It does not require `gold.fact_observation` to be populated first.
 
+After dimensions and marts are loaded, refresh the semantic catalogue:
+
+```bash
+npm run load:semantic:catalogue -- --ensure-schema --domain bouwen-en-wonen
+```
+
+The homepage search uses `public.guara_hybrid_search` and `public.guara_execute_query_plan` for controlled natural-language answering. Query plans are structured JSON and are validated by the database RPC before execution.
+
 ## Grain
 
 | Table | Grain |

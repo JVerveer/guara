@@ -211,6 +211,24 @@ The `gold_bouwen_wonen` mart loads from Silver directly into shared conformed Go
 - `gold_bouwen_wonen.fact_housing_observation`
 - `gold_bouwen_wonen.bridge_housing_observation_category`
 
+Semantic catalogue and controlled answering:
+
+```bash
+npm run load:cbs:gold:dimensions -- --ensure-schema --domain bouwen-en-wonen --limit 100
+npm run load:cbs:gold:bouwen-en-wonen -- --limit 100
+npm run load:semantic:catalogue -- --ensure-schema --domain bouwen-en-wonen
+```
+
+`supabase/semantic_catalogue_schema.sql` creates `semantic.catalogue_item`, answer provenance, saved analyses, evidence conversion tables, and public RPCs:
+
+- `public.guara_hybrid_search(...)`
+- `public.guara_execute_query_plan(...)`
+- `public.guara_record_answer_provenance(...)`
+- `public.guara_save_analysis(...)`
+- `public.guara_convert_answer_to_evidence(...)`
+
+The homepage search uses this semantic layer first. It classifies intent, retrieves catalogue objects, builds an allowlisted query plan, and only executes deterministic RPC-backed Gold queries. It does not generate unrestricted SQL.
+
 Gold table grain:
 
 - `gold.dim_date`: one row per reporting period code and period type.

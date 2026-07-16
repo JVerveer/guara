@@ -49,6 +49,14 @@ function firstMeasure(results: SemanticSearchResult[]): SemanticSearchResult | u
   return results.find((result) => result.object_type === "measure" && result.metadata?.measure_key);
 }
 
+function calculationCode(intent: SemanticIntent): string | undefined {
+  if (intent === "rank_geographies") return "ranking";
+  if (intent === "compare_geographies") return "comparison";
+  if (intent === "trend") return "trend";
+  if (intent === "measure_definition") return "lookup";
+  return undefined;
+}
+
 async function hybridSearch(question: string, objectTypes?: string[]): Promise<SemanticSearchResult[]> {
   if (!isSupabaseConfigured()) return [];
   const supabase = await getSupabaseClient();
@@ -85,15 +93,18 @@ function buildPlan(question: string, intent: SemanticIntent, results: SemanticSe
   return {
     intent: intent === "measure_definition" ? "measure_definition" : intent,
     source: "gold_bouwen_wonen",
-    measure_key: Number(measure.metadata.measure_key),
+    measure_key: String(measure.metadata.measure_key),
+    metric_id: measure.metadata.metric_id == null ? undefined : String(measure.metadata.metric_id),
+    metric_code: typeof measure.metadata.metric_code === "string" ? measure.metadata.metric_code : undefined,
+    calculation_code: calculationCode(intent),
     measure_label: measure.title,
     year,
     geography_names: geographyNames,
     limit: intent === "trend" ? 50 : 10,
     explanation: [
       `Resolved measure "${measure.title}" from the semantic catalogue.`,
-      "Compiled to an allowlisted Bouwen en wonen query plan.",
-      "The database RPC validates intent, measure availability and result limits before execution.",
+      "Compiled to an allowlisted Bouwen en wonen query plan using an approved semantic calculation.",
+      "The database RPC validates intent, metric availability, metric-dimension compatibility, approved joins and result limits before execution.",
     ],
   };
 }
@@ -105,7 +116,7 @@ async function executePlan(plan: SemanticQueryPlan): Promise<Record<string, unkn
   const { data, error } = await (supabase as any).rpc("guara_execute_query_plan", {
     plan: { ...plan, intent: rpcIntent },
   });
-  if (error) throw error;
+  if (error) return { error: error.message };
   return (data ?? {}) as Record<string, unknown>;
 }
 
@@ -128,9 +139,13 @@ function answerText(question: string, plan: SemanticQueryPlan, result: Record<st
   }
 
   const bullets = matches.slice(0, 6).map((match) => `${match.object_type}: ${match.title}${match.subtitle ? ` (${match.subtitle})` : ""}`);
+  const executionError = typeof result.error === "string" ? result.error : "";
   return {
     title: `Semantic catalogue results for "${question}"`,
     summary:
+      executionError
+        ? `Guara resolved a controlled query plan, but did not execute a fact answer: ${executionError}. The catalogue matches below show what is available for inspection.`
+        : 
       bullets.length > 0
         ? "Guara found relevant catalogue objects, but did not execute an analytical fact query because the request did not resolve to a complete allowlisted query plan."
         : "No matching semantic catalogue objects were found. Load Gold dimensions and refresh the semantic catalogue.",
