@@ -78,6 +78,16 @@ export function geographyTypeFromCode(code, fallback = "unknown") {
   return fallback === "other" || fallback === "neighborhood" ? "region" : fallback || "unknown";
 }
 
+export function safeIsoDate(value) {
+  const text = String(value ?? "");
+  return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : null;
+}
+
+export function safeIsoTimestamp(value) {
+  const text = String(value ?? "");
+  return /^\d{4}-\d{2}-\d{2}/.test(text) ? text : null;
+}
+
 function parseArgs(argv) {
   const options = {
     dataset: "",
@@ -263,8 +273,8 @@ async function upsertDataset(client, dataset) {
       dataset.short_description || dataset.title || null,
       `https://opendata.cbs.nl/ODataApi/odata/${dataset.dataset_id}`,
       dataset.source_version || dataset.cbs_updated_at || "unknown",
-      dataset.cbs_updated_at ? String(dataset.cbs_updated_at).slice(0, 10) : null,
-      dataset.cbs_updated_at ?? null,
+      safeIsoDate(dataset.cbs_updated_at),
+      safeIsoTimestamp(dataset.cbs_updated_at),
     ],
     "dataset_key"
   );

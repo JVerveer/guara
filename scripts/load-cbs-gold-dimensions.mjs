@@ -8,6 +8,8 @@ import {
   inferAggregation,
   inferValueType,
   normalizeUnit,
+  safeIsoDate,
+  safeIsoTimestamp,
   stableBigInt,
 } from "./load-cbs-gold.mjs";
 
@@ -162,8 +164,8 @@ async function upsertDataset(client, dataset) {
       dataset.short_description || dataset.title || null,
       `https://opendata.cbs.nl/ODataApi/odata/${dataset.dataset_id}`,
       dataset.source_version || dataset.cbs_updated_at || "unknown",
-      dataset.cbs_updated_at ? String(dataset.cbs_updated_at).slice(0, 10) : null,
-      dataset.cbs_updated_at ?? null,
+      safeIsoDate(dataset.cbs_updated_at),
+      safeIsoTimestamp(dataset.cbs_updated_at),
     ],
     "dataset_key"
   );
