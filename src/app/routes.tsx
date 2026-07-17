@@ -43,7 +43,14 @@ export function renderRoute(screen: Screen, setScreen: (s: Screen) => void, stat
     case "workspace":
       return <InvestigationWorkspaceScreen plan={state.researchPlan} setScreen={setScreen} />;
     case "result":
-      return <ResultScreen {...props} question={state.researchQuestion} />;
+      return (
+        <ResultScreen
+          {...props}
+          question={state.researchQuestion}
+          setResearchQuestion={state.setResearchQuestion}
+          setResearchPlan={state.setResearchPlan}
+        />
+      );
     case "datasets":
       return <DatasetExplorerScreen {...props} setSelectedDatasetId={state.setSelectedDatasetId} />;
     case "sources":

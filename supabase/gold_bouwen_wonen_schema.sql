@@ -126,6 +126,12 @@ create table if not exists gold_bouwen_wonen.load_runs (
 create index if not exists fact_housing_observation_dataset_idx
   on gold_bouwen_wonen.fact_housing_observation(housing_dataset_key);
 
+create index if not exists fact_housing_observation_dataset_source_row_idx
+  on gold_bouwen_wonen.fact_housing_observation(housing_dataset_key, source_row_id);
+
+create index if not exists fact_housing_observation_source_dataset_idx
+  on gold_bouwen_wonen.fact_housing_observation(source_dataset_id);
+
 create index if not exists fact_housing_observation_indicator_idx
   on gold_bouwen_wonen.fact_housing_observation(housing_indicator_key);
 

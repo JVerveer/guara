@@ -197,8 +197,14 @@ create index if not exists cbs_observations_dataset_row_index_idx
 create index if not exists cbs_observation_dimensions_dataset_dimension_value_idx
   on silver.cbs_observation_dimensions (dataset_id, dimension_key, value_key);
 
+create index if not exists cbs_observation_dimensions_dataset_row_idx
+  on silver.cbs_observation_dimensions (dataset_id, row_id);
+
 create index if not exists cbs_observation_measures_dataset_measure_idx
   on silver.cbs_observation_measures (dataset_id, measure_key);
+
+create index if not exists cbs_observation_measures_dataset_row_idx
+  on silver.cbs_observation_measures (dataset_id, row_id);
 
 create index if not exists cbs_dataset_themes_dataset_idx
   on silver.cbs_dataset_themes (dataset_id);

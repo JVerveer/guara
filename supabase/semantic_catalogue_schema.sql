@@ -314,6 +314,10 @@ insert into semantic.calculation (
   ('absolute_change', 'Absolute change', 'Calculate value difference between two periods.', 'change', 2, false, true),
   ('percentage_change', 'Percentage change', 'Calculate percentage difference between two periods.', 'change', 2, false, true),
   ('share_of_total', 'Share of total', 'Calculate a part as share of a total.', 'share', null, false, true),
+  ('metric_comparison', 'Metric comparison', 'Compare multiple metrics for the same geography and period.', 'comparison', null, false, true),
+  ('multi_metric_rank', 'Multi-metric ranking', 'Rank geographies by two metrics with deterministic rank directions.', 'ranking', null, true, true),
+  ('change_rank', 'Change ranking', 'Rank geographies by absolute value change between two periods.', 'change', 2, true, true),
+  ('compare_to_average', 'Compare to average', 'Compare selected geographies with the average across comparable geographies.', 'comparison', null, false, true),
   ('count', 'Count', 'Count records or entities where counting is valid.', 'count', null, true, true)
 on conflict (calculation_code) do update set
   calculation_name = case when semantic.calculation.metadata_origin = 'curated' then semantic.calculation.calculation_name else excluded.calculation_name end,
@@ -529,9 +533,16 @@ as $$
 declare
   intent text := coalesce(plan->>'intent', '');
   measure bigint := nullif(plan->>'measure_key', '')::bigint;
+  secondary_measure bigint := nullif(plan->>'secondary_measure_key', '')::bigint;
   metric_row record;
   resolved_calculation_code text;
   year_value integer := nullif(plan->>'year', '')::integer;
+  year_start_value integer := nullif(plan->>'year_start', '')::integer;
+  year_end_value integer := nullif(plan->>'year_end', '')::integer;
+  geography_type_filter text := coalesce(nullif(plan->>'geography_type', ''), case when intent = 'rank_geographies' then 'municipality' else null end);
+  sort_direction text := case when lower(coalesce(plan->>'sort_direction', 'desc')) = 'asc' then 'asc' else 'desc' end;
+  value_filter_operator text := lower(coalesce(plan->>'value_filter_operator', ''));
+  value_filter_value numeric := nullif(plan->>'value_filter', '')::numeric;
   limit_value integer := greatest(1, least(coalesce(nullif(plan->>'limit', '')::integer, 10), 50));
   result jsonb;
 begin
@@ -539,13 +550,16 @@ begin
     raise exception 'Unsupported query intent: %', intent;
   end if;
 
-  resolved_calculation_code := case intent
-    when 'rank_geographies' then 'ranking'
-    when 'compare_geographies' then 'comparison'
-    when 'trend' then 'trend'
-    when 'lookup_measure' then 'lookup'
-    else null
-  end;
+  resolved_calculation_code := coalesce(
+    nullif(plan->>'calculation_code', ''),
+    case intent
+      when 'rank_geographies' then 'ranking'
+      when 'compare_geographies' then 'comparison'
+      when 'trend' then 'trend'
+      when 'lookup_measure' then 'lookup'
+      else null
+    end
+  );
 
   if not exists (
     select 1
@@ -567,7 +581,7 @@ begin
     end if;
 
     select jsonb_build_object(
-      'columns', jsonb_build_array('measure_key', 'measure_code', 'measure_name', 'unit_code', 'default_aggregation', 'value_type', 'dataset_code'),
+      'columns', jsonb_build_array('measure_key', 'measure_code', 'measure_name', 'unit_code', 'unit_name', 'scale_factor', 'default_aggregation', 'value_type', 'dataset_code'),
       'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
     )
     into result
@@ -577,6 +591,8 @@ begin
         m.measure_code,
         m.measure_name,
         u.unit_code,
+        u.unit_name,
+        u.scale_factor,
         sm.aggregation as default_aggregation,
         m.value_type,
         m.dataset_code
@@ -610,6 +626,20 @@ begin
 
   if metric_row.metric_id is null then
     raise exception 'Measure is not available in the Bouwen en wonen mart.';
+  end if;
+
+  if resolved_calculation_code in ('share_of_total', 'metric_comparison', 'multi_metric_rank') and secondary_measure is null then
+    raise exception 'Derived calculation requires secondary_measure_key.';
+  end if;
+
+  if secondary_measure is not null and not exists (
+    select 1
+    from semantic.metric sm
+    join gold_bouwen_wonen.dim_housing_indicator hi on hi.measure_key = sm.measure_key
+    where sm.measure_key = secondary_measure
+      and sm.is_enabled
+  ) then
+    raise exception 'Secondary measure is not available in the Bouwen en wonen mart.';
   end if;
 
   if metric_row.aggregation is null or metric_row.aggregation = '' then
@@ -662,25 +692,328 @@ begin
     raise exception 'Approved join path for fact-to-measure is missing.';
   end if;
 
-  if intent = 'rank_geographies' then
+  if resolved_calculation_code = 'metric_comparison' then
     select jsonb_build_object(
-      'columns', jsonb_build_array('geography_name', 'geography_code', 'geography_type', 'calendar_year', 'value'),
+      'columns', jsonb_build_array('measure_name', 'geography_name', 'geography_type', 'calendar_year', 'value', 'raw_value', 'unit_code', 'unit_name', 'scale_factor'),
       'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
     )
     into result
     from (
       select
+        m.measure_name,
+        f.geography_name,
+        f.geography_type,
+        f.calendar_year,
+        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+        max(f.observation_value) as raw_value,
+        max(u.unit_code) as unit_code,
+        max(u.unit_name) as unit_name,
+        max(u.scale_factor) as scale_factor
+      from gold_bouwen_wonen.fact_housing_observation f
+      join gold.dim_measure m on m.measure_key = f.measure_key
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      where f.measure_key in (measure, secondary_measure)
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (geography_type_filter is null or f.geography_type = geography_type_filter)
+        and (
+          jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+          or exists (
+            select 1
+            from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+            where lower(f.geography_name) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+          )
+        )
+        and (year_value is null or f.calendar_year = year_value)
+        and (year_start_value is null or f.calendar_year >= year_start_value)
+        and (year_end_value is null or f.calendar_year <= year_end_value)
+      group by m.measure_name, f.measure_key, f.geography_name, f.geography_type, f.calendar_year
+      order by f.geography_name asc, f.calendar_year asc, m.measure_name asc
+      limit limit_value
+    ) x;
+    return result;
+  end if;
+
+  if resolved_calculation_code = 'share_of_total' then
+    select jsonb_build_object(
+      'columns', jsonb_build_array('geography_name', 'geography_type', 'calendar_year', 'numerator_value', 'denominator_value', 'share_percent', 'numerator_measure_key', 'denominator_measure_key'),
+      'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
+    )
+    into result
+    from (
+      with numerator as (
+        select
+          f.geography_name,
+          f.geography_type,
+          f.calendar_year,
+          max(f.observation_value * coalesce(u.scale_factor, 1)) as numerator_value
+        from gold_bouwen_wonen.fact_housing_observation f
+        join gold.dim_unit u on u.unit_key = f.unit_key
+        where f.measure_key = measure
+          and f.observation_value is not null
+          and f.is_missing = false
+          and (geography_type_filter is null or f.geography_type = geography_type_filter)
+          and (
+            jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+            or exists (
+              select 1
+              from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+              where lower(f.geography_name) = lower(requested_geography.name)
+                 or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+            )
+          )
+          and (year_value is null or f.calendar_year = year_value)
+          and (year_start_value is null or f.calendar_year >= year_start_value)
+          and (year_end_value is null or f.calendar_year <= year_end_value)
+        group by f.geography_name, f.geography_type, f.calendar_year
+      ),
+      denominator as (
+        select
+          f.geography_name,
+          f.geography_type,
+          f.calendar_year,
+          max(f.observation_value * coalesce(u.scale_factor, 1)) as denominator_value
+        from gold_bouwen_wonen.fact_housing_observation f
+        join gold.dim_unit u on u.unit_key = f.unit_key
+        where f.measure_key = secondary_measure
+          and f.observation_value is not null
+          and f.is_missing = false
+          and (geography_type_filter is null or f.geography_type = geography_type_filter)
+          and (
+            jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+            or exists (
+              select 1
+              from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+              where lower(f.geography_name) = lower(requested_geography.name)
+                 or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+            )
+          )
+          and (year_value is null or f.calendar_year = year_value)
+          and (year_start_value is null or f.calendar_year >= year_start_value)
+          and (year_end_value is null or f.calendar_year <= year_end_value)
+        group by f.geography_name, f.geography_type, f.calendar_year
+      )
+      select
+        n.geography_name,
+        n.geography_type,
+        n.calendar_year,
+        n.numerator_value,
+        d.denominator_value,
+        round((n.numerator_value / nullif(d.denominator_value, 0)) * 100, 2) as share_percent,
+        measure::text as numerator_measure_key,
+        secondary_measure::text as denominator_measure_key
+      from numerator n
+      join denominator d on d.geography_name = n.geography_name and d.calendar_year = n.calendar_year
+      order by n.geography_name asc, n.calendar_year asc
+      limit limit_value
+    ) x;
+    return result;
+  end if;
+
+  if resolved_calculation_code = 'compare_to_average' then
+    select jsonb_build_object(
+      'columns', jsonb_build_array('geography_name', 'calendar_year', 'value', 'average_value', 'difference_from_average', 'ratio_to_average', 'unit_code'),
+      'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
+    )
+    into result
+    from (
+      with base as (
+        select
+          f.geography_name,
+          f.calendar_year,
+          max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+          max(u.unit_code) as unit_code
+        from gold_bouwen_wonen.fact_housing_observation f
+        join gold.dim_unit u on u.unit_key = f.unit_key
+        where f.measure_key = measure
+          and f.observation_value is not null
+          and f.is_missing = false
+          and f.geography_type = coalesce(geography_type_filter, 'municipality')
+          and (year_value is null or f.calendar_year = year_value)
+          and (year_start_value is null or f.calendar_year >= year_start_value)
+          and (year_end_value is null or f.calendar_year <= year_end_value)
+        group by f.geography_name, f.calendar_year
+      ),
+      averages as (
+        select calendar_year, avg(value) as average_value
+        from base
+        group by calendar_year
+      )
+      select
+        b.geography_name,
+        b.calendar_year,
+        b.value,
+        round(a.average_value, 2) as average_value,
+        round(b.value - a.average_value, 2) as difference_from_average,
+        round(b.value / nullif(a.average_value, 0), 4) as ratio_to_average,
+        b.unit_code
+      from base b
+      join averages a on a.calendar_year = b.calendar_year
+      where exists (
+        select 1
+        from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+        where lower(b.geography_name) = lower(requested_geography.name)
+           or lower(regexp_replace(b.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+      )
+      order by b.geography_name asc, b.calendar_year asc
+      limit limit_value
+    ) x;
+    return result;
+  end if;
+
+  if resolved_calculation_code = 'multi_metric_rank' then
+    select jsonb_build_object(
+      'columns', jsonb_build_array('geography_name', 'calendar_year', 'primary_value', 'secondary_value', 'primary_rank', 'secondary_rank', 'combined_rank_score'),
+      'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
+    )
+    into result
+    from (
+      with primary_values as (
+        select f.geography_name, f.geography_code, f.calendar_year, max(f.observation_value * coalesce(u.scale_factor, 1)) as primary_value
+        from gold_bouwen_wonen.fact_housing_observation f
+        join gold.dim_unit u on u.unit_key = f.unit_key
+        where f.measure_key = measure
+          and f.observation_value is not null
+          and f.is_missing = false
+          and (geography_type_filter is null or f.geography_type = geography_type_filter)
+          and (year_value is null or f.calendar_year = year_value)
+        group by f.geography_name, f.geography_code, f.calendar_year
+      ),
+      secondary_values as (
+        select f.geography_name, f.calendar_year, max(f.observation_value * coalesce(u.scale_factor, 1)) as secondary_value
+        from gold_bouwen_wonen.fact_housing_observation f
+        join gold.dim_unit u on u.unit_key = f.unit_key
+        where f.measure_key = secondary_measure
+          and f.observation_value is not null
+          and f.is_missing = false
+          and (geography_type_filter is null or f.geography_type = geography_type_filter)
+          and (year_value is null or f.calendar_year = year_value)
+        group by f.geography_name, f.calendar_year
+      ),
+      joined as (
+        select p.geography_name, p.calendar_year, p.primary_value, s.secondary_value
+        from primary_values p
+        join secondary_values s on s.geography_name = p.geography_name and s.calendar_year = p.calendar_year
+      ),
+      ranked as (
+        select
+          geography_name,
+          calendar_year,
+          primary_value,
+          secondary_value,
+          rank() over (partition by calendar_year order by primary_value desc nulls last) as primary_rank,
+          rank() over (partition by calendar_year order by secondary_value asc nulls last) as secondary_rank
+        from joined
+      )
+      select
         geography_name,
-        geography_code,
-        geography_type,
         calendar_year,
-        observation_value as value
-      from gold_bouwen_wonen.fact_housing_observation
-      where measure_key = measure
-        and observation_value is not null
-        and is_missing = false
-        and (year_value is null or calendar_year = year_value)
-      order by observation_value desc nulls last
+        primary_value,
+        secondary_value,
+        primary_rank,
+        secondary_rank,
+        primary_rank + secondary_rank as combined_rank_score
+      from ranked
+      order by combined_rank_score asc, primary_rank asc
+      limit limit_value
+    ) x;
+    return result;
+  end if;
+
+  if resolved_calculation_code = 'change_rank' then
+    if year_start_value is null or year_end_value is null then
+      raise exception 'Change ranking requires year_start and year_end.';
+    end if;
+
+    select jsonb_build_object(
+      'columns', jsonb_build_array('geography_name', 'geography_type', 'start_year', 'end_year', 'start_value', 'end_value', 'absolute_change', 'percentage_change'),
+      'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
+    )
+    into result
+    from (
+      with values_by_year as (
+        select
+          f.geography_name,
+          f.geography_type,
+          f.calendar_year,
+          max(f.observation_value * coalesce(u.scale_factor, 1)) as value
+        from gold_bouwen_wonen.fact_housing_observation f
+        join gold.dim_unit u on u.unit_key = f.unit_key
+        where f.measure_key = measure
+          and f.observation_value is not null
+          and f.is_missing = false
+          and (geography_type_filter is null or f.geography_type = geography_type_filter)
+          and f.calendar_year in (year_start_value, year_end_value)
+        group by f.geography_name, f.geography_type, f.calendar_year
+      )
+      select
+        s.geography_name,
+        s.geography_type,
+        year_start_value as start_year,
+        year_end_value as end_year,
+        s.value as start_value,
+        e.value as end_value,
+        e.value - s.value as absolute_change,
+        round(((e.value - s.value) / nullif(s.value, 0)) * 100, 2) as percentage_change
+      from values_by_year s
+      join values_by_year e on e.geography_name = s.geography_name
+      where s.calendar_year = year_start_value
+        and e.calendar_year = year_end_value
+      order by absolute_change desc nulls last
+      limit limit_value
+    ) x;
+    return result;
+  end if;
+
+  if intent = 'rank_geographies' then
+    select jsonb_build_object(
+      'columns', jsonb_build_array('geography_name', 'geography_code', 'geography_type', 'calendar_year', 'value', 'raw_value', 'unit_code', 'unit_name', 'scale_factor'),
+      'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
+    )
+    into result
+    from (
+      select
+        f.geography_name,
+        f.geography_code,
+        f.geography_type,
+        f.calendar_year,
+        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+        max(f.observation_value) as raw_value,
+        max(u.unit_code) as unit_code,
+        max(u.unit_name) as unit_name,
+        max(u.scale_factor) as scale_factor
+      from gold_bouwen_wonen.fact_housing_observation f
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      where f.measure_key = measure
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (geography_type_filter is null or f.geography_type = geography_type_filter)
+        and (year_value is null or f.calendar_year = year_value)
+        and (year_start_value is null or f.calendar_year >= year_start_value)
+        and (year_end_value is null or f.calendar_year <= year_end_value)
+        and (
+          jsonb_array_length(coalesce(plan->'excluded_geography_names', '[]'::jsonb)) = 0
+          or not exists (
+            select 1
+            from jsonb_array_elements_text(plan->'excluded_geography_names') excluded_geography(name)
+            where lower(f.geography_name) = lower(excluded_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(excluded_geography.name)
+          )
+        )
+      group by f.geography_name, f.geography_code, f.geography_type, f.calendar_year
+      having
+        value_filter_value is null
+        or case value_filter_operator
+          when 'lt' then max(f.observation_value * coalesce(u.scale_factor, 1)) < value_filter_value
+          when 'lte' then max(f.observation_value * coalesce(u.scale_factor, 1)) <= value_filter_value
+          when 'gt' then max(f.observation_value * coalesce(u.scale_factor, 1)) > value_filter_value
+          when 'gte' then max(f.observation_value * coalesce(u.scale_factor, 1)) >= value_filter_value
+          else true
+        end
+      order by
+        case when sort_direction = 'asc' then max(f.observation_value * coalesce(u.scale_factor, 1)) end asc nulls last,
+        case when sort_direction = 'desc' then max(f.observation_value * coalesce(u.scale_factor, 1)) end desc nulls last
       limit limit_value
     ) x;
     return result;
@@ -688,24 +1021,58 @@ begin
 
   if intent = 'compare_geographies' then
     select jsonb_build_object(
-      'columns', jsonb_build_array('geography_name', 'calendar_year', 'value'),
+      'columns', jsonb_build_array('geography_name', 'geography_type', 'calendar_year', 'value', 'raw_value', 'unit_code', 'unit_name', 'scale_factor'),
       'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
     )
     into result
     from (
-      select geography_name, calendar_year, observation_value as value
-      from gold_bouwen_wonen.fact_housing_observation
-      where measure_key = measure
-        and observation_value is not null
-        and is_missing = false
+      select
+        f.geography_name,
+        f.geography_type,
+        f.calendar_year,
+        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+        max(f.observation_value) as raw_value,
+        max(u.unit_code) as unit_code,
+        max(u.unit_name) as unit_name,
+        max(u.scale_factor) as scale_factor
+      from gold_bouwen_wonen.fact_housing_observation f
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      where f.measure_key = measure
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (geography_type_filter is null or f.geography_type = geography_type_filter)
         and (
           jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
-          or lower(geography_name) in (
-            select lower(jsonb_array_elements_text(plan->'geography_names'))
+          or exists (
+            select 1
+            from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+            where lower(f.geography_name) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
           )
         )
-        and (year_value is null or calendar_year = year_value)
-      order by geography_name asc, calendar_year asc
+        and (
+          jsonb_array_length(coalesce(plan->'excluded_geography_names', '[]'::jsonb)) = 0
+          or not exists (
+            select 1
+            from jsonb_array_elements_text(plan->'excluded_geography_names') excluded_geography(name)
+            where lower(f.geography_name) = lower(excluded_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(excluded_geography.name)
+          )
+        )
+        and (year_value is null or f.calendar_year = year_value)
+        and (year_start_value is null or f.calendar_year >= year_start_value)
+        and (year_end_value is null or f.calendar_year <= year_end_value)
+      group by f.geography_name, f.geography_type, f.calendar_year
+      having
+        value_filter_value is null
+        or case value_filter_operator
+          when 'lt' then max(f.observation_value * coalesce(u.scale_factor, 1)) < value_filter_value
+          when 'lte' then max(f.observation_value * coalesce(u.scale_factor, 1)) <= value_filter_value
+          when 'gt' then max(f.observation_value * coalesce(u.scale_factor, 1)) > value_filter_value
+          when 'gte' then max(f.observation_value * coalesce(u.scale_factor, 1)) >= value_filter_value
+          else true
+        end
+      order by f.geography_name asc, f.calendar_year asc
       limit limit_value
     ) x;
     return result;
@@ -713,25 +1080,39 @@ begin
 
   if intent = 'trend' then
     select jsonb_build_object(
-      'columns', jsonb_build_array('calendar_year', 'value'),
+      'columns', jsonb_build_array('calendar_year', 'value', 'raw_value', 'unit_code', 'unit_name', 'scale_factor'),
       'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
     )
     into result
     from (
-      select calendar_year, avg(observation_value) as value
-      from gold_bouwen_wonen.fact_housing_observation
-      where measure_key = measure
-        and observation_value is not null
-        and is_missing = false
-        and calendar_year is not null
+      select
+        f.calendar_year,
+        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+        max(f.observation_value) as raw_value,
+        max(u.unit_code) as unit_code,
+        max(u.unit_name) as unit_name,
+        max(u.scale_factor) as scale_factor
+      from gold_bouwen_wonen.fact_housing_observation f
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      where f.measure_key = measure
+        and f.observation_value is not null
+        and f.is_missing = false
+        and f.calendar_year is not null
+        and (geography_type_filter is null or f.geography_type = geography_type_filter)
+        and (year_value is null or f.calendar_year = year_value)
+        and (year_start_value is null or f.calendar_year >= year_start_value)
+        and (year_end_value is null or f.calendar_year <= year_end_value)
         and (
           jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
-          or lower(geography_name) in (
-            select lower(jsonb_array_elements_text(plan->'geography_names'))
+          or exists (
+            select 1
+            from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+            where lower(f.geography_name) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
           )
         )
-      group by calendar_year
-      order by calendar_year asc
+      group by f.calendar_year
+      order by f.calendar_year asc
       limit limit_value
     ) x;
     return result;

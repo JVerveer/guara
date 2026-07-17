@@ -15,6 +15,35 @@ export interface EvidenceSource {
   transformation?: string;
 }
 
+export interface FollowUpQuestion {
+  label: string;
+  question: string;
+  reason: string;
+  status: "answerable_now" | "requires_more_data";
+  requiredDomains: string[];
+  confidence: number;
+}
+
+export interface RelatedDataset {
+  datasetCode: string;
+  title: string;
+  reason: string;
+  provider: string | null;
+  relationship: string;
+}
+
+export interface AnswerCaveat {
+  severity: "info" | "warning" | "gap";
+  message: string;
+}
+
+export interface WorkspaceHandoff {
+  title: string;
+  question: string;
+  recommendedWorkspace: string;
+  context: Record<string, unknown>;
+}
+
 export interface AnswerPoint {
   titleKey: string;
   bodyKey: string;
@@ -34,6 +63,11 @@ export interface ResearchQuery {
   intent?: string;
   queryPlan?: Record<string, unknown>;
   provenance?: string[];
+  followUpQuestions?: FollowUpQuestion[];
+  relatedDatasets?: RelatedDataset[];
+  caveats?: AnswerCaveat[];
+  nextOperators?: string[];
+  workspaceHandoff?: WorkspaceHandoff;
 }
 
 export interface HousePriceDataPoint {

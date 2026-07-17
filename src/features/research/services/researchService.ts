@@ -48,6 +48,31 @@ export const researchService = {
         intent: semanticAnswer.intent,
         queryPlan: semanticAnswer.queryPlan as unknown as Record<string, unknown>,
         provenance: semanticAnswer.provenance,
+        followUpQuestions: semanticAnswer.enrichment?.follow_up_questions.map((item) => ({
+          label: item.label,
+          question: item.question,
+          reason: item.reason,
+          status: item.status,
+          requiredDomains: item.required_domains,
+          confidence: item.confidence,
+        })),
+        relatedDatasets: semanticAnswer.enrichment?.related_datasets.map((item) => ({
+          datasetCode: item.dataset_code,
+          title: item.title,
+          reason: item.reason,
+          provider: item.provider,
+          relationship: item.relationship,
+        })),
+        caveats: semanticAnswer.enrichment?.caveats,
+        nextOperators: semanticAnswer.enrichment?.next_operators,
+        workspaceHandoff: semanticAnswer.enrichment?.workspace_handoff
+          ? {
+              title: semanticAnswer.enrichment.workspace_handoff.title,
+              question: semanticAnswer.enrichment.workspace_handoff.question,
+              recommendedWorkspace: semanticAnswer.enrichment.workspace_handoff.recommended_workspace,
+              context: semanticAnswer.enrichment.workspace_handoff.context,
+            }
+          : undefined,
       };
     } catch (error) {
       console.warn("Semantic answer failed; falling back to dataset catalogue search.", error);

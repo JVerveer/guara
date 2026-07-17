@@ -177,7 +177,7 @@ async function getDatasetFactCounts(client, datasetId, datasetKey) {
     `
       select
         (select count(*)::bigint from silver.cbs_observation_measures where dataset_id = $1) as expected_fact_rows,
-        (select count(*)::bigint from gold_bouwen_wonen.fact_housing_observation where dataset_key = $2) as loaded_fact_rows
+        (select count(*)::bigint from gold_bouwen_wonen.fact_housing_observation where housing_dataset_key = $2) as loaded_fact_rows
     `,
     [datasetId, datasetKey]
   );
@@ -185,6 +185,67 @@ async function getDatasetFactCounts(client, datasetId, datasetKey) {
     expectedFactRows: BigInt(result.rows[0]?.expected_fact_rows ?? 0),
     loadedFactRows: BigInt(result.rows[0]?.loaded_fact_rows ?? 0),
   };
+}
+
+async function getLastSilverObservation(client, datasetId) {
+  const result = await client.query(
+    `
+      select row_id, row_index
+      from silver.cbs_observations
+      where dataset_id = $1
+      order by row_index desc
+      limit 1
+    `,
+    [datasetId]
+  );
+  return result.rows[0] ?? null;
+}
+
+async function getLastSilverObservationLoadState(client, datasetId, datasetKey) {
+  const lastObservation = await getLastSilverObservation(client, datasetId);
+  if (!lastObservation) {
+    return {
+      isComplete: false,
+      lastObservation: null,
+      expectedLastRowFacts: 0n,
+      loadedLastRowFacts: 0n,
+    };
+  }
+
+  const result = await client.query(
+    `
+      select
+        (select count(*)::bigint
+         from silver.cbs_observation_measures
+         where dataset_id = $1 and row_id = $2) as expected_last_row_facts,
+        (select count(*)::bigint
+         from gold_bouwen_wonen.fact_housing_observation
+         where housing_dataset_key = $3 and source_row_id = $2) as loaded_last_row_facts
+    `,
+    [datasetId, lastObservation.row_id, datasetKey]
+  );
+
+  const expectedLastRowFacts = BigInt(result.rows[0]?.expected_last_row_facts ?? 0);
+  const loadedLastRowFacts = BigInt(result.rows[0]?.loaded_last_row_facts ?? 0);
+  return {
+    isComplete: expectedLastRowFacts > 0n && loadedLastRowFacts >= expectedLastRowFacts,
+    lastObservation,
+    expectedLastRowFacts,
+    loadedLastRowFacts,
+  };
+}
+
+async function hasGoldFactsForDataset(client, datasetKey) {
+  const result = await client.query(
+    `
+      select 1
+      from gold_bouwen_wonen.fact_housing_observation
+      where housing_dataset_key = $1
+      limit 1
+    `,
+    [datasetKey]
+  );
+  return result.rowCount > 0;
 }
 
 async function getResumeRowIndex(client, datasetId, datasetKey) {
@@ -196,7 +257,7 @@ async function getResumeRowIndex(client, datasetId, datasetKey) {
         and exists (
           select 1
           from gold_bouwen_wonen.fact_housing_observation f
-          where f.dataset_key = $2
+          where f.housing_dataset_key = $2
             and f.source_row_id = o.row_id
         )
     `,
@@ -470,8 +531,9 @@ async function upsertCategories(client, datasetKey, datasetId, primaryDimensionK
   return map;
 }
 
-async function insertHousingFacts(client, facts, writeBatchSize) {
+async function insertHousingFacts(client, facts, writeBatchSize, { returnFactKeys = true } = {}) {
   const rows = [];
+  let count = 0;
   for (const chunk of chunkRows(facts, writeBatchSize)) {
     const result = await client.query(
       `
@@ -527,7 +589,7 @@ async function insertHousingFacts(client, facts, writeBatchSize) {
           source_row_id = excluded.source_row_id,
           bronze_ingestion_run_id = excluded.bronze_ingestion_run_id,
           updated_at = now()
-        returning housing_observation_key, record_hash
+        ${returnFactKeys ? "returning housing_observation_key, record_hash" : ""}
       `,
       [
         chunk.map((row) => row.housingDatasetKey),
@@ -563,9 +625,10 @@ async function insertHousingFacts(client, facts, writeBatchSize) {
         chunk.map((row) => row.bronzeIngestionRunId),
       ]
     );
-    rows.push(...result.rows);
+    count += result.rowCount ?? 0;
+    if (returnFactKeys) rows.push(...result.rows);
   }
-  return rows;
+  return { count, rows };
 }
 
 async function insertHousingBridgeRows(client, bridgeRows, writeBatchSize) {
@@ -609,22 +672,25 @@ async function loadDataset(client, dataset, options) {
 
     let from = 0;
     if (!options.refresh && options.resume) {
-      const counts = await getDatasetFactCounts(client, dataset.dataset_id, datasetKey);
-      if (counts.expectedFactRows > 0n && counts.loadedFactRows >= counts.expectedFactRows) {
+      const lastRowState = await getLastSilverObservationLoadState(client, dataset.dataset_id, datasetKey);
+      if (lastRowState.isComplete) {
         await client.query("commit");
-        console.log(`  ${dataset.dataset_id}: already complete in Gold (${counts.loadedFactRows}/${counts.expectedFactRows} facts), skipped`);
+        console.log(
+          `  ${dataset.dataset_id}: already complete in Gold (last Silver row ${lastRowState.lastObservation.row_index} has ${lastRowState.loadedLastRowFacts}/${lastRowState.expectedLastRowFacts} facts), skipped`
+        );
         return {
           sourceRows: 0,
           factRows: 0,
           bridgeRows: 0,
           skipped: true,
-          expectedFactRows: counts.expectedFactRows,
-          loadedFactRows: counts.loadedFactRows,
+          expectedFactRows: null,
+          loadedFactRows: null,
         };
       }
-      if (counts.loadedFactRows > 0n) {
+
+      if (await hasGoldFactsForDataset(client, datasetKey)) {
         from = await getResumeRowIndex(client, dataset.dataset_id, datasetKey);
-        console.log(`  ${dataset.dataset_id}: resuming from Silver row_index ${from} (${counts.loadedFactRows}/${counts.expectedFactRows} facts already in Gold)`);
+        console.log(`  ${dataset.dataset_id}: resuming from Silver row_index ${from}`);
       }
     }
 
@@ -679,6 +745,7 @@ async function loadDataset(client, dataset, options) {
 
       const factPayloads = [];
       const bridgePayloadsByHash = new Map();
+      let hasCategoryBridgeRows = false;
 
       for (const observation of observations) {
         const dims = dimensionsByRow.get(observation.row_id) ?? [];
@@ -692,6 +759,7 @@ async function loadDataset(client, dataset, options) {
           .filter((dim) => !primaryDimensionKeys.has(dim.dimension_key))
           .map((dim) => categoryMap.get(`${dim.dimension_key}:${dim.value_key}`) ?? categoryMap.get(`${dim.dimension_key}:UNKNOWN`))
           .filter(Boolean);
+        if (categories.length > 0) hasCategoryBridgeRows = true;
         const combinationHash = categoryCombinationHash(categories.map((category) => ({
           dimensionCode: category.dimensionCode,
           categoryCode: category.categoryCode,
@@ -751,21 +819,26 @@ async function loadDataset(client, dataset, options) {
         }
       }
 
-      const insertedFacts = await insertHousingFacts(client, factPayloads, options.writeBatchSize);
-      const factKeyByHash = new Map(insertedFacts.map((row) => [row.record_hash, row.housing_observation_key]));
-      const bridgePayloads = [];
-      for (const fact of factPayloads) {
-        const housingObservationKey = factKeyByHash.get(fact.recordHash);
-        if (!housingObservationKey) continue;
-        for (const category of bridgePayloadsByHash.get(fact.bridgeKey) ?? []) {
-          bridgePayloads.push({ housingObservationKey, ...category });
+      const insertedFacts = await insertHousingFacts(client, factPayloads, options.writeBatchSize, {
+        returnFactKeys: hasCategoryBridgeRows,
+      });
+
+      if (hasCategoryBridgeRows) {
+        const factKeyByHash = new Map(insertedFacts.rows.map((row) => [row.record_hash, row.housing_observation_key]));
+        const bridgePayloads = [];
+        for (const fact of factPayloads) {
+          const housingObservationKey = factKeyByHash.get(fact.recordHash);
+          if (!housingObservationKey) continue;
+          for (const category of bridgePayloadsByHash.get(fact.bridgeKey) ?? []) {
+            bridgePayloads.push({ housingObservationKey, ...category });
+          }
         }
+        bridgeRows += await insertHousingBridgeRows(client, bridgePayloads, options.writeBatchSize);
       }
 
-      bridgeRows += await insertHousingBridgeRows(client, bridgePayloads, options.writeBatchSize);
-      factRows += insertedFacts.length;
+      factRows += insertedFacts.count;
       from = Number(observations.at(-1).row_index) + 1;
-      console.log(`  ${dataset.dataset_id}: +${insertedFacts.length} housing facts`);
+      console.log(`  ${dataset.dataset_id}: +${insertedFacts.count} housing facts`);
     }
 
     await client.query("commit");

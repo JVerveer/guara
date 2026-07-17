@@ -31,14 +31,61 @@ export interface SemanticQueryPlan {
   intent: SemanticIntent;
   source: "semantic_catalogue" | "gold_bouwen_wonen";
   measure_key?: string;
+  secondary_measure_key?: string;
   metric_id?: string;
   metric_code?: string;
   calculation_code?: string;
   measure_label?: string;
+  secondary_measure_label?: string;
   year?: number;
+  year_start?: number;
+  year_end?: number;
   geography_names?: string[];
+  geography_type?: string;
+  excluded_geography_names?: string[];
+  value_filter_operator?: "lt" | "lte" | "gt" | "gte";
+  value_filter?: number;
+  sort_direction?: "asc" | "desc";
   limit?: number;
+  warnings?: string[];
   explanation: string[];
+}
+
+export interface SemanticFollowUpQuestion {
+  label: string;
+  question: string;
+  reason: string;
+  status: "answerable_now" | "requires_more_data";
+  required_domains: string[];
+  confidence: number;
+}
+
+export interface SemanticRelatedDataset {
+  dataset_code: string;
+  title: string;
+  reason: string;
+  provider: string | null;
+  relationship: "source" | "same_domain" | "same_metric_family" | "next_investigation_step";
+}
+
+export interface SemanticCaveat {
+  severity: "info" | "warning" | "gap";
+  message: string;
+}
+
+export interface SemanticWorkspaceHandoff {
+  title: string;
+  question: string;
+  recommended_workspace: "trigger" | "orientation" | "hypotheses" | "evidence" | "data" | "entities" | "timeline" | "gaps" | "verification";
+  context: Record<string, unknown>;
+}
+
+export interface SemanticAnswerEnrichment {
+  follow_up_questions: SemanticFollowUpQuestion[];
+  related_datasets: SemanticRelatedDataset[];
+  caveats: SemanticCaveat[];
+  next_operators: string[];
+  workspace_handoff: SemanticWorkspaceHandoff;
 }
 
 export interface SemanticAnswer {
@@ -53,4 +100,5 @@ export interface SemanticAnswer {
   queryPlan: SemanticQueryPlan;
   executionResult: Record<string, unknown>;
   provenance: string[];
+  enrichment?: SemanticAnswerEnrichment;
 }
