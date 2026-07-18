@@ -27,6 +27,8 @@ function parseArgs(argv) {
     batchSize: 50000,
     writeBatchSize: 50000,
     writeTimeoutMs: 900000,
+    lookupChunkSize: 5000,
+    maxBatches: 0,
   };
 
   for (let index = 2; index < argv.length; index += 1) {
@@ -39,6 +41,8 @@ function parseArgs(argv) {
     else if (arg === "--batch-size") options.batchSize = Number(argv[++index] ?? options.batchSize);
     else if (arg === "--write-batch-size") options.writeBatchSize = Number(argv[++index] ?? options.writeBatchSize);
     else if (arg === "--write-timeout-ms") options.writeTimeoutMs = Number(argv[++index] ?? options.writeTimeoutMs);
+    else if (arg === "--lookup-chunk-size") options.lookupChunkSize = Number(argv[++index] ?? options.lookupChunkSize);
+    else if (arg === "--max-batches") options.maxBatches = Number(argv[++index] ?? options.maxBatches);
     else if (arg === "--help") {
       console.log(`Usage:
   npm run load:cbs:gold:bouwen-en-wonen -- --ensure-schema --limit 100
@@ -50,7 +54,9 @@ Options:
   --dataset 85039NED    Load one Bouwen en wonen dataset from Silver.
   --limit 100           Maximum Bouwen en wonen Silver datasets to load.
   --batch-size 50000    Silver observations read per batch.
+  --lookup-chunk-size   Silver row ids per dimensions/measures lookup chunk.
   --write-batch-size    Domain fact rows written per insert chunk.
+  --max-batches 1       Stop after N read batches; useful for smoke tests.
   --no-resume           Reprocess selected datasets instead of skipping/resuming Gold facts.
   --refresh             Rebuild selected mart facts from Silver.
 `);
@@ -64,6 +70,24 @@ Options:
 async function ensureSchema(client) {
   await client.query(readFileSync(resolve(process.cwd(), "supabase/gold_schema.sql"), "utf8"));
   await client.query(readFileSync(resolve(process.cwd(), "supabase/gold_bouwen_wonen_schema.sql"), "utf8"));
+}
+
+async function ensureRuntimeTables(client) {
+  await client.query(`
+    create table if not exists gold_bouwen_wonen.dataset_load_progress (
+      dataset_key bigint primary key references gold.dim_dataset(dataset_key),
+      dataset_code text not null,
+      status text not null default 'pending',
+      next_row_index bigint not null default 0,
+      source_rows_loaded bigint not null default 0,
+      fact_rows_loaded bigint not null default 0,
+      bridge_rows_loaded bigint not null default 0,
+      started_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      completed_at timestamptz,
+      last_error text
+    )
+  `);
 }
 
 function chunkRows(rows, size) {
@@ -235,12 +259,13 @@ async function getLastSilverObservationLoadState(client, datasetId, datasetKey) 
   };
 }
 
-async function hasGoldFactsForDataset(client, datasetKey) {
+async function hasFirstGoldRowForDataset(client, datasetKey) {
   const result = await client.query(
     `
       select 1
       from gold_bouwen_wonen.fact_housing_observation
       where housing_dataset_key = $1
+        and source_row_id = '0'
       limit 1
     `,
     [datasetKey]
@@ -264,6 +289,61 @@ async function getResumeRowIndex(client, datasetId, datasetKey) {
     [datasetId, datasetKey]
   );
   return Number(result.rows[0]?.resume_row_index ?? 0);
+}
+
+async function getDatasetProgress(client, datasetKey) {
+  const result = await client.query(
+    `
+      select *
+      from gold_bouwen_wonen.dataset_load_progress
+      where dataset_key = $1
+    `,
+    [datasetKey]
+  );
+  return result.rows[0] ?? null;
+}
+
+async function upsertDatasetProgress(client, {
+  datasetKey,
+  datasetCode,
+  status,
+  nextRowIndex = 0,
+  sourceRowsLoaded = 0,
+  factRowsLoaded = 0,
+  bridgeRowsLoaded = 0,
+  completed = false,
+  lastError = null,
+}) {
+  await client.query(
+    `
+      insert into gold_bouwen_wonen.dataset_load_progress (
+        dataset_key, dataset_code, status, next_row_index, source_rows_loaded,
+        fact_rows_loaded, bridge_rows_loaded, completed_at, last_error
+      )
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      on conflict (dataset_key) do update set
+        dataset_code = excluded.dataset_code,
+        status = excluded.status,
+        next_row_index = excluded.next_row_index,
+        source_rows_loaded = gold_bouwen_wonen.dataset_load_progress.source_rows_loaded + excluded.source_rows_loaded,
+        fact_rows_loaded = gold_bouwen_wonen.dataset_load_progress.fact_rows_loaded + excluded.fact_rows_loaded,
+        bridge_rows_loaded = gold_bouwen_wonen.dataset_load_progress.bridge_rows_loaded + excluded.bridge_rows_loaded,
+        completed_at = coalesce(excluded.completed_at, gold_bouwen_wonen.dataset_load_progress.completed_at),
+        last_error = excluded.last_error,
+        updated_at = now()
+    `,
+    [
+      datasetKey,
+      datasetCode,
+      status,
+      nextRowIndex,
+      sourceRowsLoaded,
+      factRowsLoaded,
+      bridgeRowsLoaded,
+      completed ? new Date().toISOString() : null,
+      lastError,
+    ]
+  );
 }
 
 async function upsertDates(client, datasetId) {
@@ -662,19 +742,25 @@ async function insertHousingBridgeRows(client, bridgeRows, writeBatchSize) {
 
 async function loadDataset(client, dataset, options) {
   console.log(`Loading Bouwen en wonen mart from Silver: ${dataset.dataset_id}`);
-  await client.query("begin");
 
   try {
     const datasetKey = await upsertDataset(client, dataset);
     if (options.refresh) {
       await client.query("delete from gold_bouwen_wonen.fact_housing_observation where dataset_key = $1", [datasetKey]);
+      await client.query("delete from gold_bouwen_wonen.dataset_load_progress where dataset_key = $1", [datasetKey]);
     }
 
     let from = 0;
     if (!options.refresh && options.resume) {
       const lastRowState = await getLastSilverObservationLoadState(client, dataset.dataset_id, datasetKey);
       if (lastRowState.isComplete) {
-        await client.query("commit");
+        await upsertDatasetProgress(client, {
+          datasetKey,
+          datasetCode: dataset.dataset_id,
+          status: "complete",
+          nextRowIndex: Number(lastRowState.lastObservation.row_index) + 1,
+          completed: true,
+        });
         console.log(
           `  ${dataset.dataset_id}: already complete in Gold (last Silver row ${lastRowState.lastObservation.row_index} has ${lastRowState.loadedLastRowFacts}/${lastRowState.expectedLastRowFacts} facts), skipped`
         );
@@ -688,11 +774,22 @@ async function loadDataset(client, dataset, options) {
         };
       }
 
-      if (await hasGoldFactsForDataset(client, datasetKey)) {
+      const progress = await getDatasetProgress(client, datasetKey);
+      if (progress && Number(progress.next_row_index) > 0) {
+        from = Number(progress.next_row_index);
+        console.log(`  ${dataset.dataset_id}: resuming from progress row_index ${from}`);
+      } else if (await hasFirstGoldRowForDataset(client, datasetKey)) {
         from = await getResumeRowIndex(client, dataset.dataset_id, datasetKey);
-        console.log(`  ${dataset.dataset_id}: resuming from Silver row_index ${from}`);
+        console.log(`  ${dataset.dataset_id}: resuming from existing Gold facts row_index ${from}`);
       }
     }
+
+    await upsertDatasetProgress(client, {
+      datasetKey,
+      datasetCode: dataset.dataset_id,
+      status: "loading",
+      nextRowIndex: from,
+    });
 
     const grain = await getDatasetGrain(client, dataset.dataset_id);
     const periodDimensionKey = grain.period_dimension_key || "Perioden";
@@ -709,6 +806,8 @@ async function loadDataset(client, dataset, options) {
     let sourceRows = 0;
     let factRows = 0;
     let bridgeRows = 0;
+    let batchesProcessed = 0;
+    let stoppedEarly = false;
 
     while (true) {
       const observations = (await client.query(
@@ -723,133 +822,186 @@ async function loadDataset(client, dataset, options) {
       )).rows;
       if (observations.length === 0) break;
 
-      sourceRows += observations.length;
-      const rowIds = observations.map((row) => row.row_id);
-      const [dimensionResult, measureResult] = await Promise.all([
-        client.query("select * from silver.cbs_observation_dimensions where dataset_id = $1 and row_id = any($2::text[])", [dataset.dataset_id, rowIds]),
-        client.query("select * from silver.cbs_observation_measures where dataset_id = $1 and row_id = any($2::text[])", [dataset.dataset_id, rowIds]),
-      ]);
+      let readBatchFacts = 0;
+      let readBatchRows = 0;
+      for (const observationChunk of chunkRows(observations, Math.max(1, options.lookupChunkSize))) {
+        const chunkStartedAt = Date.now();
+        const rowIds = observationChunk.map((row) => row.row_id);
+        const [dimensionResult, measureResult] = await Promise.all([
+          client.query("select * from silver.cbs_observation_dimensions where dataset_id = $1 and row_id = any($2::text[])", [dataset.dataset_id, rowIds]),
+          client.query("select * from silver.cbs_observation_measures where dataset_id = $1 and row_id = any($2::text[])", [dataset.dataset_id, rowIds]),
+        ]);
 
-      const dimensionsByRow = new Map();
-      for (const row of dimensionResult.rows) {
-        const list = dimensionsByRow.get(row.row_id) ?? [];
-        list.push(row);
-        dimensionsByRow.set(row.row_id, list);
-      }
-      const measuresByRow = new Map();
-      for (const row of measureResult.rows) {
-        const list = measuresByRow.get(row.row_id) ?? [];
-        list.push(row);
-        measuresByRow.set(row.row_id, list);
-      }
-
-      const factPayloads = [];
-      const bridgePayloadsByHash = new Map();
-      let hasCategoryBridgeRows = false;
-
-      for (const observation of observations) {
-        const dims = dimensionsByRow.get(observation.row_id) ?? [];
-        const periodValue = dims.find((dim) => dim.dimension_key === periodDimensionKey)?.value_key;
-        const dateKey = periodValue ? dateMap.get(periodValue) ?? -1 : -1;
-        const date = dateDetails.get(String(dateKey)) ?? {};
-        const spatialDim = dims.find((dim) => spatialDimensionKeys.has(dim.dimension_key));
-        const geographyKey = spatialDim ? geographyMap.get(`${spatialDim.dimension_key}:${spatialDim.value_key}`) ?? -1 : -1;
-        const geography = geographyDetails.get(String(geographyKey)) ?? {};
-        const categories = dims
-          .filter((dim) => !primaryDimensionKeys.has(dim.dimension_key))
-          .map((dim) => categoryMap.get(`${dim.dimension_key}:${dim.value_key}`) ?? categoryMap.get(`${dim.dimension_key}:UNKNOWN`))
-          .filter(Boolean);
-        if (categories.length > 0) hasCategoryBridgeRows = true;
-        const combinationHash = categoryCombinationHash(categories.map((category) => ({
-          dimensionCode: category.dimensionCode,
-          categoryCode: category.categoryCode,
-        })));
-        bridgePayloadsByHash.set(`${observation.row_id}:${combinationHash}`, categories);
-
-        for (const measure of measuresByRow.get(observation.row_id) ?? []) {
-          const measureMeta = measureMap.get(measure.measure_key);
-          if (!measureMeta) continue;
-          const missing = classifyMissing(measure);
-          const recordHash = stableHash([
-            datasetKey,
-            measureMeta.goldMeasureKey,
-            dateKey,
-            geographyKey,
-            combinationHash,
-            observation.row_id,
-            numericValue(measure),
-            measure.value_text,
-            missing.statusCode,
-          ]);
-
-          factPayloads.push({
-            housingDatasetKey: datasetKey,
-            housingIndicatorKey: measureMeta.goldMeasureKey,
-            datasetKey,
-            measureKey: measureMeta.goldMeasureKey,
-            dateKey,
-            geographyKey,
-            unitKey: measureMeta.goldUnitKey,
-            calendarYear: date.calendar_year ?? null,
-            periodCode: date.period_code ?? null,
-            periodType: date.period_type ?? null,
-            geographyCode: geography.geography_code ?? null,
-            geographyName: geography.geography_name ?? null,
-            geographyType: geography.geography_type ?? null,
-            municipalityCode: geography.municipality_code ?? null,
-            provinceCode: geography.province_code ?? null,
-            countryCode: geography.country_code ?? null,
-            observationValue: numericValue(measure),
-            observationText: measure.value_text,
-            statusCode: missing.statusCode,
-            isMissing: missing.isMissing,
-            isSuppressed: missing.isSuppressed,
-            categoryCombinationHash: combinationHash,
-            sourceObservationId: observation.row_id,
-            silverObservationId: `${observation.dataset_id}:${observation.row_id}`,
-            bronzeRecordId: `${observation.dataset_id}:${observation.row_id}`,
-            recordHash,
-            datasetCode: dataset.dataset_id,
-            measureCode: measure.measure_key,
-            sourceDatasetId: observation.dataset_id,
-            sourceRowId: observation.row_id,
-            bronzeIngestionRunId: observation.bronze_ingestion_run_id ?? null,
-            bridgeKey: `${observation.row_id}:${combinationHash}`,
-          });
+        const dimensionsByRow = new Map();
+        for (const row of dimensionResult.rows) {
+          const list = dimensionsByRow.get(row.row_id) ?? [];
+          list.push(row);
+          dimensionsByRow.set(row.row_id, list);
         }
-      }
+        const measuresByRow = new Map();
+        for (const row of measureResult.rows) {
+          const list = measuresByRow.get(row.row_id) ?? [];
+          list.push(row);
+          measuresByRow.set(row.row_id, list);
+        }
 
-      const insertedFacts = await insertHousingFacts(client, factPayloads, options.writeBatchSize, {
-        returnFactKeys: hasCategoryBridgeRows,
-      });
+        const factPayloads = [];
+        const bridgePayloadsByHash = new Map();
+        let hasCategoryBridgeRows = false;
 
-      if (hasCategoryBridgeRows) {
-        const factKeyByHash = new Map(insertedFacts.rows.map((row) => [row.record_hash, row.housing_observation_key]));
-        const bridgePayloads = [];
-        for (const fact of factPayloads) {
-          const housingObservationKey = factKeyByHash.get(fact.recordHash);
-          if (!housingObservationKey) continue;
-          for (const category of bridgePayloadsByHash.get(fact.bridgeKey) ?? []) {
-            bridgePayloads.push({ housingObservationKey, ...category });
+        for (const observation of observationChunk) {
+          const dims = dimensionsByRow.get(observation.row_id) ?? [];
+          const periodValue = dims.find((dim) => dim.dimension_key === periodDimensionKey)?.value_key;
+          const dateKey = periodValue ? dateMap.get(periodValue) ?? -1 : -1;
+          const date = dateDetails.get(String(dateKey)) ?? {};
+          const spatialDim = dims.find((dim) => spatialDimensionKeys.has(dim.dimension_key));
+          const geographyKey = spatialDim ? geographyMap.get(`${spatialDim.dimension_key}:${spatialDim.value_key}`) ?? -1 : -1;
+          const geography = geographyDetails.get(String(geographyKey)) ?? {};
+          const categories = dims
+            .filter((dim) => !primaryDimensionKeys.has(dim.dimension_key))
+            .map((dim) => categoryMap.get(`${dim.dimension_key}:${dim.value_key}`) ?? categoryMap.get(`${dim.dimension_key}:UNKNOWN`))
+            .filter(Boolean);
+          if (categories.length > 0) hasCategoryBridgeRows = true;
+          const combinationHash = categoryCombinationHash(categories.map((category) => ({
+            dimensionCode: category.dimensionCode,
+            categoryCode: category.categoryCode,
+          })));
+          bridgePayloadsByHash.set(`${observation.row_id}:${combinationHash}`, categories);
+
+          for (const measure of measuresByRow.get(observation.row_id) ?? []) {
+            const measureMeta = measureMap.get(measure.measure_key);
+            if (!measureMeta) continue;
+            const missing = classifyMissing(measure);
+            const recordHash = stableHash([
+              datasetKey,
+              measureMeta.goldMeasureKey,
+              dateKey,
+              geographyKey,
+              combinationHash,
+              observation.row_id,
+              numericValue(measure),
+              measure.value_text,
+              missing.statusCode,
+            ]);
+
+            factPayloads.push({
+              housingDatasetKey: datasetKey,
+              housingIndicatorKey: measureMeta.goldMeasureKey,
+              datasetKey,
+              measureKey: measureMeta.goldMeasureKey,
+              dateKey,
+              geographyKey,
+              unitKey: measureMeta.goldUnitKey,
+              calendarYear: date.calendar_year ?? null,
+              periodCode: date.period_code ?? null,
+              periodType: date.period_type ?? null,
+              geographyCode: geography.geography_code ?? null,
+              geographyName: geography.geography_name ?? null,
+              geographyType: geography.geography_type ?? null,
+              municipalityCode: geography.municipality_code ?? null,
+              provinceCode: geography.province_code ?? null,
+              countryCode: geography.country_code ?? null,
+              observationValue: numericValue(measure),
+              observationText: measure.value_text,
+              statusCode: missing.statusCode,
+              isMissing: missing.isMissing,
+              isSuppressed: missing.isSuppressed,
+              categoryCombinationHash: combinationHash,
+              sourceObservationId: observation.row_id,
+              silverObservationId: `${observation.dataset_id}:${observation.row_id}`,
+              bronzeRecordId: `${observation.dataset_id}:${observation.row_id}`,
+              recordHash,
+              datasetCode: dataset.dataset_id,
+              measureCode: measure.measure_key,
+              sourceDatasetId: observation.dataset_id,
+              sourceRowId: observation.row_id,
+              bronzeIngestionRunId: observation.bronze_ingestion_run_id ?? null,
+              bridgeKey: `${observation.row_id}:${combinationHash}`,
+            });
           }
         }
-        bridgeRows += await insertHousingBridgeRows(client, bridgePayloads, options.writeBatchSize);
+
+        await client.query("begin");
+        let insertedFacts;
+        try {
+          insertedFacts = await insertHousingFacts(client, factPayloads, options.writeBatchSize, {
+            returnFactKeys: hasCategoryBridgeRows,
+          });
+
+          let insertedBridgeRows = 0;
+          if (hasCategoryBridgeRows) {
+            const factKeyByHash = new Map(insertedFacts.rows.map((row) => [row.record_hash, row.housing_observation_key]));
+            const bridgePayloads = [];
+            for (const fact of factPayloads) {
+              const housingObservationKey = factKeyByHash.get(fact.recordHash);
+              if (!housingObservationKey) continue;
+              for (const category of bridgePayloadsByHash.get(fact.bridgeKey) ?? []) {
+                bridgePayloads.push({ housingObservationKey, ...category });
+              }
+            }
+            insertedBridgeRows = await insertHousingBridgeRows(client, bridgePayloads, options.writeBatchSize);
+          }
+
+          const nextRowIndex = Number(observationChunk.at(-1).row_index) + 1;
+          await upsertDatasetProgress(client, {
+            datasetKey,
+            datasetCode: dataset.dataset_id,
+            status: "loading",
+            nextRowIndex,
+            sourceRowsLoaded: observationChunk.length,
+            factRowsLoaded: insertedFacts.count,
+            bridgeRowsLoaded: insertedBridgeRows,
+          });
+          await client.query("commit");
+          sourceRows += observationChunk.length;
+          bridgeRows += insertedBridgeRows;
+          factRows += insertedFacts.count;
+          readBatchFacts += insertedFacts.count;
+          readBatchRows += observationChunk.length;
+          from = nextRowIndex;
+          const elapsedSeconds = ((Date.now() - chunkStartedAt) / 1000).toFixed(1);
+          console.log(
+            `  ${dataset.dataset_id}: rows ${observationChunk[0].row_index}-${observationChunk.at(-1).row_index}: +${insertedFacts.count} facts, +${insertedBridgeRows} bridge rows (${elapsedSeconds}s)`
+          );
+        } catch (error) {
+          await client.query("rollback").catch(() => {});
+          await upsertDatasetProgress(client, {
+            datasetKey,
+            datasetCode: dataset.dataset_id,
+            status: "failed",
+            nextRowIndex: from,
+            lastError: error.message,
+          });
+          throw error;
+        }
       }
 
-      factRows += insertedFacts.count;
-      from = Number(observations.at(-1).row_index) + 1;
-      console.log(`  ${dataset.dataset_id}: +${insertedFacts.count} housing facts`);
+      console.log(`  ${dataset.dataset_id}: read batch complete: +${readBatchFacts} housing facts from ${readBatchRows} Silver rows`);
+      batchesProcessed += 1;
+      if (options.maxBatches > 0 && batchesProcessed >= options.maxBatches) {
+        stoppedEarly = true;
+        console.log(`  ${dataset.dataset_id}: stopped after ${batchesProcessed} batch(es) by --max-batches`);
+        break;
+      }
     }
 
-    await client.query("commit");
+    if (!stoppedEarly) {
+      await upsertDatasetProgress(client, {
+        datasetKey,
+        datasetCode: dataset.dataset_id,
+        status: "complete",
+        nextRowIndex: from,
+        completed: true,
+      });
+    }
     return { sourceRows, factRows, bridgeRows };
   } catch (error) {
-    await client.query("rollback").catch(() => {});
     throw error;
   }
 }
 
 async function loadBouwenWonenMart(client, options) {
+  await ensureRuntimeTables(client);
   const runId = randomUUID();
   await client.query(
     "insert into gold_bouwen_wonen.load_runs (run_id, status, message) values ($1, 'pending', $2)",

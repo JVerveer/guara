@@ -123,6 +123,20 @@ create table if not exists gold_bouwen_wonen.load_runs (
   message text
 );
 
+create table if not exists gold_bouwen_wonen.dataset_load_progress (
+  dataset_key bigint primary key references gold.dim_dataset(dataset_key),
+  dataset_code text not null,
+  status text not null default 'pending',
+  next_row_index bigint not null default 0,
+  source_rows_loaded bigint not null default 0,
+  fact_rows_loaded bigint not null default 0,
+  bridge_rows_loaded bigint not null default 0,
+  started_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz,
+  last_error text
+);
+
 create index if not exists fact_housing_observation_dataset_idx
   on gold_bouwen_wonen.fact_housing_observation(housing_dataset_key);
 
