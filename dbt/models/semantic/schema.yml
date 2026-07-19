@@ -1,0 +1,92 @@
+version: 2
+
+models:
+  - name: semantic_fact_profile_rollup
+    description: Reusable generated fact rollup for semantic profiling. This is the only model that scans the Bouwen en wonen fact mart.
+    tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - dataset_code
+              - measure_key
+              - geography_type
+              - period_type
+    columns:
+      - name: dataset_code
+        tests:
+          - not_null
+      - name: measure_key
+        tests:
+          - not_null
+
+  - name: semantic_dataset_profile
+    description: Generated dataset-level semantic profile from Gold.
+    columns:
+      - name: dataset_code
+        tests:
+          - not_null
+          - unique
+
+  - name: semantic_measure_profile
+    description: Generated measure-level semantic profile from Gold.
+    columns:
+      - name: measure_key
+        tests:
+          - not_null
+          - unique
+      - name: dataset_code
+        tests:
+          - not_null
+
+  - name: semantic_dimension_profile
+    description: Generated dimension-level semantic profile from Gold category dimensions.
+    tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - dataset_code
+              - dimension_code
+    columns:
+      - name: dataset_code
+        tests:
+          - not_null
+      - name: dimension_code
+        tests:
+          - not_null
+
+  - name: semantic_category_profile
+    description: Generated category-level semantic profile from Gold category values.
+    columns:
+      - name: category_key
+        tests:
+          - not_null
+          - unique
+
+  - name: semantic_grain_profile
+    description: Generated supported grains by dataset, measure, geography type and period type.
+    tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - dataset_code
+              - measure_key
+              - geography_type
+              - period_type
+
+  - name: semantic_dataset_contract
+    description: Generated runtime contract candidates for dataset question answering.
+    columns:
+      - name: dataset_code
+        tests:
+          - not_null
+          - unique
+
+  - name: semantic_metric_dimension_compatibility
+    description: Generated compatibility matrix for metric-dimension grouping/filtering.
+    tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - dataset_code
+              - measure_key
+              - dimension_code

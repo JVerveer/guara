@@ -5,7 +5,14 @@ import { cn } from "@/lib/utils";
 import { fonts } from "@/theme/tokens";
 import type { Screen } from "@/types";
 
-const EXAMPLE_QUESTION_KEYS = ["housing", "unemployment", "aging", "inequality"] as const;
+const EXAMPLE_QUESTION_KEYS = [
+  "wozUtrecht",
+  "huurRotterdam",
+  "wozRanking",
+  "huurShare",
+  "wozIncrease",
+  "nationalComparison",
+] as const;
 
 interface HomeScreenProps {
   setScreen: (s: Screen) => void;
@@ -65,7 +72,7 @@ export function HomeScreen({ setScreen, setResearchQuestion }: HomeScreenProps) 
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-1">
             {t("research.tryAsking")}
           </p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {EXAMPLE_QUESTION_KEYS.map((key) => (
               <button
                 key={key}

@@ -34,6 +34,7 @@ function classifyIntent(question: string): SemanticIntent {
   if (/change|changed|trend|since|after|ontwikkeling|verander/.test(lower)) return "trend";
   if (/which municipalities|find municipalities|municipalities.*most|top|highest|lowest|outliers|rank municipalities|gemeenten|meeste|hoogste|laagste/.test(lower)) return "rank_geographies";
   if (/\b(show|give|list|toon|laat zien)\b/.test(lower) && (MUNICIPALITIES.some((name) => lower.includes(name.toLowerCase())) || /\b(nederland|netherlands)\b/.test(lower))) return "compare_geographies";
+  if (MUNICIPALITIES.some((name) => lower.includes(name.toLowerCase())) || PROVINCES.some((name) => lower.includes(name.toLowerCase())) || /\b(nederland|netherlands)\b/.test(lower)) return "compare_geographies";
   return "catalogue_search";
 }
 
@@ -132,6 +133,10 @@ function derivedCalculationCode(question: string, intent: SemanticIntent, measur
   return calculationCode(intent);
 }
 
+function calculationNeedsSecondaryMeasure(calculation: string | undefined): boolean {
+  return ["share_of_total", "multi_metric_rank", "metric_comparison", "compare_to_average"].includes(calculation ?? "");
+}
+
 function rankSortDirection(question: string): "asc" | "desc" {
   return /\b(lowest|least|laagste|minst|smallest|kleinste|below|less than|under|onder|minder dan)\b/i.test(question) ? "asc" : "desc";
 }
@@ -191,17 +196,52 @@ async function hybridSearch(question: string, objectTypes?: string[]): Promise<S
   })) as SemanticSearchResult[];
 }
 
+async function curatedPatternMatches(question: string): Promise<SemanticSearchResult[]> {
+  if (!isSupabaseConfigured()) return [];
+  if (!/\b(woningtype|woningtypes|type woningen|housing type|housing types)\b/i.test(question)) return [];
+
+  const supabase = await getSupabaseClient();
+  const { data } = await (supabase as any)
+    .schema("semantic")
+    .from("catalogue_item")
+    .select("catalogue_item_id, object_type, object_id, title, subtitle, description, dataset_code, measure_code, geography_code, unit_code, domain_id, provider, metadata")
+    .eq("object_type", "measure")
+    .eq("dataset_code", "85035NED")
+    .eq("title", "Beginstand woningvoorraad")
+    .eq("is_active", true)
+    .limit(1);
+
+  return (data ?? []).map((row: any) => ({
+    catalogue_item_id: row.catalogue_item_id,
+    object_type: "metric",
+    object_id: row.object_id,
+    title: row.title,
+    subtitle: row.subtitle,
+    description: row.description,
+    dataset_code: row.dataset_code,
+    measure_code: row.measure_code,
+    geography_code: row.geography_code,
+    unit_code: row.unit_code,
+    domain_id: row.domain_id,
+    provider: row.provider,
+    rank_score: 1,
+    lexical_score: 1,
+    vector_score: 0,
+    metadata: { ...(row.metadata ?? {}), has_fact_data: true },
+  })) as SemanticSearchResult[];
+}
+
 function buildPlan(question: string, intent: SemanticIntent, results: SemanticSearchResult[]): SemanticQueryPlan {
   const measure = firstMeasure(question, results);
   const measures = questionMeasures(question, results);
   const primaryMeasure = measures[0] ?? measure;
-  const secondaryMeasure = measures[1];
   const yearRange = extractYearRange(question);
   const geographyNames = extractGeographies(question, results);
   const excludedGeographyNames = extractExcludedGeographies(question);
   const valueFilter = extractValueFilter(question);
   const geographyType = extractGeographyType(question, intent, geographyNames);
   const resolvedCalculationCode = derivedCalculationCode(question, intent, measures);
+  const secondaryMeasure = calculationNeedsSecondaryMeasure(resolvedCalculationCode) ? measures[1] : undefined;
   const [mainMeasure, comparisonMeasure] =
     resolvedCalculationCode === "share_of_total" && primaryMeasure && secondaryMeasure && normalize(primaryMeasure.title).includes("totaal") && !normalize(secondaryMeasure.title).includes("totaal")
       ? [secondaryMeasure, primaryMeasure]
@@ -263,6 +303,217 @@ function rows(result: Record<string, unknown>): Array<Record<string, unknown>> {
   return Array.isArray(result.rows) ? (result.rows as Array<Record<string, unknown>>) : [];
 }
 
+function numberValue(value: unknown): number | null {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatNumber(value: unknown, maximumFractionDigits = 0): string {
+  const numeric = numberValue(value);
+  if (numeric == null) return String(value ?? "unknown");
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(numeric);
+}
+
+function formatMeasureValue(row: Record<string, unknown>): string {
+  const value = row.value ?? row.observation_value ?? row.raw_value;
+  return formatTypedValue(value, row.unit_code, row.unit_name);
+}
+
+function formatTypedValue(value: unknown, unitCodeValue?: unknown, unitNameValue?: unknown): string {
+  const numeric = numberValue(value);
+  const unitCode = String(unitCodeValue ?? "").toUpperCase();
+  const unitName = String(unitNameValue ?? "");
+  if (numeric == null) return String(value ?? "unknown");
+
+  if (unitCode.includes("EUR")) return `€${formatNumber(numeric)}`;
+  if (unitCode.includes("PERCENT") || unitName.toLowerCase().includes("percent")) return `${formatNumber(numeric, 1)}%`;
+  return formatNumber(numeric, Number.isInteger(numeric) ? 0 : 1);
+}
+
+function humanMeasureName(plan: SemanticQueryPlan, row?: Record<string, unknown>): string {
+  const label = String(row?.measure_name ?? plan.measure_label ?? "the requested measure");
+  const normalized = normalize(label);
+  if (normalized === "totaal huurwoningen") return "rental homes";
+  if (normalized === "gemiddelde woz waarde van woningen") return "average WOZ home value";
+  return label;
+}
+
+function periodLabel(plan: SemanticQueryPlan, row?: Record<string, unknown>): string {
+  return String(row?.calendar_year ?? row?.year ?? plan.year ?? (plan.year_start && plan.year_end ? `${plan.year_start}-${plan.year_end}` : "the requested period"));
+}
+
+function geographyLabel(plan: SemanticQueryPlan, row?: Record<string, unknown>): string {
+  return String(row?.geography_name ?? plan.geography_names?.[0] ?? "the requested geography");
+}
+
+function secondaryMeasureName(plan: SemanticQueryPlan): string {
+  const normalized = normalize(plan.secondary_measure_label ?? "");
+  if (normalized === "totaal huurwoningen") return "rental homes";
+  if (normalized === "gemiddelde woz waarde van woningen") return "average WOZ home value";
+  return plan.secondary_measure_label ?? "the comparison measure";
+}
+
+function unitCodeForLabel(label: string | undefined): string | undefined {
+  const normalized = normalize(label ?? "");
+  if (normalized.includes("woz") || normalized.includes("verkoopprijs")) return "EUR";
+  if (normalized.includes("percentage") || normalized.includes("aandeel")) return "PERCENT";
+  return undefined;
+}
+
+function percentage(value: unknown): string {
+  const numeric = numberValue(value);
+  return numeric == null ? "unknown" : `${formatNumber(numeric, 1)}%`;
+}
+
+function changeLabel(value: unknown, unitCode?: unknown): string {
+  const numeric = numberValue(value);
+  if (numeric == null) return String(value ?? "unknown");
+  const prefix = numeric > 0 ? "+" : "";
+  return `${prefix}${formatTypedValue(numeric, unitCode)}`;
+}
+
+function businessAnswerText(_question: string, plan: SemanticQueryPlan, resultRows: Array<Record<string, unknown>>) {
+  const first = resultRows[0] ?? {};
+  const measure = humanMeasureName(plan, first);
+  const period = periodLabel(plan, first);
+
+  if (plan.calculation_code === "share_of_total") {
+    const geography = geographyLabel(plan, first);
+    const share = percentage(first.share_percent);
+    const numerator = formatTypedValue(first.numerator_value, "COUNT");
+    const denominator = formatTypedValue(first.denominator_value, "COUNT");
+    const part = plan.measure_label ?? "the selected part";
+    const total = plan.secondary_measure_label ?? "the total";
+    return {
+      title: `${share} of ${total} in ${geography} were ${part} in ${period}`,
+      summary: `In ${geography}, ${numerator} out of ${denominator} ${total} were ${part} in ${period}.`,
+      bullets: [
+        `${part}: ${numerator}`,
+        `${total}: ${denominator}`,
+        `Share: ${share}`,
+      ],
+    };
+  }
+
+  if (plan.calculation_code === "compare_to_average") {
+    const geography = geographyLabel(plan, first);
+    const value = formatTypedValue(first.value, first.unit_code);
+    const average = formatTypedValue(first.average_value, first.unit_code);
+    const difference = changeLabel(first.difference_from_average, first.unit_code);
+    const ratio = numberValue(first.ratio_to_average);
+    const direction = numberValue(first.difference_from_average) == null
+      ? "compared with"
+      : Number(first.difference_from_average) >= 0 ? "above" : "below";
+    return {
+      title: `${geography} was ${direction} the comparable average for ${measure} in ${period}`,
+      summary: `${geography} had ${value} ${measure} in ${period}. The average across comparable geographies was ${average}, a difference of ${difference}.`,
+      bullets: [
+        `${geography}: ${value}`,
+        `Comparable average: ${average}`,
+        `Difference: ${difference}`,
+        ratio == null ? "Ratio to average: unknown" : `Ratio to average: ${formatNumber(ratio, 2)}x`,
+      ],
+    };
+  }
+
+  if (plan.calculation_code === "multi_metric_rank") {
+    const secondary = secondaryMeasureName(plan);
+    const top = geographyLabel(plan, first);
+    const primaryUnit = unitCodeForLabel(plan.measure_label);
+    const secondaryUnit = unitCodeForLabel(plan.secondary_measure_label);
+    return {
+      title: `${top} best matches high ${measure} and low ${secondary} in ${period}`,
+      summary: `Guara ranked municipalities by high ${plan.measure_label ?? measure} and low ${plan.secondary_measure_label ?? secondary}. The lower combined score is the stronger match.`,
+      bullets: resultRows.slice(0, 10).map((row, index) => {
+        const primary = formatTypedValue(row.primary_value, primaryUnit);
+        const secondaryValue = formatTypedValue(row.secondary_value, secondaryUnit ?? "COUNT");
+        return `${index + 1}. ${geographyLabel(plan, row)}: ${plan.measure_label ?? measure} ${primary}; ${plan.secondary_measure_label ?? secondary} ${secondaryValue}`;
+      }),
+    };
+  }
+
+  if (plan.calculation_code === "change_rank") {
+    const top = geographyLabel(plan, first);
+    const startYear = first.start_year ?? plan.year_start ?? "start";
+    const endYear = first.end_year ?? plan.year_end ?? "end";
+    const unitCode = first.unit_code ?? unitCodeForLabel(plan.measure_label);
+    const startValue = formatTypedValue(first.start_value, unitCode);
+    const endValue = formatTypedValue(first.end_value, unitCode);
+    const absolute = changeLabel(first.absolute_change, unitCode);
+    const pct = percentage(first.percentage_change);
+    return {
+      title: `${top} had the biggest increase in ${measure} between ${startYear} and ${endYear}`,
+      summary: `${top} went from ${startValue} in ${startYear} to ${endValue} in ${endYear}: a change of ${absolute} (${pct}).`,
+      bullets: resultRows.slice(0, 10).map((row, index) => `${index + 1}. ${geographyLabel(plan, row)}: ${changeLabel(row.absolute_change, row.unit_code ?? unitCode)} (${percentage(row.percentage_change)})`),
+    };
+  }
+
+  if (plan.calculation_code === "metric_comparison") {
+    return {
+      title: `Comparison of ${plan.measure_label ?? measure} and ${plan.secondary_measure_label ?? "the second measure"}`,
+      summary: `Guara compared both indicators for the requested place${(plan.geography_names?.length ?? 0) > 1 ? "s" : ""} and period.`,
+      bullets: resultRows.slice(0, 10).map((row) => `${geographyLabel(plan, row)} ${row.calendar_year ?? period}, ${row.measure_name ?? "measure"}: ${formatMeasureValue(row)}`),
+    };
+  }
+
+  if (plan.calculation_code === "category_breakdown") {
+    const category = plan.category_dimension_code ?? "category";
+    return {
+      title: `${plan.measure_label ?? measure} by ${category} in ${period}`,
+      summary: `Guara found ${resultRows.length} loaded ${category} result${resultRows.length === 1 ? "" : "s"} for ${period}. These rows come from ${plan.dataset_code ?? "the selected Gold dataset"}.`,
+      bullets: resultRows.slice(0, 10).map((row) => `${geographyLabel(plan, row)} · ${row.category_name ?? category}: ${formatTypedValue(row.value, row.unit_code, row.unit_name)}`),
+    };
+  }
+
+  if (plan.intent === "trend") {
+    const firstYear = resultRows[0]?.calendar_year ?? plan.year_start ?? "first year";
+    const last = resultRows[resultRows.length - 1] ?? first;
+    const lastYear = last.calendar_year ?? plan.year_end ?? "last year";
+    const firstValue = formatMeasureValue(first);
+    const lastValue = formatMeasureValue(last);
+    const firstNumeric = numberValue(first.value ?? first.raw_value);
+    const lastNumeric = numberValue(last.value ?? last.raw_value);
+    const delta = firstNumeric == null || lastNumeric == null ? null : lastNumeric - firstNumeric;
+    return {
+      title: `${measure} changed from ${firstValue} in ${firstYear} to ${lastValue} in ${lastYear}`,
+      summary: delta == null
+        ? `Guara found a time series for ${measure} from ${firstYear} to ${lastYear}.`
+        : `Across the loaded period, ${measure} changed by ${changeLabel(delta, last.unit_code)}.`,
+      bullets: resultRows.slice(0, 10).map((row) => `${row.calendar_year}: ${formatMeasureValue(row)}`),
+    };
+  }
+
+  if (resultRows.length === 1) {
+    const geography = geographyLabel(plan, first);
+    const value = formatMeasureValue(first);
+    return {
+      title: `${geography} had ${value} ${measure} in ${period}`,
+      summary: `For ${geography}, ${plan.measure_label ?? measure} was ${value} in ${period}.`,
+      bullets: [
+        `Geography: ${geography} (${first.geography_type ?? plan.geography_type ?? "available Gold grain"})`,
+        `Measure: ${first.measure_name ?? plan.measure_label ?? measure}`,
+        `Source layer: Gold Bouwen en wonen mart`,
+      ],
+    };
+  }
+
+  if (plan.intent === "rank_geographies") {
+    const top = first.geography_name ? `${first.geography_name}` : "The highest-ranked municipality";
+    const value = formatMeasureValue(first);
+    return {
+      title: `${top} ranked highest for ${measure} in ${period}`,
+      summary: `The highest value found was ${value} for ${top}. The ranking below shows the top ${Math.min(resultRows.length, 10)} results from the Gold mart.`,
+      bullets: resultRows.slice(0, 10).map((row, index) => `${index + 1}. ${geographyLabel(plan, row)}: ${formatMeasureValue(row)}`),
+    };
+  }
+
+  return {
+    title: `${plan.measure_label ?? "Result"} for ${period}`,
+    summary: `Guara found ${resultRows.length} matching Gold result${resultRows.length === 1 ? "" : "s"} for the requested question.`,
+    bullets: resultRows.slice(0, 10).map((row) => `${geographyLabel(plan, row)}: ${formatMeasureValue(row)}${row.calendar_year ? ` (${row.calendar_year})` : ""}`),
+  };
+}
+
 function siblingMeasures(plan: SemanticQueryPlan, results: SemanticSearchResult[]): SemanticSearchResult[] {
   if (!plan.measure_label || !plan.measure_key) return [];
   const normalizedLabel = normalize(plan.measure_label);
@@ -316,16 +567,14 @@ async function executePlanWithFallback(plan: SemanticQueryPlan, matches: Semanti
   return { plan, execution };
 }
 
-function answerText(question: string, plan: SemanticQueryPlan, result: Record<string, unknown>, matches: SemanticSearchResult[]) {
+export function answerText(question: string, plan: SemanticQueryPlan, result: Record<string, unknown>, matches: SemanticSearchResult[]) {
   const resultRows = rows(result);
   if (resultRows.length > 0) {
-    const bullets = resultRows.slice(0, 5).map((row) =>
-      Object.entries(row).map(([key, value]) => `${key}: ${value ?? "unknown"}`).join(" · ")
-    );
+    const businessText = businessAnswerText(question, plan, resultRows);
     return {
-      title: `Controlled Gold answer for "${question}"`,
-      summary: `Guara executed a validated ${plan.intent} query against ${plan.source}. The result contains ${resultRows.length} row(s) and is backed by the resolved measure "${plan.measure_label}".`,
-      bullets: [...(plan.warnings ?? []).map((warning) => `Warning: ${warning}`), ...bullets],
+      title: businessText.title,
+      summary: businessText.summary,
+      bullets: businessText.bullets,
       confidence: 82,
     };
   }
@@ -335,16 +584,20 @@ function answerText(question: string, plan: SemanticQueryPlan, result: Record<st
     const period =
       plan.year_start && plan.year_end ? `${plan.year_start}-${plan.year_end}`
         : plan.year ? String(plan.year)
-          : "the requested period";
+          : "";
+    const missingPeriod = !period;
     return {
-      title: `Controlled Gold query returned no rows for "${question}"`,
-      summary: `Guara resolved the request to the Gold metric "${plan.measure_label}" and executed an allowlisted ${plan.intent} query, but no matching fact rows were found for ${geographies} in ${period}. This usually means the selected metric is not loaded at that geography/year grain yet.`,
+      title: missingPeriod
+        ? `Which year should Guara use for ${plan.measure_label ?? "this figure"} in ${geographies}?`
+        : `No loaded value found for ${plan.measure_label ?? "this figure"} in ${geographies} for ${period}`,
+      summary: missingPeriod
+        ? `I found the indicator "${plan.measure_label}" and the place "${geographies}", but the question does not include a year. Public datasets often have different values per year, so Guara needs a year to return one clear number.`
+        : `I found the indicator "${plan.measure_label}" and the place "${geographies}", but Guara does not currently have a loaded Gold value for ${period}. Try a nearby year or open the related dataset to inspect available periods.`,
       bullets: [
-        ...(plan.warnings ?? []).map((warning) => `Warning: ${warning}`),
-        `Resolved metric: ${plan.measure_label}`,
-        `Requested geography: ${geographies}`,
-        `Requested period: ${period}`,
-        "The catalogue matches below remain available for inspecting related Gold objects and lineage.",
+        `Indicator found: ${plan.measure_label}`,
+        `Place found: ${geographies}`,
+        missingPeriod ? "Add a year, for example: Totaal huurwoningen Rotterdam 2023." : `Year checked: ${period}`,
+        "Guara only answers from values that are already loaded into the trusted Gold layer.",
       ],
       confidence: 72,
     };
@@ -459,7 +712,8 @@ export const semanticSearchService = {
       metricPhrase && metricPhrase.length >= 3 && metricPhrase.toLowerCase() !== normalized.toLowerCase()
         ? await hybridSearch(metricPhrase, ["measure"])
         : [];
-    const mergedMatches = Array.from(new Map([...metricMatches, ...matches].map((match) => [`${match.object_type}:${match.object_id}`, match])).values());
+    const curatedMatches = await curatedPatternMatches(normalized);
+    const mergedMatches = Array.from(new Map([...curatedMatches, ...metricMatches, ...matches].map((match) => [`${match.object_type}:${match.object_id}`, match])).values());
     const curation = await fetchPlannerCuration(mergedMatches);
     const plan = buildSemanticQueryPlan(normalized, intent, mergedMatches, curation);
     const { plan: executedPlan, execution } = await executePlanWithFallback(plan, mergedMatches);
@@ -480,12 +734,10 @@ export const semanticSearchService = {
       executionResult: execution,
       enrichment,
       provenance: [
-        "Homepage natural-language request",
-        "Intent classification",
-        "Hybrid semantic catalogue retrieval",
-        "Allowlisted query-plan validation",
-        executedPlan.source === "gold_bouwen_wonen" ? "Safe Supabase RPC execution against Gold mart" : "Catalogue-only response",
-        "Answer provenance stored in semantic.answer_provenance when Supabase permits writes",
+        "Guara read the question and identified the requested indicator, place and period.",
+        "Guara searched the trusted semantic catalogue for matching CBS definitions.",
+        executedPlan.source === "gold_bouwen_wonen" ? "Guara checked the trusted Bouwen en wonen data mart for matching values." : "Guara found catalogue matches but no complete data question.",
+        "Guara kept the source references so the answer can be inspected later.",
       ],
     };
   },

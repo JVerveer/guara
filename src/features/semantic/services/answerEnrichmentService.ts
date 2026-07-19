@@ -142,9 +142,10 @@ function followUps(question: string, plan: SemanticQueryPlan, result: Record<str
 
 function caveats(plan: SemanticQueryPlan, result: Record<string, unknown>): SemanticCaveat[] {
   const rows = resultRows(result);
-  const caveats: SemanticCaveat[] = (plan.warnings ?? []).map((warning) => ({ severity: "warning", message: warning }));
+  const warnings = (plan.warnings ?? []).filter((warning) => !/generated grain metadata|no generated grain metadata/i.test(warning));
+  const caveats: SemanticCaveat[] = warnings.map((warning) => ({ severity: "warning", message: warning }));
   if (rows.length === 0) {
-    caveats.push({ severity: "gap", message: "The query plan was valid, but no matching Gold fact rows were returned for the requested grain or period." });
+    caveats.push({ severity: "gap", message: plan.year ? "No loaded value was found for that place and year." : "No year was specified, so Guara may need a year to return one clear value." });
   }
   if (plan.calculation_code && ["share_of_total", "multi_metric_rank", "change_rank", "compare_to_average"].includes(plan.calculation_code)) {
     caveats.push({ severity: "info", message: `This answer uses the derived operator ${plan.calculation_code}; inspect component values before drawing causal conclusions.` });

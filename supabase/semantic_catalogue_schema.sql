@@ -318,6 +318,7 @@ insert into semantic.calculation (
   ('multi_metric_rank', 'Multi-metric ranking', 'Rank geographies by two metrics with deterministic rank directions.', 'ranking', null, true, true),
   ('change_rank', 'Change ranking', 'Rank geographies by absolute value change between two periods.', 'change', 2, true, true),
   ('compare_to_average', 'Compare to average', 'Compare selected geographies with the average across comparable geographies.', 'comparison', null, false, true),
+  ('category_breakdown', 'Category breakdown', 'Break a metric down by a trusted categorical dimension.', 'breakdown', null, false, true),
   ('count', 'Count', 'Count records or entities where counting is valid.', 'count', null, true, true)
 on conflict (calculation_code) do update set
   calculation_name = case when semantic.calculation.metadata_origin = 'curated' then semantic.calculation.calculation_name else excluded.calculation_name end,
@@ -692,6 +693,61 @@ begin
     raise exception 'Approved join path for fact-to-measure is missing.';
   end if;
 
+  if resolved_calculation_code = 'category_breakdown' then
+    select jsonb_build_object(
+      'columns', jsonb_build_array('geography_name', 'geography_type', 'calendar_year', 'category_dimension', 'category_name', 'value', 'unit_code', 'unit_name', 'scale_factor'),
+      'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
+    )
+    into result
+    from (
+      select
+        f.geography_name,
+        f.geography_type,
+        f.calendar_year,
+        category.dimension_code as category_dimension,
+        category.category_name,
+        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+        max(u.unit_code) as unit_code,
+        max(u.unit_name) as unit_name,
+        max(u.scale_factor) as scale_factor
+      from gold_bouwen_wonen.fact_housing_observation f
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      join gold_bouwen_wonen.bridge_housing_observation_category category
+        on category.housing_observation_key = f.housing_observation_key
+       and lower(category.dimension_code) = lower(coalesce(nullif(plan->>'category_dimension_code', ''), 'Woningtype'))
+      left join gold_bouwen_wonen.bridge_housing_observation_category qualifier
+        on qualifier.housing_observation_key = f.housing_observation_key
+       and lower(qualifier.dimension_code) = lower(coalesce(nullif(plan->>'category_filter_dimension_code', ''), 'Woningkenmerk'))
+      where f.measure_key = measure
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (plan->>'dataset_code' is null or f.dataset_code = plan->>'dataset_code' or f.source_dataset_id = plan->>'dataset_code')
+        and (geography_type_filter is null or f.geography_type = geography_type_filter)
+        and (year_value is null or f.calendar_year = year_value)
+        and (year_start_value is null or f.calendar_year >= year_start_value)
+        and (year_end_value is null or f.calendar_year <= year_end_value)
+        and (
+          jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+          or exists (
+            select 1
+            from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+            where lower(f.geography_name) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
+          )
+        )
+        and (
+          plan->>'category_filter_value' is null
+          or qualifier.category_name = plan->>'category_filter_value'
+          or qualifier.category_code = plan->>'category_filter_value'
+        )
+        and coalesce(category.category_name, '') not ilike 'Unknown%'
+      group by f.geography_name, f.geography_type, f.calendar_year, category.dimension_code, category.category_name
+      order by f.geography_name asc, category.category_name asc
+      limit limit_value
+    ) x;
+    return result;
+  end if;
+
   if resolved_calculation_code = 'metric_comparison' then
     select jsonb_build_object(
       'columns', jsonb_build_array('measure_name', 'geography_name', 'geography_type', 'calendar_year', 'value', 'raw_value', 'unit_code', 'unit_name', 'scale_factor'),
@@ -722,7 +778,7 @@ begin
             select 1
             from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
             where lower(f.geography_name) = lower(requested_geography.name)
-               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
           )
         )
         and (year_value is null or f.calendar_year = year_value)
@@ -760,7 +816,7 @@ begin
               select 1
               from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
               where lower(f.geography_name) = lower(requested_geography.name)
-                 or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+                 or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
             )
           )
           and (year_value is null or f.calendar_year = year_value)
@@ -786,7 +842,7 @@ begin
               select 1
               from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
               where lower(f.geography_name) = lower(requested_geography.name)
-                 or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+                 or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
             )
           )
           and (year_value is null or f.calendar_year = year_value)
@@ -854,7 +910,7 @@ begin
         select 1
         from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
         where lower(b.geography_name) = lower(requested_geography.name)
-           or lower(regexp_replace(b.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+           or lower(regexp_replace(b.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
       )
       order by b.geography_name asc, b.calendar_year asc
       limit limit_value
@@ -998,7 +1054,7 @@ begin
             select 1
             from jsonb_array_elements_text(plan->'excluded_geography_names') excluded_geography(name)
             where lower(f.geography_name) = lower(excluded_geography.name)
-               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(excluded_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(excluded_geography.name, '\s*\([^)]*\)\s*$', ''))
           )
         )
       group by f.geography_name, f.geography_code, f.geography_type, f.calendar_year
@@ -1047,7 +1103,7 @@ begin
             select 1
             from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
             where lower(f.geography_name) = lower(requested_geography.name)
-               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
           )
         )
         and (
@@ -1056,7 +1112,7 @@ begin
             select 1
             from jsonb_array_elements_text(plan->'excluded_geography_names') excluded_geography(name)
             where lower(f.geography_name) = lower(excluded_geography.name)
-               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(excluded_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(excluded_geography.name, '\s*\([^)]*\)\s*$', ''))
           )
         )
         and (year_value is null or f.calendar_year = year_value)
@@ -1108,7 +1164,7 @@ begin
             select 1
             from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
             where lower(f.geography_name) = lower(requested_geography.name)
-               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
           )
         )
       group by f.calendar_year

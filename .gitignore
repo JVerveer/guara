@@ -5,3 +5,7 @@ node_modules
 .DS_Store
 dist/
 reports/
+dbt/profiles.yml
+dbt/target/
+dbt/dbt_packages/
+.venv-dbt/

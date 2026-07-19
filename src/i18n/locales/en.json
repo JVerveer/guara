@@ -38,10 +38,12 @@
     "searchButton": "Search",
     "tryAsking": "Try asking",
     "exampleQuestions": {
-      "housing": "Kerncijfers wijken en buurten",
-      "unemployment": "Bevolking gemeente Utrecht",
-      "aging": "Gemiddelde WOZ-waarde gemeenten",
-      "inequality": "Regionale kerncijfers Nederland"
+      "wozUtrecht": "Show Gemiddelde WOZ-waarde van woningen for Utrecht in 2023.",
+      "huurRotterdam": "Show Totaal huurwoningen for Rotterdam in 2023.",
+      "wozRanking": "Which municipalities have the highest Gemiddelde WOZ-waarde van woningen in 2023?",
+      "huurShare": "What share of Totaal huurwoningen in Rotterdam were Eigendom woningcorporatie in 2023?",
+      "wozIncrease": "Which municipalities had the biggest increase in Gemiddelde WOZ-waarde van woningen between 2020 and 2023?",
+      "nationalComparison": "Compare Rotterdam with the national average for Totaal huurwoningen in 2023."
     },
     "quickAccess": {
       "datasets": "Datasets",

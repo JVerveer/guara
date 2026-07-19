@@ -45,6 +45,10 @@ export interface SemanticQueryPlan {
   excluded_geography_names?: string[];
   value_filter_operator?: "lt" | "lte" | "gt" | "gte";
   value_filter?: number;
+  dataset_code?: string;
+  category_dimension_code?: string;
+  category_filter_dimension_code?: string;
+  category_filter_value?: string;
   sort_direction?: "asc" | "desc";
   limit?: number;
   warnings?: string[];

@@ -1,0 +1,34 @@
+version: 2
+
+sources:
+  - name: gold
+    schema: gold
+    tables:
+      - name: dim_dataset
+      - name: dim_measure
+      - name: dim_unit
+      - name: dim_date
+      - name: dim_geography
+      - name: dim_category
+
+  - name: gold_bouwen_wonen
+    schema: gold_bouwen_wonen
+    tables:
+      - name: dim_housing_dataset
+      - name: dim_housing_indicator
+      - name: fact_housing_observation
+      - name: bridge_housing_observation_category
+
+  - name: silver
+    schema: silver
+    tables:
+      - name: cbs_dataset_domains
+      - name: cbs_dataset_load_status
+      - name: cbs_dataset_grain
+      - name: cbs_period_values
+
+  - name: semantic
+    schema: semantic
+    tables:
+      - name: metric_preference
+      - name: metric_grain

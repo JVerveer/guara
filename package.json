@@ -35,7 +35,13 @@
     "overview:cbs:bronze": "node scripts/ingest-cbs-bronze-all.mjs --overview",
     "ingest:cbs:bronze:all": "node scripts/ingest-cbs-bronze-all.mjs",
     "ingest:cbs:bronze:fast": "node scripts/ingest-cbs-bronze-fast.mjs",
-    "purge:cbs:bronze:archief": "node scripts/purge-cbs-archief-bronze.mjs"
+    "purge:cbs:bronze:archief": "node scripts/purge-cbs-archief-bronze.mjs",
+    "dbt:debug": "node scripts/run-dbt.mjs debug",
+    "dbt:semantic:run": "node scripts/run-dbt.mjs run --select semantic",
+    "dbt:semantic:test": "node scripts/run-dbt.mjs test --select semantic",
+    "dbt:semantic:build": "node scripts/run-dbt.mjs build --select semantic",
+    "dbt:semantic:build:85035": "node scripts/run-dbt.mjs build --select semantic --vars '{semantic_dataset_code: 85035NED}'",
+    "dbt:semantic:build:metadata:85980": "node scripts/run-dbt.mjs build --select semantic --vars '{semantic_dataset_code: 85980NED, semantic_profile_facts: false}'"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
