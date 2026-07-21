@@ -6,6 +6,7 @@ node_modules
 dist/
 reports/
 dbt/profiles.yml
+dbt/logs/
 dbt/target/
 dbt/dbt_packages/
 .venv-dbt/

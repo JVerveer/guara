@@ -1,5 +1,6 @@
 import type { SemanticIntent, SemanticQueryPlan, SemanticSearchResult } from "../types";
 import { resolveGeographiesFromQuestion } from "./geographyResolver";
+import type { SemanticDatasetContract } from "./semanticContractService";
 import { normalizeSemanticText, uniqueStrings } from "./semanticUtils";
 
 const MUNICIPALITIES = ["Amsterdam", "Rotterdam", "Utrecht", "Groningen", "Eindhoven", "Den Haag", "Maastricht", "Nijmegen", "Tilburg", "Almere", "Breda", "Haarlem", "Arnhem", "Amersfoort", "Leiden", "Zwolle", "Delft", "Enschede", "Apeldoorn", "Bloemendaal", "Blaricum", "Wassenaar", "Pekela", "Kerkrade"];
@@ -23,21 +24,25 @@ export interface SemanticMetricGrain {
   max_year?: number | null;
   fact_row_count?: number | null;
   is_supported?: boolean | null;
+  profile_depth?: string | null;
 }
 
 export interface SemanticPlannerCuration {
   metricPreferences?: SemanticMetricPreference[];
   metricGrains?: SemanticMetricGrain[];
+  datasetContracts?: SemanticDatasetContract[];
 }
 
 export function classifySemanticIntent(question: string): SemanticIntent {
   const lower = question.toLowerCase();
   if (/what does|meaning|definition|betekent|definitie/.test(lower)) return "measure_definition";
   if (/which dataset|do we have|dataset|gegevens|data about|data over/.test(lower)) return "dataset_lookup";
+  if (/\b(waar|where)\b.*\b(minste|minst|meeste|meest|least|most)\b/.test(lower)) return "rank_geographies";
   if (/\b(woningtype|woningtypes|type woningen|housing type|housing types)\b/.test(lower) && /\b(regio|region|per)\b/.test(lower)) return "compare_geographies";
+  if (/\b(per|by|naar)\b/.test(lower)) return "compare_geographies";
   if (/share of|percentage of|what share|aandeel/.test(lower)) return "compare_geographies";
   if (/compare|vergelijk/.test(lower)) return "compare_geographies";
-  if (/\b(how many|how much|hoeveel)\b/.test(lower)) return "compare_geographies";
+  if (/\b(how many|how much|hoeveel|what is|what are|what was|what were|wat is|wat zijn|wat was|wat waren)\b/.test(lower)) return "compare_geographies";
   if (/biggest increase|largest increase|strongest increase|grootste stijging/.test(lower)) return "rank_geographies";
   if (/change|changed|trend|since|after|ontwikkeling|verander/.test(lower)) return "trend";
   if (/which municipalities|find municipalities|municipalities.*most|top|highest|lowest|outliers|rank municipalities|gemeenten|meeste|hoogste|laagste/.test(lower)) return "rank_geographies";
@@ -59,7 +64,7 @@ export function extractSemanticMetricPhrase(question: string): string {
     phrase = phrase.replace(new RegExp(`\\b${name}\\b`, "gi"), " ");
   }
   return phrase
-    .replace(/\b(compare|show|give|list|toon|laat zien|which municipalities have|which municipalities|municipalities|gemeenten|gemeente|highest|lowest|most|least|top|trend|for|in|between|and|since|after|before|from|to|with|the|what does|mean|meaning|what share of|share of|were|was|national average|province|provincie|high|low|but|biggest increase|largest increase|strongest increase)\b/gi, " ")
+    .replace(/\b(compare|show|give|list|toon|laat zien|which municipalities have|which municipalities|municipalities|gemeenten|gemeente|highest|lowest|most|least|top|trend|for|in|between|and|since|after|before|from|to|with|the|what does|mean|meaning|what share of|share of|were|was|national average|province|provincie|high|low|but|biggest increase|largest increase|strongest increase|waar|where|staan|staat|liggen|ligt|zijn|is|de|het|een|minste|minst|meeste|meest|hoogste|laagste|nederland|netherlands)\b/gi, " ")
     .replace(/\b(19[7-9]\d|20[0-2]\d)\b/g, " ")
     .replace(/[?.!,;:]/g, " ")
     .replace(/\s+/g, " ")
@@ -75,10 +80,21 @@ export function extractNamedGeographies(question: string): string[] {
   return Array.from(new Set([...names, ...provinces, ...country, ...extractPlacePhrases(question)]));
 }
 
+function isUnresolvedGeographyReference(value: string): boolean {
+  const normalized = normalizeSemanticText(value);
+  return /^(these|those|selected|above|same|this|that)\s+(municipalities|gemeenten|places|geographies|regions|regios|provinces)$/.test(normalized)
+    || /^(these|those|selected|above|same|this|that)$/.test(normalized)
+    || /\b(these municipalities|those municipalities|selected municipalities|deze gemeenten|die gemeenten|bovenstaande gemeenten)\b/.test(normalized);
+}
+
+function containsMetricTerms(value: string): boolean {
+  return /\b(beginstand|woningvoorraad|huurwoningen|woningen|woz|nieuwbouw|verkoopprijs|indicator|metric|measure)\b/i.test(value);
+}
+
 function cleanPlacePhrase(value: string): string {
   return value
     .replace(/\b(19[7-9]\d|20[0-2]\d)\b/g, " ")
-    .replace(/\b(province|provincie|municipality|gemeente|city|stad|plaats|the|de|het|een|of|van|in)\b/gi, " ")
+    .replace(/\b(province|provincie|municipality|municipalities|gemeente|gemeenten|city|stad|plaats|places|geographies|regions|regios|people|persons|residents|mensen|personen|inwoners|huishoudens|these|those|selected|above|same|this|that|deze|die|bovenstaande|the|de|het|een|of|van|in)\b/gi, " ")
     .replace(/[?.!,;:]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -90,6 +106,7 @@ function extractPlacePhrases(question: string): string[] {
   for (const match of prepositionMatches) {
     const cleaned = cleanPlacePhrase(match[1] ?? "");
     if (!cleaned || normalizeSemanticText(cleaned) === "the national average") continue;
+    if (isUnresolvedGeographyReference(match[1] ?? "") || containsMetricTerms(cleaned)) continue;
     phrases.push(...cleaned.split(/\s+(?:and|en|or|of)\s+|,/i).map(cleanPlacePhrase).filter(Boolean));
   }
 
@@ -98,7 +115,13 @@ function extractPlacePhrases(question: string): string[] {
 
   return uniqueStrings(phrases)
     .filter((phrase) => !/^(?:the requested period|national average|landelijk gemiddelde)$/i.test(phrase))
+    .filter((phrase) => !isUnresolvedGeographyReference(phrase))
     .slice(0, 6);
+}
+
+function hasUnresolvedGeographyReference(question: string): boolean {
+  return /\b(these|those|selected|above|same|this|that)\s+(municipalities|places|geographies|regions|provinces)\b/i.test(question)
+    || /\b(deze|die|bovenstaande)\s+(gemeenten|plaatsen|regios|provincies)\b/i.test(question);
 }
 
 export function extractExcludedGeographies(question: string): string[] {
@@ -108,14 +131,14 @@ export function extractExcludedGeographies(question: string): string[] {
 }
 
 export function rankSortDirection(question: string): "asc" | "desc" {
-  return /\b(lowest|least|laagste|minst|smallest|kleinste|below|less than|under|onder|minder dan)\b/i.test(question) ? "asc" : "desc";
+  return /\b(lowest|least|laagste|minst|minste|smallest|kleinste|below|less than|under|onder|minder dan)\b/i.test(question) ? "asc" : "desc";
 }
 
 export function extractValueFilter(question: string): { value_filter_operator?: "lt" | "lte" | "gt" | "gte"; value_filter?: number } {
   const match = question.match(/\b(below|under|less than|boven|above|over|more than|greater than|at least|at most|minder dan|meer dan)\s+([0-9][0-9.,]*)\b/i);
   if (!match) return {};
-  const phrase = match[1].toLowerCase();
-  const value = Number(match[2].replace(/\./g, "").replace(",", "."));
+  const phrase = (match[1] ?? "").toLowerCase();
+  const value = Number((match[2] ?? "").replace(/\./g, "").replace(",", "."));
   if (!Number.isFinite(value)) return {};
   if (["below", "under", "less than", "minder dan", "at most"].includes(phrase)) return { value_filter_operator: phrase === "at most" ? "lte" : "lt", value_filter: value };
   return { value_filter_operator: phrase === "at least" ? "gte" : "gt", value_filter: value };
@@ -125,9 +148,15 @@ export function questionMeasures(question: string, results: SemanticSearchResult
   const normalizedQuestion = normalizeSemanticText(question);
   const seenLabels = new Set<string>();
   return results
-    .filter((result) => ["measure", "metric"].includes(result.object_type) && result.metadata?.measure_key && result.metadata?.has_fact_data === true)
-    .filter((result) => normalizedQuestion.includes(normalizeSemanticText(result.title)))
-    .sort((left, right) => normalizeSemanticText(right.title).length - normalizeSemanticText(left.title).length)
+    .filter((result) => ["measure", "metric"].includes(result.object_type) && result.metadata?.measure_key)
+    .filter((result) => result.metadata?.resolution_layer === "semantic_concept" ? conceptMatchScore(result) > 0 : normalizedQuestion.includes(normalizeSemanticText(result.title)))
+    .sort((left, right) =>
+      (right.metadata?.resolution_layer === "semantic_concept" ? 1 : 0) - (left.metadata?.resolution_layer === "semantic_concept" ? 1 : 0)
+      || conceptMatchScore(right) - conceptMatchScore(left)
+      || readinessScore(right) - readinessScore(left)
+      || right.rank_score - left.rank_score
+      || normalizeSemanticText(right.title).length - normalizeSemanticText(left.title).length
+    )
     .filter((result) => {
       const label = normalizeSemanticText(result.title);
       if (seenLabels.has(label)) return false;
@@ -145,6 +174,121 @@ function essentialMetricLabel(title: string): string {
   return normalizeSemanticText(title).replace(/\b(totaal|total)\b/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function readinessScore(result: SemanticSearchResult | undefined): number {
+  if (result?.metadata?.explicit_metric_contract === true && result.metadata?.metadata_origin === "curated") return 100;
+  if (result?.metadata?.explicit_metric_contract === true) return 70;
+  if (result?.metadata?.is_contract_default_measure === true) return 60;
+  const depth = String(result?.metadata?.profile_depth ?? "");
+  const status = String(result?.metadata?.contract_status ?? "");
+  if (depth === "fact_profiled") return 40;
+  if (depth === "sample_profiled") return 30;
+  if (status === "complete") return 25;
+  if (status === "usable") return 20;
+  if (depth === "metadata_only") return 5;
+  return result?.metadata?.has_fact_data === true ? 10 : 0;
+}
+
+function conceptMatchScore(result: SemanticSearchResult | undefined): number {
+  const value = result?.metadata?.concept_match_score;
+  const score = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(score) ? score : 0;
+}
+
+function housingStockQuestion(question: string): boolean {
+  const normalized = normalizeSemanticText(question);
+  if (!/\b(woning|woningen|huis|huizen|house|houses|home|homes)\b/.test(normalized)) return false;
+  if (/\b(woz|waarde|verkoopprijs|price|prices|euro|eur)\b/.test(normalized)) return false;
+  return /\b(waar|where|staan|staat|liggen|ligt|hoeveel|how many|minste|minst|meeste|meest|least|most|highest|lowest|gemeenten|municipalities)\b/.test(normalized);
+}
+
+function housingValueQuestion(question: string): boolean {
+  const normalized = normalizeSemanticText(question);
+  if (/\b(verkoopprijs|koopprijs|sale price|transaction price)\b/.test(normalized)) return false;
+  return /\b(woningwaarde|woz|woz waarde|waarde van woningen|home value|house value|property value)\b/.test(normalized);
+}
+
+function housingSatisfactionQuestion(question: string): boolean {
+  const normalized = normalizeSemanticText(question);
+  return /\b(tevreden|tevredenheid|satisfied|satisfaction)\b/.test(normalized)
+    && /\b(woning|woningen|huis|huizen|woonomgeving|neighbourhood|omgeving|home|house)\b/.test(normalized);
+}
+
+function rentIncreaseQuestion(question: string): boolean {
+  const normalized = normalizeSemanticText(question);
+  return /\b(huurverhoging|huurverhogingen|rent increase|rent increases)\b/.test(normalized);
+}
+
+function housingStockScore(question: string, result: SemanticSearchResult): number {
+  if (!housingStockQuestion(question)) return 0;
+  const title = normalizeSemanticText(result.title);
+  const unit = normalizeSemanticText(String(result.unit_code ?? result.metadata?.unit_code ?? ""));
+  const datasetTitle = normalizeSemanticText(String(result.subtitle ?? result.metadata?.dataset_title ?? ""));
+  let score = 0;
+  if (unit === "count") score += 80;
+  if (title.includes("woningvoorraad")) score += 60;
+  if (title === "woningen") score += unit === "count" ? 35 : -80;
+  if (title.includes("huur") || title.includes("woz") || title.includes("waarde") || title.includes("verkoopprijs")) score -= 60;
+  if (datasetTitle.includes("waarde onroerende zaken")) score -= 100;
+  return score;
+}
+
+function maxYearScore(result: SemanticSearchResult): number {
+  const value = result.metadata?.max_year;
+  const maxYear = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(maxYear) ? maxYear : 0;
+}
+
+function housingValueScore(question: string, result: SemanticSearchResult): number {
+  if (!housingValueQuestion(question)) return 0;
+  const title = normalizeSemanticText(result.title);
+  const dataset = normalizeSemanticText(String(result.dataset_code ?? result.metadata?.dataset_code ?? ""));
+  const datasetTitle = normalizeSemanticText(String(result.subtitle ?? result.metadata?.dataset_title ?? ""));
+  const unit = normalizeSemanticText(String(result.unit_code ?? result.metadata?.unit_code ?? ""));
+  let score = 0;
+  if (title.includes("woz")) score += 120;
+  if (title.includes("woningwaarde")) score += 40;
+  if (title.includes("waarde") && title.includes("woningen")) score += 60;
+  if (dataset === "85036ned") score += 100;
+  if (unit.includes("eur")) score += 20;
+  if (datasetTitle.includes("1997 2020")) score -= 80;
+  if (datasetTitle.includes("waarde onroerende zaken") && !title.includes("woz")) score -= 40;
+  score += Math.max(0, maxYearScore(result) - 2020) * 10;
+  return score;
+}
+
+function housingSatisfactionScore(question: string, result: SemanticSearchResult): number {
+  if (!housingSatisfactionQuestion(question)) return 0;
+  const title = normalizeSemanticText(result.title);
+  const dataset = normalizeSemanticText(String(result.dataset_code ?? result.metadata?.dataset_code ?? ""));
+  const unit = normalizeSemanticText(String(result.unit_code ?? result.metadata?.unit_code ?? ""));
+  let score = 0;
+  if (title.includes("tevredenheid")) score += 120;
+  if (title.includes("huidige woning")) score += 80;
+  if (title.includes("woonomgeving")) score += /\b(omgeving|buurt|neighbourhood)\b/i.test(question) ? 60 : -20;
+  if (dataset === "84571ned") score += 100;
+  if (dataset === "84570ned") score += 50;
+  if (dataset === "84569ned") score += 20;
+  if (unit.includes("percent")) score += 30;
+  score += Math.max(0, maxYearScore(result) - 2020) * 5;
+  return score;
+}
+
+function rentIncreaseScore(question: string, result: SemanticSearchResult): number {
+  if (!rentIncreaseQuestion(question)) return 0;
+  const title = normalizeSemanticText(result.title);
+  const dataset = normalizeSemanticText(String(result.dataset_code ?? result.metadata?.dataset_code ?? ""));
+  const unit = normalizeSemanticText(String(result.unit_code ?? result.metadata?.unit_code ?? ""));
+  const geographies = Array.isArray(result.metadata?.geography_types) ? result.metadata.geography_types.map(String) : [];
+  let score = 0;
+  if (title.includes("huurverhoging")) score += 80;
+  if (title.includes("inclusief huurharmonisatie")) score += 80;
+  if (title === "huurverhoging") score -= 40;
+  if (dataset === "83162ned") score += 140;
+  if (geographies.includes("municipality")) score += 100;
+  if (unit.includes("percent")) score += 20;
+  return score;
+}
+
 export function firstMeasure(question: string, results: SemanticSearchResult[]): SemanticSearchResult | undefined {
   const normalizedQuestion = normalizeSemanticText(question);
   const normalizedMetricPhrase = normalizeSemanticText(extractSemanticMetricPhrase(question));
@@ -153,19 +297,29 @@ export function firstMeasure(question: string, results: SemanticSearchResult[]):
     const housingStock = metrics.find((result) => result.dataset_code === "85035NED" && normalizeSemanticText(result.title) === "beginstand woningvoorraad");
     if (housingStock) return housingStock;
   }
-  return metrics.find((result) => result.metadata?.has_fact_data === true && normalizeSemanticText(result.title) === normalizedMetricPhrase)
-    ?? metrics.find((result) => normalizeSemanticText(result.title) === normalizedMetricPhrase)
-    ?? metrics.find((result) => result.metadata?.has_fact_data === true && normalizedQuestion.includes(normalizeSemanticText(result.title)))
-    ?? metrics.find((result) => normalizedQuestion.includes(normalizeSemanticText(result.title)))
-    ?? metrics.find((result) => result.metadata?.has_fact_data === true && essentialMetricLabel(result.title).length >= 3 && normalizedQuestion.includes(essentialMetricLabel(result.title)))
-    ?? metrics.find((result) => essentialMetricLabel(result.title).length >= 3 && normalizedQuestion.includes(essentialMetricLabel(result.title)))
-    ?? metrics.find((result) => result.metadata?.has_fact_data === true)
-    ?? metrics[0];
+  const ranked = [...metrics].sort((left, right) =>
+    rentIncreaseScore(question, right) - rentIncreaseScore(question, left)
+    || housingSatisfactionScore(question, right) - housingSatisfactionScore(question, left)
+    || housingValueScore(question, right) - housingValueScore(question, left)
+    || maxYearScore(right) - maxYearScore(left)
+    || housingStockScore(question, right) - housingStockScore(question, left)
+    || readinessScore(right) - readinessScore(left)
+    || right.rank_score - left.rank_score
+  );
+  if (rentIncreaseQuestion(question)) return ranked[0];
+  if (housingSatisfactionQuestion(question)) return ranked[0];
+  if (housingValueQuestion(question)) return ranked[0];
+  if (housingStockQuestion(question)) return ranked[0];
+  return ranked.find((result) => normalizeSemanticText(result.title) === normalizedMetricPhrase)
+    ?? ranked.find((result) => normalizedQuestion.includes(normalizeSemanticText(result.title)))
+    ?? ranked.find((result) => essentialMetricLabel(result.title).length >= 3 && normalizedQuestion.includes(essentialMetricLabel(result.title)))
+    ?? ranked[0];
 }
 
 export function derivedCalculationCode(question: string, intent: SemanticIntent, measures: SemanticSearchResult[]): string | undefined {
   const lower = question.toLowerCase();
   if (/\b(woningtype|woningtypes|type woningen|housing type|housing types)\b/.test(lower) && /\b(regio|region|per)\b/.test(lower)) return "category_breakdown";
+  if (/\b(per|by|naar)\b/.test(lower)) return "category_breakdown";
   if (/share of|percentage of|what share|aandeel/.test(lower) && measures.length >= 2) return "share_of_total";
   if (/biggest increase|largest increase|strongest increase|grootste stijging/.test(lower)) return "change_rank";
   if (/national average|landelijk gemiddelde|nationale gemiddelde/.test(lower)) return "compare_to_average";
@@ -216,8 +370,9 @@ function matchingPreferences(
 function metricCandidatesForLabel(label: string, results: SemanticSearchResult[]): SemanticSearchResult[] {
   const normalizedLabel = normalizeSemanticText(label);
   return results
-    .filter((result) => ["measure", "metric"].includes(result.object_type) && result.metadata?.measure_key && result.metadata?.has_fact_data === true)
-    .filter((result) => normalizeSemanticText(result.title) === normalizedLabel);
+    .filter((result) => ["measure", "metric"].includes(result.object_type) && result.metadata?.measure_key)
+    .filter((result) => normalizeSemanticText(result.title) === normalizedLabel)
+    .sort((left, right) => readinessScore(right) - readinessScore(left) || right.rank_score - left.rank_score);
 }
 
 function chooseCuratedMetric(
@@ -256,8 +411,57 @@ function calculationNeedsSecondaryMeasure(calculation: string | undefined): bool
   return ["share_of_total", "multi_metric_rank", "metric_comparison", "compare_to_average"].includes(calculation ?? "");
 }
 
-function categoryBreakdownDefaults(question: string, calculation: string | undefined): Partial<SemanticQueryPlan> {
+function contractForMeasure(metric: SemanticSearchResult | undefined, contracts: SemanticDatasetContract[] = []): SemanticDatasetContract | undefined {
+  const metricDatasetCode = metric?.dataset_code ?? (typeof metric?.metadata?.dataset_code === "string" ? metric.metadata.dataset_code : undefined);
+  const metricMeasureKey = metric?.metadata?.measure_key == null ? undefined : String(metric.metadata.measure_key);
+  return contracts.find((contract) => contract.dataset_code === metricDatasetCode)
+    ?? contracts.find((contract) => contract.default_measure_key != null && String(contract.default_measure_key) === metricMeasureKey);
+}
+
+function categoryContractScore(question: string, metric: SemanticSearchResult, contracts: SemanticDatasetContract[] = []): number {
+  const contract = contractForMeasure(metric, contracts);
+  if (!contract?.default_breakdown_dimension) return 0;
+  const normalizedQuestion = normalizeSemanticText(question);
+  const normalizedBreakdown = normalizeSemanticText(contract.default_breakdown_dimension);
+  const normalizedFilter = normalizeSemanticText(contract.default_filter_dimension ?? "");
+  const normalizedDataset = normalizeSemanticText(contract.dataset_title ?? "");
+  const normalizedDefaultValue = normalizeSemanticText(contract.default_filter_value ?? "");
+  const breakdownStem = normalizedBreakdown.replace(/s$/, "");
+  let score = 0;
+  if (normalizedQuestion.includes(normalizedBreakdown) || normalizedQuestion.includes(`${breakdownStem}s`) || normalizedQuestion.includes(breakdownStem)) score += 50;
+  if (normalizedFilter && normalizedQuestion.includes(normalizedFilter)) score += 15;
+  if (normalizedDefaultValue && normalizedQuestion.includes(normalizedDefaultValue)) score += 10;
+  for (const token of normalizedDataset.split(" ").filter((value) => value.length >= 3)) {
+    if (normalizedQuestion.includes(token)) score += 3;
+  }
+  return score;
+}
+
+function categoryGeographyType(question: string, contract: SemanticDatasetContract): string | undefined {
+  const types = contract.geography_types ?? [];
+  if (/\b(regio|region|regional)\b/i.test(question) && types.includes("region")) return "region";
+  if (/\b(municipalit|municipalities|gemeente|gemeenten)\b/i.test(question) && types.includes("municipality")) return "municipality";
+  if (/\b(province|provincie)\b/i.test(question) && types.includes("province")) return "province";
+  if (/\b(nederland|netherlands|country|landelijk)\b/i.test(question) && types.includes("country")) return "country";
+  if (types.includes("municipality")) return "municipality";
+  if (types.includes("region")) return "region";
+  return types[0];
+}
+
+function categoryBreakdownDefaults(question: string, calculation: string | undefined, metric: SemanticSearchResult | undefined, contracts: SemanticDatasetContract[] = []): Partial<SemanticQueryPlan> {
   if (calculation !== "category_breakdown") return {};
+  const contract = contractForMeasure(metric, contracts);
+  if (contract?.default_breakdown_dimension) {
+    return {
+      dataset_code: contract.dataset_code,
+      category_dimension_code: contract.default_breakdown_dimension,
+      category_filter_dimension_code: contract.default_filter_dimension ?? undefined,
+      category_filter_value: contract.default_filter_value ?? undefined,
+      geography_type: categoryGeographyType(question, contract),
+      contract_status: contract.contract_status ?? undefined,
+      profile_depth: contract.profile_depth ?? undefined,
+    };
+  }
   if (!/\b(woningtype|woningtypes|type woningen|housing type|housing types)\b/i.test(question)) return {};
   return {
     dataset_code: "85035NED",
@@ -266,6 +470,26 @@ function categoryBreakdownDefaults(question: string, calculation: string | undef
     category_filter_value: "Totaal woningen",
     geography_type: "municipality",
   };
+}
+
+function defaultCategoryFilters(question: string, metric: SemanticSearchResult | undefined, contract: SemanticDatasetContract | undefined): Record<string, string> | undefined {
+  const filters: Record<string, string> = {};
+  if (metric?.metadata?.category_filters && typeof metric.metadata.category_filters === "object" && !Array.isArray(metric.metadata.category_filters)) {
+    Object.assign(filters, metric.metadata.category_filters as Record<string, string>);
+  }
+  if (contract?.default_filter_dimension && contract.default_filter_value) {
+    filters[contract.default_filter_dimension] = contract.default_filter_value;
+  }
+
+  if (housingSatisfactionQuestion(question)) {
+    filters.EigenaarOfHuurder = "Totaal";
+    filters.Marges = "Waarde";
+    const datasetCode = normalizeSemanticText(String(metric?.dataset_code ?? contract?.dataset_code ?? ""));
+    if (datasetCode === "84571ned" || datasetCode === "84569ned") filters.Woningkenmerken = "Totaal woningen";
+    if (datasetCode === "84570ned") filters.Huishoudkenmerken = "Type: Paar, totaal";
+  }
+
+  return Object.keys(filters).length ? filters : undefined;
 }
 
 function latestSupportedYear(
@@ -284,17 +508,37 @@ function latestSupportedYear(
   return years.length ? Math.max(...years) : undefined;
 }
 
+function geographyFromDefaultGrain(metric: SemanticSearchResult | undefined): string | undefined {
+  const grain = typeof metric?.metadata?.default_grain === "string" ? metric.metadata.default_grain : "";
+  if (grain.startsWith("municipality_")) return "municipality";
+  if (grain.startsWith("province_")) return "province";
+  if (grain.startsWith("region_")) return "region";
+  if (grain.startsWith("national_")) return "country";
+  return undefined;
+}
+
 export function buildSemanticQueryPlan(question: string, intent: SemanticIntent, results: SemanticSearchResult[], curation: SemanticPlannerCuration = {}): SemanticQueryPlan {
   const measures = questionMeasures(question, results);
   const geographyResolutions = resolveGeographiesFromQuestion(question, extractNamedGeographies(question));
-  const geographyNames = geographyResolutions.map((resolution) => resolution.resolved_name);
-  const geographyType = geographyResolutions[0]?.geography_type ?? (intent === "rank_geographies" ? "municipality" : undefined);
+  const countryScopeRanking = intent === "rank_geographies" && geographyResolutions.some((resolution) => resolution.geography_type === "country");
+  const scopedGeographyResolutions = countryScopeRanking ? geographyResolutions.filter((resolution) => resolution.geography_type !== "country") : geographyResolutions;
+  const geographyNames = scopedGeographyResolutions.map((resolution) => resolution.resolved_name);
+  const geographyType = scopedGeographyResolutions[0]?.geography_type ?? (intent === "rank_geographies" ? "municipality" : undefined);
+  const unresolvedGeographyReference = hasUnresolvedGeographyReference(question) && geographyNames.length === 0;
   let yearRange = extractSemanticYears(question);
   const warnings: string[] = [];
-  const fallbackPrimary = measures[0] ?? firstMeasure(question, results);
+  const fallbackPrimary = housingStockQuestion(question) || housingValueQuestion(question) || housingSatisfactionQuestion(question) || rentIncreaseQuestion(question)
+    ? firstMeasure(question, results) ?? measures[0]
+    : measures[0] ?? firstMeasure(question, results);
   const calculation = derivedCalculationCode(question, intent, measures);
-  const primaryMeasure = fallbackPrimary
-    ? chooseCuratedMetric(fallbackPrimary.title, results, geographyType, calculation, yearRange, curation, warnings) ?? fallbackPrimary
+  const contractDefaultPrimary = calculation === "category_breakdown"
+    ? results
+      .filter((result) => ["measure", "metric"].includes(result.object_type) && result.metadata?.is_contract_default_measure === true)
+      .sort((left, right) => categoryContractScore(question, right, curation.datasetContracts) - categoryContractScore(question, left, curation.datasetContracts) || right.rank_score - left.rank_score)[0]
+    : undefined;
+  const selectedPrimaryCandidate = contractDefaultPrimary ?? fallbackPrimary;
+  const primaryMeasure = selectedPrimaryCandidate
+    ? chooseCuratedMetric(selectedPrimaryCandidate.title, results, geographyType, calculation, yearRange, curation, warnings) ?? selectedPrimaryCandidate
     : undefined;
   const fallbackSecondary = calculationNeedsSecondaryMeasure(calculation)
     ? measures.find((measure) => normalizeSemanticText(measure.title) !== normalizeSemanticText(primaryMeasure?.title ?? ""))
@@ -306,7 +550,10 @@ export function buildSemanticQueryPlan(question: string, intent: SemanticIntent,
     calculation === "share_of_total" && primaryMeasure && secondaryMeasure && normalizeSemanticText(primaryMeasure.title).includes("totaal") && !normalizeSemanticText(secondaryMeasure.title).includes("totaal")
       ? [secondaryMeasure, primaryMeasure]
       : [primaryMeasure, secondaryMeasure];
-  const categoryDefaults = categoryBreakdownDefaults(question, calculation);
+  const categoryDefaults = categoryBreakdownDefaults(question, calculation, mainMeasure, curation.datasetContracts);
+  const selectedContract = contractForMeasure(mainMeasure, curation.datasetContracts);
+  const filters = defaultCategoryFilters(question, mainMeasure, selectedContract);
+  const defaultGrainGeography = geographyFromDefaultGrain(mainMeasure);
 
   if (!yearRange.year && !yearRange.year_start && !yearRange.year_end) {
     const latestYear = latestSupportedYear(mainMeasure, geographyType, curation.metricGrains);
@@ -335,22 +582,53 @@ export function buildSemanticQueryPlan(question: string, intent: SemanticIntent,
     if (secondaryGrainStatus === "unsupported") warnings.push(`Secondary metric "${comparisonMeasure.title}" has no generated support for ${geographyType ?? "requested"} grain in the requested period.`);
     if (secondaryGrainStatus === "unknown" && geographyType) warnings.push(`Generated grain metadata is missing for secondary metric "${comparisonMeasure.title}" at ${geographyType} grain.`);
   }
+  const finalGeographyType = categoryDefaults.geography_type ?? geographyType ?? defaultGrainGeography ?? (intent === "rank_geographies" ? "municipality" : undefined);
+  const finalDatasetCode = categoryDefaults.dataset_code ?? mainMeasure.dataset_code ?? selectedContract?.dataset_code;
+  const resolutionMethod =
+    mainMeasure.metadata?.resolution_layer === "semantic_concept"
+      ? "semantic_concept"
+      : mainMeasure.metadata?.explicit_metric_contract === true && mainMeasure.metadata?.metadata_origin === "curated"
+      ? "curated_contract"
+      : mainMeasure.metadata?.explicit_metric_contract === true
+        ? "generated_contract"
+        : warnings.some((warning) => warning.includes("Applied curated metric preference"))
+          ? "metric_preference"
+          : normalizeSemanticText(mainMeasure.title) === normalizeSemanticText(extractSemanticMetricPhrase(question))
+            ? "catalogue_exact_match"
+            : "catalogue_lexical_match";
 
   return {
     intent: intent === "measure_definition" ? "measure_definition" : intent,
     source: "gold_bouwen_wonen",
     measure_key: String(mainMeasure.metadata.measure_key),
     secondary_measure_key: comparisonMeasure?.metadata.measure_key == null ? undefined : String(comparisonMeasure.metadata.measure_key),
+    metric_code: typeof mainMeasure.metadata.metric_code === "string" ? mainMeasure.metadata.metric_code : mainMeasure.measure_code ?? undefined,
+    semantic_concept_code: typeof mainMeasure.metadata.semantic_concept_code === "string" ? mainMeasure.metadata.semantic_concept_code : undefined,
+    semantic_concept_label: typeof mainMeasure.metadata.semantic_concept_label === "string" ? mainMeasure.metadata.semantic_concept_label : undefined,
     calculation_code: calculation ?? "lookup",
     measure_label: mainMeasure.title,
     secondary_measure_label: comparisonMeasure?.title,
-    dataset_code: categoryDefaults.dataset_code,
+    dataset_code: finalDatasetCode,
+    period_type: "year",
+    grain: finalGeographyType
+      ? {
+        geography_type: finalGeographyType,
+        period_type: "year",
+        display_grain: `${finalGeographyType}_year`,
+      }
+      : undefined,
+    expected_result_grain: finalGeographyType ? ["measure_key", "dataset_code", "geography_code", "calendar_year"] : undefined,
+    resolution_method: resolutionMethod,
     category_dimension_code: categoryDefaults.category_dimension_code,
     category_filter_dimension_code: categoryDefaults.category_filter_dimension_code,
     category_filter_value: categoryDefaults.category_filter_value,
+    category_filters: filters,
+    contract_status: categoryDefaults.contract_status ?? selectedContract?.contract_status ?? (typeof mainMeasure.metadata.contract_status === "string" ? mainMeasure.metadata.contract_status : undefined),
+    profile_depth: categoryDefaults.profile_depth ?? selectedContract?.profile_depth ?? (typeof mainMeasure.metadata.profile_depth === "string" ? mainMeasure.metadata.profile_depth : undefined),
     ...yearRange,
     geography_names: geographyNames,
-    geography_type: categoryDefaults.geography_type ?? geographyType,
+    geography_type: finalGeographyType,
+    requires_clarification: intent === "trend" && unresolvedGeographyReference ? "geography" : undefined,
     excluded_geography_names: extractExcludedGeographies(question),
     ...extractValueFilter(question),
     sort_direction: intent === "rank_geographies" ? rankSortDirection(question) : undefined,

@@ -16,6 +16,7 @@ select
   fact_row_count,
   geography_count,
   period_count,
+  profile_depth,
   true as is_supported,
   'generated'::text as metadata_origin,
   now() as generated_at

@@ -62,10 +62,22 @@ For safe iteration, start with one dataset:
 node scripts/run-dbt.mjs build --select semantic --vars '{semantic_dataset_code: 85035NED}'
 ```
 
-For very large datasets, skip the fact scan first and generate a metadata-only contract:
+By default, dbt uses bounded sampled profiling. It looks inside each dataset's Gold fact rows, but only up to a safe row cap per dataset. This makes the build size-safe while clearly marking the output as `sample_profiled`.
 
 ```bash
-node scripts/run-dbt.mjs build --select semantic --vars '{semantic_dataset_code: 85980NED, semantic_profile_facts: false}'
+node scripts/run-dbt.mjs build --select semantic --vars '{semantic_fact_profile_mode: sampled, semantic_fact_profile_sample_rows_per_dataset: 10000}'
+```
+
+For very large datasets where you only want structure, skip fact inspection and generate a metadata-only contract:
+
+```bash
+node scripts/run-dbt.mjs build --select semantic --vars '{semantic_dataset_code: 85980NED, semantic_fact_profile_mode: metadata}'
+```
+
+For smaller or high-priority datasets where exact availability matters, opt into exact profiling:
+
+```bash
+node scripts/run-dbt.mjs build --select semantic --vars '{semantic_dataset_code: 85035NED, semantic_fact_profile_mode: exact}'
 ```
 
 Then run the full domain when you are comfortable with the runtime:

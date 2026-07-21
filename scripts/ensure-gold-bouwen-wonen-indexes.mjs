@@ -30,12 +30,49 @@ const indexes = [
     `,
   },
   {
+    name: "gold_bouwen_wonen.fact_housing_observation(housing_dataset_key, housing_observation_key)",
+    schema: "gold_bouwen_wonen",
+    indexName: "fact_housing_observation_dataset_observation_idx",
+    sql: `
+      create index concurrently if not exists fact_housing_observation_dataset_observation_idx
+      on gold_bouwen_wonen.fact_housing_observation (housing_dataset_key, housing_observation_key)
+    `,
+  },
+  {
     name: "gold_bouwen_wonen.fact_housing_observation(source_dataset_id)",
     schema: "gold_bouwen_wonen",
     indexName: "fact_housing_observation_source_dataset_idx",
     sql: `
       create index concurrently if not exists fact_housing_observation_source_dataset_idx
       on gold_bouwen_wonen.fact_housing_observation (source_dataset_id)
+    `,
+  },
+  {
+    name: "gold_bouwen_wonen.fact_housing_observation(dataset_code, measure_key, housing_observation_key)",
+    schema: "gold_bouwen_wonen",
+    indexName: "fact_housing_observation_dataset_measure_observation_idx",
+    sql: `
+      create index concurrently if not exists fact_housing_observation_dataset_measure_observation_idx
+      on gold_bouwen_wonen.fact_housing_observation (dataset_code, measure_key, housing_observation_key)
+      where observation_value is not null and is_missing = false and calendar_year is not null
+    `,
+  },
+  {
+    name: "gold_bouwen_wonen.bridge_housing_observation_category(lower(dimension_code), category_name)",
+    schema: "gold_bouwen_wonen",
+    indexName: "bridge_housing_observation_category_dimension_name_idx",
+    sql: `
+      create index concurrently if not exists bridge_housing_observation_category_dimension_name_idx
+      on gold_bouwen_wonen.bridge_housing_observation_category (lower(dimension_code), category_name, housing_observation_key)
+    `,
+  },
+  {
+    name: "gold_bouwen_wonen.bridge_housing_observation_category(lower(dimension_code), category_code)",
+    schema: "gold_bouwen_wonen",
+    indexName: "bridge_housing_observation_category_dimension_code_idx",
+    sql: `
+      create index concurrently if not exists bridge_housing_observation_category_dimension_code_idx
+      on gold_bouwen_wonen.bridge_housing_observation_category (lower(dimension_code), category_code, housing_observation_key)
     `,
   },
 ];

@@ -15,11 +15,7 @@ The conformed Gold dimension loader is:
 npm run load:cbs:gold:dimensions -- --ensure-schema --domain bouwen-en-wonen --limit 100
 ```
 
-It populates shared dimensions from Silver without loading facts. The generic Gold fact loader is:
-
-```bash
-npm run load:cbs:gold -- --ensure-schema --domain bouwen-en-wonen --limit 10
-```
+It populates shared dimensions from Silver without loading facts.
 
 The first domain-specific mart is `gold_bouwen_wonen`. It loads directly from Silver into shared conformed Gold dimensions and Bouwen en wonen facts:
 
@@ -32,7 +28,9 @@ For Bouwen en wonen, this direct mart loader is the preferred path. It does not 
 After dimensions and marts are loaded, refresh the semantic catalogue:
 
 ```bash
-npm run load:semantic:catalogue -- --ensure-schema --domain bouwen-en-wonen
+npm run dbt:semantic:build
+npm run load:semantic:model
+npm run load:semantic:availability -- --executable-only --missing-only --skip-base --type category_value
 ```
 
 The homepage search uses `public.guara_hybrid_search` and `public.guara_execute_query_plan` for controlled natural-language answering. Query plans are structured JSON and are validated by the database RPC before execution.
@@ -66,17 +64,7 @@ Generic `gold.fact_observation` stores:
 
 ## Loader Behavior
 
-`scripts/load-cbs-gold.mjs` reads only from Silver. It never calls CBS APIs directly.
-
-The loader:
-
-- Filters by `--dataset`, `--domain`, or `--root-theme`.
-- Runs one transaction per dataset.
-- Skips already completed dataset versions by default.
-- Uses `--force` to reload an existing Gold dataset version.
-- Uses `--failed-only` to retry failed Gold loads.
-- Uses `--validate-only` to run validations without loading facts.
-- Continues to the next dataset after a failure.
+`scripts/lib/cbs-gold-utils.mjs` provides shared helper functions for the active Gold loaders. The active Bouwen en Wonen fact path is `scripts/load-cbs-gold-bouwen-wonen.mjs`.
 
 ## Validation
 

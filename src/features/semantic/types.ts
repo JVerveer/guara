@@ -34,6 +34,8 @@ export interface SemanticQueryPlan {
   secondary_measure_key?: string;
   metric_id?: string;
   metric_code?: string;
+  semantic_concept_code?: string;
+  semantic_concept_label?: string;
   calculation_code?: string;
   measure_label?: string;
   secondary_measure_label?: string;
@@ -46,12 +48,31 @@ export interface SemanticQueryPlan {
   value_filter_operator?: "lt" | "lte" | "gt" | "gte";
   value_filter?: number;
   dataset_code?: string;
+  grain?: {
+    geography_type: string;
+    period_type: "year";
+    display_grain: string;
+  };
+  period_type?: "year";
+  expected_result_grain?: string[];
+  semantic_confidence?: number;
+  resolution_method?: "semantic_contract_engine" | "semantic_registry" | "semantic_concept" | "curated_contract" | "generated_contract" | "metric_preference" | "catalogue_exact_match" | "catalogue_lexical_match" | "unsafe_fallback";
   category_dimension_code?: string;
   category_filter_dimension_code?: string;
   category_filter_value?: string;
+  category_filters?: Record<string, string>;
+  contract_status?: string;
+  profile_depth?: string;
   sort_direction?: "asc" | "desc";
+  requires_clarification?: "geography" | "period";
   limit?: number;
   warnings?: string[];
+  semantic_model_diagnostics?: {
+    status: "valid" | "invalid" | "low_confidence";
+    errors: string[];
+    warnings: string[];
+    checks: Record<string, unknown>;
+  };
   explanation: string[];
 }
 
@@ -84,11 +105,20 @@ export interface SemanticWorkspaceHandoff {
   context: Record<string, unknown>;
 }
 
+export interface SemanticAvailabilityOption {
+  kind: "year" | "geography_type";
+  label: string;
+  value: string;
+  question: string;
+  is_current: boolean;
+}
+
 export interface SemanticAnswerEnrichment {
   follow_up_questions: SemanticFollowUpQuestion[];
   related_datasets: SemanticRelatedDataset[];
   caveats: SemanticCaveat[];
   next_operators: string[];
+  availability_options: SemanticAvailabilityOption[];
   workspace_handoff: SemanticWorkspaceHandoff;
 }
 

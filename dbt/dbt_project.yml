@@ -19,6 +19,8 @@ vars:
   semantic_source_system: CBS
   semantic_dataset_code: ""
   semantic_profile_facts: true
+  semantic_fact_profile_mode: sampled
+  semantic_fact_profile_sample_rows_per_dataset: 10000
 
 models:
   guara_semantics:

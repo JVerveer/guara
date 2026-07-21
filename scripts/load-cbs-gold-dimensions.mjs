@@ -11,7 +11,7 @@ import {
   safeIsoDate,
   safeIsoTimestamp,
   stableBigInt,
-} from "./load-cbs-gold.mjs";
+} from "./lib/cbs-gold-utils.mjs";
 
 function parseArgs(argv) {
   const options = {

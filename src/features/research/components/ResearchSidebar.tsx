@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bookmark, Download, ExternalLink, Quote } from "lucide-react";
+import { Download, ExternalLink, Quote } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MiniGraph } from "@/features/graph/components/MiniGraph";
 import { graphService } from "@/features/graph/services/graphService";
@@ -13,7 +13,6 @@ const REFERENCES = [
 
 const ACTIONS = [
   { icon: <Download size={13} />, key: "research.exportReport" },
-  { icon: <Bookmark size={13} />, key: "research.saveToCollection" },
   { icon: <Quote size={13} />, key: "research.generateCitation" },
 ] as const;
 

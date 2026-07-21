@@ -1,5 +1,6 @@
 import type {
   SemanticAnswerEnrichment,
+  SemanticAvailabilityOption,
   SemanticCaveat,
   SemanticFollowUpQuestion,
   SemanticQueryPlan,
@@ -15,14 +16,6 @@ function uniqueBy<T>(items: T[], key: (item: T) => string): T[] {
     seen.add(value);
     return true;
   });
-}
-
-function domainFromPlan(plan: SemanticQueryPlan): string[] {
-  const labels = [plan.measure_label, plan.secondary_measure_label].join(" ").toLowerCase();
-  const domains = ["Housing"];
-  if (/woz|verkoopprijs|woningwaarde|huur|woning/.test(labels)) domains.push("Income", "Population");
-  if (/nieuwbouw|bouwvergunning/.test(labels)) domains.push("Construction", "Migration");
-  return uniqueBy(domains, (domain) => domain);
 }
 
 function resultRows(result: Record<string, unknown>): Array<Record<string, unknown>> {
@@ -69,10 +62,17 @@ function relatedDatasets(matches: SemanticSearchResult[], plan: SemanticQueryPla
 }
 
 function followUps(question: string, plan: SemanticQueryPlan, result: Record<string, unknown>): SemanticFollowUpQuestion[] {
-  const geographies = plan.geography_names?.length ? plan.geography_names.join(" and ") : "these municipalities";
+  const rows = resultRows(result);
+  const rowGeographies = uniqueBy(
+    rows
+      .map((row) => typeof row.geography_name === "string" ? row.geography_name : "")
+      .filter(Boolean)
+      .filter((name) => !/niet in te delen/i.test(name)),
+    (name) => name
+  ).slice(0, 3);
+  const geographies = plan.geography_names?.length ? plan.geography_names.join(" and ") : rowGeographies.length ? rowGeographies.join(", ") : "selected municipalities";
   const year = plan.year ?? plan.year_end ?? new Date().getFullYear();
   const metric = plan.measure_label ?? "this metric";
-  const rows = resultRows(result);
   const hasRows = rows.length > 0;
   const items: SemanticFollowUpQuestion[] = [
     {
@@ -163,6 +163,63 @@ function nextOperators(plan: SemanticQueryPlan): string[] {
   return uniqueBy(operators, (operator) => operator);
 }
 
+function availabilityPayload(result: Record<string, unknown>): Record<string, unknown> {
+  return (result.availability_check ?? {}) as Record<string, unknown>;
+}
+
+function replaceOrAppendYear(question: string, year: string): string {
+  if (/\b(19[7-9]\d|20[0-2]\d)\b/.test(question)) return question.replace(/\b(19[7-9]\d|20[0-2]\d)\b/, year);
+  return `${question.replace(/[?.!]\s*$/, "")} in ${year}`;
+}
+
+function geographyLevelLabel(value: string): string {
+  if (value === "municipality") return "Municipality";
+  if (value === "province") return "Province";
+  if (value === "region") return "Region";
+  if (value === "country" || value === "national") return "Total";
+  return value;
+}
+
+function geographyLevelQuestion(question: string, value: string): string {
+  const cleaned = question.replace(/[?.!]\s*$/, "");
+  if (value === "province") return `${cleaned} op provincieniveau`;
+  if (value === "region") return `${cleaned} op regionaal niveau`;
+  if (value === "country" || value === "national") return `${cleaned} voor Nederland totaal`;
+  if (value === "municipality") return `${cleaned} op gemeenteniveau`;
+  return `${cleaned} op ${value} niveau`;
+}
+
+function availabilityOptions(question: string, plan: SemanticQueryPlan, result: Record<string, unknown>): SemanticAvailabilityOption[] {
+  const availability = availabilityPayload(result);
+  const years = Array.isArray(availability.available_years) ? availability.available_years.map(String) : [];
+  const geographyTypes = Array.isArray(availability.available_geography_types) ? availability.available_geography_types.map(String) : [];
+  const currentYear = plan.year == null ? null : String(plan.year);
+  const currentGeographyType = plan.geography_type ?? plan.grain?.geography_type ?? null;
+
+  const yearOptions = years
+    .filter((year) => /^\d{4}$/.test(year))
+    .slice(-8)
+    .map((year): SemanticAvailabilityOption => ({
+      kind: "year",
+      label: year,
+      value: year,
+      question: replaceOrAppendYear(question, year),
+      is_current: currentYear === year,
+    }));
+
+  const geographyOptions = geographyTypes
+    .filter(Boolean)
+    .map((geographyType): SemanticAvailabilityOption => ({
+      kind: "geography_type",
+      label: geographyLevelLabel(geographyType),
+      value: geographyType,
+      question: geographyLevelQuestion(question, geographyType),
+      is_current: currentGeographyType === geographyType || (currentGeographyType === "country" && geographyType === "national"),
+    }));
+
+  return uniqueBy([...yearOptions, ...geographyOptions], (item) => `${item.kind}:${item.value}`);
+}
+
 export function enrichSemanticAnswer(
   question: string,
   plan: SemanticQueryPlan,
@@ -174,6 +231,7 @@ export function enrichSemanticAnswer(
     related_datasets: relatedDatasets(matches, plan),
     caveats: caveats(plan, result),
     next_operators: nextOperators(plan),
+    availability_options: availabilityOptions(question, plan, result),
     workspace_handoff: {
       title: plan.measure_label ? `Investigate ${plan.measure_label}` : "Open investigation workspace",
       question,

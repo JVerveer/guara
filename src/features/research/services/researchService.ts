@@ -65,6 +65,13 @@ export const researchService = {
         })),
         caveats: semanticAnswer.enrichment?.caveats,
         nextOperators: semanticAnswer.enrichment?.next_operators,
+        availabilityOptions: semanticAnswer.enrichment?.availability_options.map((item) => ({
+          kind: item.kind,
+          label: item.label,
+          value: item.value,
+          question: item.question,
+          isCurrent: item.is_current,
+        })),
         workspaceHandoff: semanticAnswer.enrichment?.workspace_handoff
           ? {
               title: semanticAnswer.enrichment.workspace_handoff.title,

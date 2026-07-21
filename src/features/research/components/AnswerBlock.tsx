@@ -7,6 +7,9 @@ interface AnswerBlockProps {
 }
 
 export function AnswerBlock({ result, onOpenWorkspace, onAskFollowUp }: AnswerBlockProps) {
+  const yearOptions = result.availabilityOptions?.filter((option) => option.kind === "year") ?? [];
+  const geographyOptions = result.availabilityOptions?.filter((option) => option.kind === "geography_type") ?? [];
+
   return (
     <div className="space-y-4">
       <div>
@@ -36,6 +39,56 @@ export function AnswerBlock({ result, onOpenWorkspace, onAskFollowUp }: AnswerBl
             </ol>
           ) : null}
         </div>
+      )}
+
+      {(yearOptions.length > 0 || geographyOptions.length > 0) && (
+        <section className="rounded-lg border border-border bg-card p-4">
+          <h4 className="text-sm font-semibold text-foreground">Available views</h4>
+          {yearOptions.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Years</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {yearOptions.map((option) => (
+                  <button
+                    key={`${option.kind}:${option.value}`}
+                    type="button"
+                    onClick={() => onAskFollowUp?.(option.question)}
+                    disabled={option.isCurrent || !onAskFollowUp}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      option.isCurrent
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {geographyOptions.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Geography level</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {geographyOptions.map((option) => (
+                  <button
+                    key={`${option.kind}:${option.value}`}
+                    type="button"
+                    onClick={() => onAskFollowUp?.(option.question)}
+                    disabled={option.isCurrent || !onAskFollowUp}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      option.isCurrent
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
       )}
 
       {(result.caveats?.length ?? 0) > 0 && (

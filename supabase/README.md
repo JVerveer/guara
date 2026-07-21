@@ -186,15 +186,9 @@ Gold dimensional loading:
 ```bash
 npm run load:cbs:gold:dimensions -- --ensure-schema --domain bouwen-en-wonen --limit 100
 npm run load:cbs:gold:dimensions -- --dataset 85039NED
-npm run load:cbs:gold -- --ensure-schema --domain bouwen-en-wonen --limit 10
-npm run load:cbs:gold -- --domain bouwen-en-wonen --limit 100 --batch-size 50000 --write-batch-size 50000
-npm run load:cbs:gold -- --root-theme "Bouwen en wonen" --limit 100
-npm run load:cbs:gold -- --dataset 85039NED --force
-npm run load:cbs:gold -- --failed-only --limit 50
-npm run load:cbs:gold -- --dataset 85039NED --validate-only
 ```
 
-The conformed dimension loader reads only from Silver and fills shared Gold dimensions without touching facts. The generic Gold fact loader also reads only from Silver, never from CBS APIs. It runs one database transaction per dataset, records lineage in `gold.cbs_load_runs`, continues after failed datasets, and writes validation checks to `gold.validation_result`.
+The conformed dimension loader reads only from Silver and fills shared Gold dimensions without touching facts.
 
 Direct Bouwen en wonen mart loading:
 
@@ -216,7 +210,9 @@ Semantic catalogue and controlled answering:
 ```bash
 npm run load:cbs:gold:dimensions -- --ensure-schema --domain bouwen-en-wonen --limit 100
 npm run load:cbs:gold:bouwen-en-wonen -- --limit 100
-npm run load:semantic:catalogue -- --ensure-schema --domain bouwen-en-wonen
+npm run dbt:semantic:build
+npm run load:semantic:model
+npm run load:semantic:availability -- --executable-only --missing-only --skip-base --type category_value
 ```
 
 `supabase/semantic_catalogue_schema.sql` creates `semantic.catalogue_item`, answer provenance, saved analyses, evidence conversion tables, and public RPCs:

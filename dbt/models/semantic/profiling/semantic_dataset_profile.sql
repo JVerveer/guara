@@ -17,7 +17,12 @@ with fact_profile as (
     min(min_year)::integer as min_year,
     max(max_year)::integer as max_year,
     array_agg(distinct geography_type order by geography_type) filter (where geography_type is not null) as geography_types,
-    array_agg(distinct period_type order by period_type) filter (where period_type is not null) as period_types
+    array_agg(distinct period_type order by period_type) filter (where period_type is not null) as period_types,
+    case
+      when bool_or(profile_depth = 'fact_profiled') then 'fact_profiled'
+      when bool_or(profile_depth = 'sample_profiled') then 'sample_profiled'
+      else 'metadata_only'
+    end as profile_depth
   from {{ ref('semantic_fact_profile_rollup') }}
   group by dataset_key, dataset_code
 ),
@@ -62,7 +67,7 @@ select
   end as data_availability_status,
   case
     when coalesce(fp.fact_row_count, 0) = 0 then 'metadata_only'
-    else 'fact_profiled'
+    else coalesce(fp.profile_depth, 'sample_profiled')
   end as profile_depth,
   'generated'::text as metadata_origin,
   now() as generated_at

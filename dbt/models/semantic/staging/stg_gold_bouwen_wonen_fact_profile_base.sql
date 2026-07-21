@@ -1,4 +1,5 @@
 select
+  f.housing_observation_key,
   f.dataset_key,
   f.dataset_code,
   f.measure_key,

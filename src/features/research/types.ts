@@ -44,6 +44,14 @@ export interface WorkspaceHandoff {
   context: Record<string, unknown>;
 }
 
+export interface AvailabilityOption {
+  kind: "year" | "geography_type";
+  label: string;
+  value: string;
+  question: string;
+  isCurrent: boolean;
+}
+
 export interface AnswerPoint {
   titleKey: string;
   bodyKey: string;
@@ -67,6 +75,7 @@ export interface ResearchQuery {
   relatedDatasets?: RelatedDataset[];
   caveats?: AnswerCaveat[];
   nextOperators?: string[];
+  availabilityOptions?: AvailabilityOption[];
   workspaceHandoff?: WorkspaceHandoff;
 }
 

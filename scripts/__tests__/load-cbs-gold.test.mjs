@@ -9,7 +9,7 @@ import {
   numericValue,
   stableBigInt,
   stableHash,
-} from "../load-cbs-gold.mjs";
+} from "../lib/cbs-gold-utils.mjs";
 
 describe("CBS Gold loader helpers", () => {
   it("creates deterministic hashes from stable parts", () => {

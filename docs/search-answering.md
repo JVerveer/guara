@@ -245,7 +245,9 @@ npm run apply:schema -- --file supabase/semantic_catalogue_schema.sql --file sup
 Load semantic metadata:
 
 ```bash
-npm run load:semantic
+npm run dbt:semantic:build
+npm run load:semantic:model
+npm run load:semantic:availability -- --executable-only --missing-only --skip-base --type category_value
 ```
 
 Reindex search:
@@ -256,27 +258,13 @@ npm run index:search -- --type metric
 npm run index:search -- --dataset 85455NED
 ```
 
-Run tests:
+Run semantic regression tests:
 
 ```bash
-npm run test -- src/features/search/services/__tests__/searchQuality.test.ts
+npm run test:semantic
 ```
 
-Run evaluation:
-
-```bash
-npm run evaluate:search
-```
-
-Prepare and test the Bouwen en Wonen search surface:
-
-```bash
-npm run prepare:search:bouwen-en-wonen -- --ensure-schema
-npm run test:search:bouwen-en-wonen
-npm run test:search:bouwen-en-wonen -- --query "woningvoorraad Amsterdam"
-```
-
-The Bouwen en Wonen smoke test reads mart dimensions, semantic metrics and search documents. It deliberately avoids full scans of `gold_bouwen_wonen.fact_housing_observation`, because that table can be large while ingestion is still running.
+The current Bouwen en Wonen answering path uses the semantic contract model first. Legacy local search-evaluation wrappers were removed to avoid maintaining two competing test surfaces.
 
 ## Strict Gold-Only Investigation Mode
 

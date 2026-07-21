@@ -140,6 +140,9 @@ create table if not exists gold_bouwen_wonen.dataset_load_progress (
 create index if not exists fact_housing_observation_dataset_idx
   on gold_bouwen_wonen.fact_housing_observation(housing_dataset_key);
 
+create index if not exists fact_housing_observation_dataset_observation_idx
+  on gold_bouwen_wonen.fact_housing_observation(housing_dataset_key, housing_observation_key);
+
 create index if not exists fact_housing_observation_dataset_source_row_idx
   on gold_bouwen_wonen.fact_housing_observation(housing_dataset_key, source_row_id);
 
@@ -175,6 +178,16 @@ create unique index if not exists fact_housing_observation_source_grain_uidx
 
 create index if not exists bridge_housing_observation_category_category_idx
   on gold_bouwen_wonen.bridge_housing_observation_category(category_key, housing_observation_key);
+
+create index if not exists bridge_housing_observation_category_dimension_name_idx
+  on gold_bouwen_wonen.bridge_housing_observation_category(lower(dimension_code), category_name, housing_observation_key);
+
+create index if not exists bridge_housing_observation_category_dimension_code_idx
+  on gold_bouwen_wonen.bridge_housing_observation_category(lower(dimension_code), category_code, housing_observation_key);
+
+create index if not exists fact_housing_observation_dataset_measure_observation_idx
+  on gold_bouwen_wonen.fact_housing_observation(dataset_code, measure_key, housing_observation_key)
+  where observation_value is not null and is_missing = false and calendar_year is not null;
 
 alter table gold_bouwen_wonen.dim_housing_dataset enable row level security;
 alter table gold_bouwen_wonen.dim_housing_indicator enable row level security;

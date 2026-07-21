@@ -15,7 +15,6 @@ function parseArgs(argv) {
     else if (arg === "--write-timeout-ms") options.writeTimeoutMs = Number(argv[++index] ?? options.writeTimeoutMs);
     else if (arg === "--help") {
       console.log(`Usage:
-  npm run load:semantic -- --ensure-schema
   npm run load:semantic:catalogue -- --ensure-schema
   npm run load:semantic:catalogue -- --domain bouwen-en-wonen
 
