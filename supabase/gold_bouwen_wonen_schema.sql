@@ -189,6 +189,11 @@ create index if not exists fact_housing_observation_dataset_measure_observation_
   on gold_bouwen_wonen.fact_housing_observation(dataset_code, measure_key, housing_observation_key)
   where observation_value is not null and is_missing = false and calendar_year is not null;
 
+create index if not exists fact_housing_observation_measure_geo_year_observation_idx
+  on gold_bouwen_wonen.fact_housing_observation(measure_key, geography_type, calendar_year, housing_observation_key)
+  where observation_value is not null and is_missing = false and calendar_year is not null;
+
+
 alter table gold_bouwen_wonen.dim_housing_dataset enable row level security;
 alter table gold_bouwen_wonen.dim_housing_indicator enable row level security;
 alter table gold_bouwen_wonen.fact_housing_observation enable row level security;

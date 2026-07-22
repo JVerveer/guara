@@ -58,6 +58,16 @@ const indexes = [
     `,
   },
   {
+    name: "gold_bouwen_wonen.fact_housing_observation(measure_key, geography_type, calendar_year, housing_observation_key)",
+    schema: "gold_bouwen_wonen",
+    indexName: "fact_housing_observation_measure_geo_year_observation_idx",
+    sql: `
+      create index concurrently if not exists fact_housing_observation_measure_geo_year_observation_idx
+      on gold_bouwen_wonen.fact_housing_observation (measure_key, geography_type, calendar_year, housing_observation_key)
+      where observation_value is not null and is_missing = false and calendar_year is not null
+    `,
+  },
+  {
     name: "gold_bouwen_wonen.bridge_housing_observation_category(lower(dimension_code), category_name)",
     schema: "gold_bouwen_wonen",
     indexName: "bridge_housing_observation_category_dimension_name_idx",

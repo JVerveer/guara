@@ -37,7 +37,7 @@ export function classifySemanticIntent(question: string): SemanticIntent {
   const lower = question.toLowerCase();
   if (/what does|meaning|definition|betekent|definitie/.test(lower)) return "measure_definition";
   if (/which dataset|do we have|dataset|gegevens|data about|data over/.test(lower)) return "dataset_lookup";
-  if (/\b(waar|where)\b.*\b(minste|minst|meeste|meest|least|most)\b/.test(lower)) return "rank_geographies";
+  if (/\b(waar|where)\b.*\b(minste|minst|meeste|meest|hoogste|hoogst|laagste|laagst|duurste|goedkoopste|least|most|highest|lowest)\b/.test(lower)) return "rank_geographies";
   if (/\b(woningtype|woningtypes|type woningen|housing type|housing types)\b/.test(lower) && /\b(regio|region|per)\b/.test(lower)) return "compare_geographies";
   if (/\b(per|by|naar)\b/.test(lower)) return "compare_geographies";
   if (/share of|percentage of|what share|aandeel/.test(lower)) return "compare_geographies";
@@ -131,7 +131,7 @@ export function extractExcludedGeographies(question: string): string[] {
 }
 
 export function rankSortDirection(question: string): "asc" | "desc" {
-  return /\b(lowest|least|laagste|minst|minste|smallest|kleinste|below|less than|under|onder|minder dan)\b/i.test(question) ? "asc" : "desc";
+  return /\b(lowest|least|laagste|laagst|minst|minste|smallest|kleinste|goedkoopste|below|less than|under|onder|minder dan)\b/i.test(question) ? "asc" : "desc";
 }
 
 export function extractValueFilter(question: string): { value_filter_operator?: "lt" | "lte" | "gt" | "gte"; value_filter?: number } {

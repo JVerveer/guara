@@ -486,6 +486,20 @@ create index if not exists semantic_contract_availability_lookup_idx
 create index if not exists semantic_contract_availability_measure_idx
   on semantic.contract_availability(measure_key, dataset_code, geography_type, calendar_year);
 
+create table if not exists semantic.metric_contract_observation (
+  metric_code text not null,
+  housing_observation_key bigint not null,
+  dataset_code text not null,
+  measure_key bigint not null,
+  category_filter_hash text not null,
+  metadata_origin text not null default 'generated',
+  indexed_at timestamptz not null default now(),
+  primary key (metric_code, housing_observation_key)
+);
+
+create index if not exists semantic_metric_contract_observation_lookup_idx
+  on semantic.metric_contract_observation(metric_code, measure_key, dataset_code, housing_observation_key);
+
 alter table semantic.dimension enable row level security;
 alter table semantic.calculation enable row level security;
 alter table semantic.join_path enable row level security;
@@ -670,6 +684,51 @@ as $$
   from scored
   order by ((scored.lexical_score * 0.65) + (scored.vector_score * 0.35)) desc, scored.title asc
   limit greatest(1, least(coalesce(match_count, 10), 50));
+$$;
+
+create or replace function semantic.guara_observation_matches_metric_filters(plan jsonb, observation_key bigint)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = semantic, gold_bouwen_wonen, public
+as $$
+declare
+  metric_code_filter text := nullif(plan->>'metric_code', '');
+begin
+  if coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+     or coalesce(plan->'category_filters', '{}'::jsonb) = '{}'::jsonb then
+    return true;
+  end if;
+
+  if metric_code_filter is not null and exists (
+    select 1
+    from semantic.metric_contract_observation mco
+    where mco.metric_code = metric_code_filter
+  ) then
+    return exists (
+      select 1
+      from semantic.metric_contract_observation mco
+      where mco.metric_code = metric_code_filter
+        and mco.housing_observation_key = observation_key
+    );
+  end if;
+
+  return not exists (
+    select 1
+    from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+    where not exists (
+      select 1
+      from gold_bouwen_wonen.bridge_housing_observation_category required_category
+      where required_category.housing_observation_key = observation_key
+        and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+        and (
+          required_category.category_name = required_filter.category_value
+          or required_category.category_code = required_filter.category_value
+        )
+    )
+  );
+end;
 $$;
 
 drop function if exists public.guara_execute_query_plan(jsonb);
@@ -1037,6 +1096,24 @@ begin
           and f.observation_value is not null
           and f.is_missing = false
           and f.geography_type = coalesce(geography_type_filter, 'municipality')
+          and (
+            coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+            or coalesce(plan->'category_filters', '{}'::jsonb) = '{}'::jsonb
+            or not exists (
+              select 1
+              from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+              where not exists (
+                select 1
+                from gold_bouwen_wonen.bridge_housing_observation_category required_category
+                where required_category.housing_observation_key = f.housing_observation_key
+                  and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+                  and (
+                    required_category.category_name = required_filter.category_value
+                    or required_category.category_code = required_filter.category_value
+                  )
+              )
+            )
+          )
           and (year_value is null or f.calendar_year = year_value)
           and (year_start_value is null or f.calendar_year >= year_start_value)
           and (year_end_value is null or f.calendar_year <= year_end_value)
@@ -1084,6 +1161,24 @@ begin
           and f.observation_value is not null
           and f.is_missing = false
           and (geography_type_filter is null or f.geography_type = geography_type_filter)
+          and (
+            coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+            or coalesce(plan->'category_filters', '{}'::jsonb) = '{}'::jsonb
+            or not exists (
+              select 1
+              from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+              where not exists (
+                select 1
+                from gold_bouwen_wonen.bridge_housing_observation_category required_category
+                where required_category.housing_observation_key = f.housing_observation_key
+                  and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+                  and (
+                    required_category.category_name = required_filter.category_value
+                    or required_category.category_code = required_filter.category_value
+                  )
+              )
+            )
+          )
           and (year_value is null or f.calendar_year = year_value)
         group by f.geography_name, f.geography_code, f.calendar_year
       ),
@@ -1151,6 +1246,24 @@ begin
           and f.observation_value is not null
           and f.is_missing = false
           and (geography_type_filter is null or f.geography_type = geography_type_filter)
+          and (
+            coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+            or coalesce(plan->'category_filters', '{}'::jsonb) = '{}'::jsonb
+            or not exists (
+              select 1
+              from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+              where not exists (
+                select 1
+                from gold_bouwen_wonen.bridge_housing_observation_category required_category
+                where required_category.housing_observation_key = f.housing_observation_key
+                  and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+                  and (
+                    required_category.category_name = required_filter.category_value
+                    or required_category.category_code = required_filter.category_value
+                  )
+              )
+            )
+          )
           and f.calendar_year in (year_start_value, year_end_value)
         group by f.geography_name, f.geography_type, f.calendar_year
       )
@@ -1181,66 +1294,67 @@ begin
     into result
     from (
       select
-        f.geography_name,
-        f.geography_code,
-        f.geography_type,
-        f.calendar_year,
-        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
-        max(f.observation_value) as raw_value,
-        max(u.unit_code) as unit_code,
-        max(u.unit_name) as unit_name,
-        max(u.scale_factor) as scale_factor
-      from gold_bouwen_wonen.fact_housing_observation f
-      join gold.dim_unit u on u.unit_key = f.unit_key
-      where f.measure_key = measure
-        and f.observation_value is not null
-        and f.is_missing = false
-        and coalesce(f.geography_code, '') not in ('GM0000')
-        and lower(coalesce(f.geography_name, '')) not like '%niet in te delen%'
-        and (geography_type_filter is null or f.geography_type = geography_type_filter)
-        and (
-          coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
-          or not exists (
-            select 1
-            from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
-            where not exists (
+          f.geography_name,
+          f.geography_code,
+          f.geography_type,
+          f.calendar_year,
+          max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+          max(f.observation_value) as raw_value,
+          max(u.unit_code) as unit_code,
+          max(u.unit_name) as unit_name,
+          max(u.scale_factor) as scale_factor
+        from gold_bouwen_wonen.fact_housing_observation f
+        join gold.dim_unit u on u.unit_key = f.unit_key
+        where f.measure_key = measure
+          and f.observation_value is not null
+          and f.is_missing = false
+          and coalesce(f.geography_code, '') not in ('GM0000')
+          and lower(coalesce(f.geography_name, '')) not like '%niet in te delen%'
+          and (geography_type_filter is null or f.geography_type = geography_type_filter)
+          and (
+            coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+            or coalesce(plan->'category_filters', '{}'::jsonb) = '{}'::jsonb
+            or not exists (
               select 1
-              from gold_bouwen_wonen.bridge_housing_observation_category required_category
-              where required_category.housing_observation_key = f.housing_observation_key
-                and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
-                and (
-                  required_category.category_name = required_filter.category_value
-                  or required_category.category_code = required_filter.category_value
-                )
+              from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+              where not exists (
+                select 1
+                from gold_bouwen_wonen.bridge_housing_observation_category required_category
+                where required_category.housing_observation_key = f.housing_observation_key
+                  and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+                  and (
+                    required_category.category_name = required_filter.category_value
+                    or required_category.category_code = required_filter.category_value
+                  )
+              )
             )
           )
-        )
-        and (year_value is null or f.calendar_year = year_value)
-        and (year_start_value is null or f.calendar_year >= year_start_value)
-        and (year_end_value is null or f.calendar_year <= year_end_value)
-        and (
-          jsonb_array_length(coalesce(plan->'excluded_geography_names', '[]'::jsonb)) = 0
-          or not exists (
-            select 1
-            from jsonb_array_elements_text(plan->'excluded_geography_names') excluded_geography(name)
-            where lower(f.geography_name) = lower(excluded_geography.name)
-               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(excluded_geography.name, '\s*\([^)]*\)\s*$', ''))
+          and (year_value is null or f.calendar_year = year_value)
+          and (year_start_value is null or f.calendar_year >= year_start_value)
+          and (year_end_value is null or f.calendar_year <= year_end_value)
+          and (
+            jsonb_array_length(coalesce(plan->'excluded_geography_names', '[]'::jsonb)) = 0
+            or not exists (
+              select 1
+              from jsonb_array_elements_text(plan->'excluded_geography_names') excluded_geography(name)
+              where lower(f.geography_name) = lower(excluded_geography.name)
+                 or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(excluded_geography.name, '\s*\([^)]*\)\s*$', ''))
+            )
           )
-        )
-      group by f.geography_name, f.geography_code, f.geography_type, f.calendar_year
-      having
-        value_filter_value is null
-        or case value_filter_operator
-          when 'lt' then max(f.observation_value * coalesce(u.scale_factor, 1)) < value_filter_value
-          when 'lte' then max(f.observation_value * coalesce(u.scale_factor, 1)) <= value_filter_value
-          when 'gt' then max(f.observation_value * coalesce(u.scale_factor, 1)) > value_filter_value
-          when 'gte' then max(f.observation_value * coalesce(u.scale_factor, 1)) >= value_filter_value
-          else true
-        end
-      order by
-        case when sort_direction = 'asc' then max(f.observation_value * coalesce(u.scale_factor, 1)) end asc nulls last,
-        case when sort_direction = 'desc' then max(f.observation_value * coalesce(u.scale_factor, 1)) end desc nulls last
-      limit limit_value
+        group by f.geography_name, f.geography_code, f.geography_type, f.calendar_year
+        having
+          value_filter_value is null
+          or case value_filter_operator
+            when 'lt' then max(f.observation_value * coalesce(u.scale_factor, 1)) < value_filter_value
+            when 'lte' then max(f.observation_value * coalesce(u.scale_factor, 1)) <= value_filter_value
+            when 'gt' then max(f.observation_value * coalesce(u.scale_factor, 1)) > value_filter_value
+            when 'gte' then max(f.observation_value * coalesce(u.scale_factor, 1)) >= value_filter_value
+            else true
+          end
+        order by
+          case when sort_direction = 'asc' then max(f.observation_value * coalesce(u.scale_factor, 1)) end asc nulls last,
+          case when sort_direction = 'desc' then max(f.observation_value * coalesce(u.scale_factor, 1)) end desc nulls last
+        limit limit_value
     ) x;
     return result;
   end if;
@@ -1269,6 +1383,7 @@ begin
         and (geography_type_filter is null or f.geography_type = geography_type_filter)
         and (
           coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+          or coalesce(plan->'category_filters', '{}'::jsonb) = '{}'::jsonb
           or not exists (
             select 1
             from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
@@ -1342,6 +1457,24 @@ begin
         and f.is_missing = false
         and f.calendar_year is not null
         and (geography_type_filter is null or f.geography_type = geography_type_filter)
+        and (
+          coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+          or coalesce(plan->'category_filters', '{}'::jsonb) = '{}'::jsonb
+          or not exists (
+            select 1
+            from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+            where not exists (
+              select 1
+              from gold_bouwen_wonen.bridge_housing_observation_category required_category
+              where required_category.housing_observation_key = f.housing_observation_key
+                and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+                and (
+                  required_category.category_name = required_filter.category_value
+                  or required_category.category_code = required_filter.category_value
+                )
+            )
+          )
+        )
         and (year_value is null or f.calendar_year = year_value)
         and (year_start_value is null or f.calendar_year >= year_start_value)
         and (year_end_value is null or f.calendar_year <= year_end_value)

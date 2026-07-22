@@ -53,8 +53,13 @@ function metricConfidence(metric: SemanticSearchResult | undefined, plan: Semant
   return 0.45;
 }
 
-function displayGrain(geographyType: string | undefined): string | undefined {
-  return geographyType ? `${geographyType}_year` : undefined;
+function periodTypeFromDisplayGrain(displayGrainValue: string | undefined): string {
+  const parts = String(displayGrainValue ?? "").split("_");
+  return parts.length > 1 ? parts.slice(1).join("_") : "year";
+}
+
+function displayGrain(geographyType: string | undefined, periodType = "year"): string | undefined {
+  return geographyType ? `${geographyType}_${periodType}` : undefined;
 }
 
 function validGrains(metric: SemanticSearchResult | undefined): string[] {
@@ -74,16 +79,17 @@ function unitCode(metric: SemanticSearchResult | undefined, plan: SemanticQueryP
 
 export function withExplicitGrain(plan: SemanticQueryPlan): SemanticQueryPlan {
   const geographyType = plan.geography_type;
+  const periodType = plan.grain?.period_type ?? plan.period_type ?? periodTypeFromDisplayGrain(plan.grain?.display_grain);
   const grain = geographyType
     ? {
       geography_type: geographyType,
-      period_type: "year" as const,
-      display_grain: displayGrain(geographyType) ?? "unknown_year",
+      period_type: periodType,
+      display_grain: plan.grain?.display_grain ?? displayGrain(geographyType, periodType) ?? "unknown_year",
     }
     : plan.grain;
   return {
     ...plan,
-    period_type: "year",
+    period_type: periodType,
     grain,
     expected_result_grain: plan.expected_result_grain ?? (grain ? ["measure_key", "dataset_code", "geography_code", "calendar_year"] : undefined),
   };
@@ -96,7 +102,7 @@ export function validateSemanticQueryPlan(plan: SemanticQueryPlan, matches: Sema
   const confidence = metricConfidence(metric, plan);
   const method = resolutionMethod(metric, plan);
   const configuredGrains = validGrains(metric);
-  const requestedGrain = plan.grain?.display_grain ?? displayGrain(plan.geography_type);
+  const requestedGrain = plan.grain?.display_grain ?? displayGrain(plan.geography_type, plan.period_type ?? "year");
   const metricAggregation = aggregation(metric);
   const metricUnit = unitCode(metric, plan);
 

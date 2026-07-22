@@ -27,6 +27,7 @@
     "load:semantic:dimensions": "node scripts/load-semantic-dimension-contracts.mjs",
     "load:semantic:category-values": "node scripts/load-semantic-category-value-contracts.mjs",
     "load:semantic:availability": "node scripts/load-semantic-contract-availability.mjs",
+    "load:semantic:observations": "node scripts/load-semantic-contract-observations.mjs",
     "load:semantic:model": "npm run load:semantic:contracts && npm run load:semantic:concepts && npm run load:semantic:dimensions && npm run load:semantic:category-values",
     "test:semantic:contracts": "node scripts/test-semantic-contracts.mjs",
     "promote:semantic:contract": "node scripts/promote-semantic-contract.mjs",

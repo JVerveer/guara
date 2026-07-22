@@ -1062,15 +1062,15 @@ describe("semantic golden question planning", () => {
         max_year: 2024,
       }),
       explicitMetric("Sloop", "sloop", "86054NED", {
-        metric_code: "sloop__86054ned__57489549721626937",
+        metric_code: "demolished_dwellings",
         max_year: 2024,
       }),
       explicitMetric("Transformatie", "transformatie", "86054NED", {
-        metric_code: "transformatie__86054ned__68568907449508083",
+        metric_code: "housing_transformations",
         max_year: 2024,
       }),
       explicitMetric("Vergunde tijdelijke woningen", "tijdelijke-woningen", "86318NED", {
-        metric_code: "vergunde_tijdelijke_woningen__86318ned__308677585097141194",
+        metric_code: "permitted_temporary_homes",
         max_year: 2024,
       }),
     ];

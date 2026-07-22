@@ -50,10 +50,10 @@ export interface SemanticQueryPlan {
   dataset_code?: string;
   grain?: {
     geography_type: string;
-    period_type: "year";
+    period_type: string;
     display_grain: string;
   };
-  period_type?: "year";
+  period_type?: string;
   expected_result_grain?: string[];
   semantic_confidence?: number;
   resolution_method?: "semantic_contract_engine" | "semantic_registry" | "semantic_concept" | "curated_contract" | "generated_contract" | "metric_preference" | "catalogue_exact_match" | "catalogue_lexical_match" | "unsafe_fallback";

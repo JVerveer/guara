@@ -206,6 +206,12 @@ function geographyTypeFromGrain(grain: string | null | undefined): string | unde
   return undefined;
 }
 
+function periodTypeFromGrain(grain: string | null | undefined): string {
+  if (!grain) return "year";
+  const parts = grain.split("_");
+  return parts.length > 1 ? parts.slice(1).join("_") : "year";
+}
+
 function supportedGeographyTypes(contract: ExplicitMetricContract, binding?: SemanticConceptMetricBinding): string[] {
   const grains = binding?.allowed_grains?.length ? binding.allowed_grains : contract.valid_grains ?? [];
   return Array.from(new Set(grains.map(geographyTypeFromGrain).filter((value): value is string => Boolean(value))));
@@ -240,6 +246,30 @@ function requestedCategoryGeographyType(question: string, intent: SemanticIntent
   if (supported.includes("region")) return "region";
   if (supported.includes("province")) return "province";
   return supported[0];
+}
+
+function requestedContractGrain(geographyType: string | undefined, contract: ExplicitMetricContract, binding?: SemanticConceptMetricBinding): { periodType: string; displayGrain: string } {
+  const grains = binding?.allowed_grains?.length ? binding.allowed_grains : contract.valid_grains ?? [];
+  const preferred = [binding?.allowed_grains?.[0], contract.default_grain, ...grains]
+    .filter((grain): grain is string => Boolean(grain))
+    .find((grain) => !geographyType || geographyTypeFromGrain(grain) === geographyType);
+  const periodType = periodTypeFromGrain(preferred);
+  return {
+    periodType,
+    displayGrain: preferred ?? `${geographyType ?? "unknown"}_${periodType}`,
+  };
+}
+
+function requestedCategoryGrain(geographyType: string | undefined, contract: SemanticCategoryValueContract): { periodType: string; displayGrain: string } {
+  const grains = contract.valid_grains ?? [];
+  const preferred = [contract.default_grain, ...grains]
+    .filter((grain): grain is string => Boolean(grain))
+    .find((grain) => !geographyType || geographyTypeFromGrain(grain) === geographyType);
+  const periodType = periodTypeFromGrain(preferred);
+  return {
+    periodType,
+    displayGrain: preferred ?? `${geographyType ?? "unknown"}_${periodType}`,
+  };
 }
 
 function latestYearForContract(contract: ExplicitMetricContract, geographyType: string | undefined, context: SemanticContractContext): number | undefined {
@@ -387,6 +417,7 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
     const resolvedDimensionFilters = resolveDimensionFilters(question, candidate.contract.dataset_code, baseCategoryFilters, context.dimensionContracts);
     const categoryFilters = resolvedDimensionFilters.filters;
     const plannedIntent = intent === "catalogue_search" && geographyNames.length ? "compare_geographies" : intent === "catalogue_search" ? classifySemanticIntent(question) : intent;
+    const requestedGrain = requestedCategoryGrain(geographyType, candidate.contract);
 
     return {
       match: metric,
@@ -400,14 +431,14 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
         calculation_code: calculation,
         measure_label: candidate.contract.label,
         dataset_code: candidate.contract.dataset_code,
-        period_type: "year",
+        period_type: requestedGrain.periodType,
         ...yearRange,
         geography_names: geographyNames,
         geography_type: geographyType,
         grain: geographyType ? {
           geography_type: geographyType,
-          period_type: "year",
-          display_grain: `${geographyType}_year`,
+          period_type: requestedGrain.periodType,
+          display_grain: requestedGrain.displayGrain,
         } : undefined,
         expected_result_grain: geographyType ? ["measure_key", "dataset_code", "geography_code", "calendar_year"] : undefined,
         category_filters: categoryFilters,
@@ -461,6 +492,7 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
   const resolvedDimensionFilters = resolveDimensionFilters(question, datasetCode, baseCategoryFilters, context.dimensionContracts);
   const categoryFilters = resolvedDimensionFilters.filters;
   const plannedIntent = intent === "catalogue_search" && geographyNames.length ? "compare_geographies" : intent === "catalogue_search" ? classifySemanticIntent(question) : intent;
+  const requestedGrain = requestedContractGrain(geographyType, candidate.contract, candidate.binding);
 
   return {
     match: metric,
@@ -474,14 +506,14 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
       calculation_code: calculation,
       measure_label: candidate.concept?.label ?? candidate.contract.label,
       dataset_code: datasetCode,
-      period_type: "year",
+      period_type: requestedGrain.periodType,
       ...yearRange,
       geography_names: geographyNames,
       geography_type: geographyType,
       grain: geographyType ? {
         geography_type: geographyType,
-        period_type: "year",
-        display_grain: `${geographyType}_year`,
+        period_type: requestedGrain.periodType,
+        display_grain: requestedGrain.displayGrain,
       } : undefined,
       expected_result_grain: geographyType ? ["measure_key", "dataset_code", "geography_code", "calendar_year"] : undefined,
       category_filters: categoryFilters,

@@ -256,7 +256,7 @@ const REGISTRY_TEMPLATES: RegistryTemplate[] = [
     template_code: "rank_demolitions",
     concept_code: "demolitions",
     concept_label: "Demolished dwellings",
-    metric_code: "sloop__86054ned__57489549721626937",
+    metric_code: "demolished_dwellings",
     dataset_code: "86054NED",
     calculation_code: "ranking",
     default_geography_type: "municipality",
@@ -268,7 +268,7 @@ const REGISTRY_TEMPLATES: RegistryTemplate[] = [
     template_code: "rank_housing_transformations",
     concept_code: "housing_transformations",
     concept_label: "Housing transformations",
-    metric_code: "transformatie__86054ned__68568907449508083",
+    metric_code: "housing_transformations",
     dataset_code: "86054NED",
     calculation_code: "ranking",
     default_geography_type: "municipality",
@@ -301,7 +301,7 @@ const REGISTRY_TEMPLATES: RegistryTemplate[] = [
     template_code: "rank_temporary_housing_permits_municipality",
     concept_code: "temporary_housing_permits",
     concept_label: "Permitted temporary homes",
-    metric_code: "vergunde_tijdelijke_woningen__86318ned__308677585097141194",
+    metric_code: "permitted_temporary_homes",
     dataset_code: "86318NED",
     calculation_code: "ranking",
     default_geography_type: "municipality",
@@ -381,8 +381,18 @@ function rankSortDirection(question: string, template: RegistryTemplate): "asc" 
   return "desc";
 }
 
-function displayGrain(geographyType: string): string {
-  return `${geographyType}_year`;
+function periodTypeFromDisplayGrain(displayGrainValue: string | undefined): string {
+  const parts = String(displayGrainValue ?? "").split("_");
+  return parts.length > 1 ? parts.slice(1).join("_") : "year";
+}
+
+function displayGrain(geographyType: string, metric?: SemanticSearchResult): string {
+  const validGrains = Array.isArray(metric?.metadata?.valid_grains) ? metric.metadata.valid_grains.map(String) : [];
+  const defaultGrain = typeof metric?.metadata?.default_grain === "string" ? metric.metadata.default_grain : undefined;
+  return [defaultGrain, ...validGrains]
+    .filter((grain): grain is string => Boolean(grain))
+    .find((grain) => grain.startsWith(`${geographyType}_`))
+    ?? `${geographyType}_year`;
 }
 
 export function buildRegistryQueryPlan(
@@ -412,6 +422,8 @@ export function buildRegistryQueryPlan(
       ? [`No calendar year was specified, so Guara used the latest available observation year in Gold: ${latestYear}.`]
       : [];
     const plannedIntent = geographyNames.length && intent !== "trend" ? "compare_geographies" : intent === "catalogue_search" ? "rank_geographies" : intent;
+    const resolvedDisplayGrain = displayGrain(resolvedGeographyType, metric);
+    const resolvedPeriodType = periodTypeFromDisplayGrain(resolvedDisplayGrain);
 
     return {
       intent: plannedIntent,
@@ -423,14 +435,14 @@ export function buildRegistryQueryPlan(
       calculation_code: template.calculation_code,
       measure_label: metric.title,
       dataset_code: template.dataset_code,
-      period_type: "year",
+      period_type: resolvedPeriodType,
       year,
       geography_names: geographyNames,
       geography_type: resolvedGeographyType,
       grain: {
         geography_type: resolvedGeographyType,
-        period_type: "year",
-        display_grain: displayGrain(resolvedGeographyType),
+        period_type: resolvedPeriodType,
+        display_grain: resolvedDisplayGrain,
       },
       expected_result_grain: ["measure_key", "dataset_code", "geography_code", "calendar_year"],
       category_filters: categoryFilters,
