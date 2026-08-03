@@ -30,6 +30,8 @@ interface CategoryValueCandidate {
   score: number;
 }
 
+type CrossDomainComponent = NonNullable<SemanticQueryPlan["component_measures"]>[number] & { grain: string };
+
 function synonymValues(value: Record<string, string[]> | null | undefined): string[] {
   return Object.values(value ?? {}).flat().filter(Boolean);
 }
@@ -388,12 +390,39 @@ function categoryValueResult(candidate: CategoryValueCandidate): SemanticSearchR
   };
 }
 
+function goldSourceForDomain(domainId: string | null | undefined): SemanticQueryPlan["source"] {
+  return domainId === "inkomen-en-bestedingen" ? "gold_inkomen_bestedingen" : "gold_bouwen_wonen";
+}
+
+function crossDomainQuestion(question: string): boolean {
+  return /\b(correlation|relatie|verband|samenhang|combineer|combine|cross.?domain|domein|ook|also|versus|vs|compared with|vergeleken met)\b/i.test(question)
+    || /\b(hoge|hoog|high)\b.*\b(lage|laag|low|achterstand|arrears|woz|woningwaarde|nieuwbouw)\b/i.test(question)
+    || /\b(woz|woningwaarde|nieuwbouw|woningvoorraad)\b.*\b(inkomen|armoede|zorgpremie|betalingsachterstand|achterstanden)\b/i.test(question);
+}
+
+function componentForCandidate(candidate: ContractCandidate, geographyType: string | undefined) {
+  const requestedGrain = requestedContractGrain(geographyType, candidate.contract, candidate.binding);
+  return {
+    metric_code: candidate.contract.metric_code,
+    measure_key: String(candidate.binding?.measure_key ?? candidate.contract.measure_key),
+    dataset_code: candidate.binding?.dataset_code ?? candidate.contract.dataset_codes?.[0] ?? "",
+    source: goldSourceForDomain(candidate.contract.domain_id) as "gold_bouwen_wonen" | "gold_inkomen_bestedingen",
+    label: candidate.concept?.label ?? candidate.contract.label,
+    domain_id: candidate.contract.domain_id ?? "",
+    unit_code: candidate.contract.unit_code,
+    category_filters: Object.keys(candidate.binding?.category_filters ?? {}).length ? candidate.binding?.category_filters : candidate.contract.category_filters ?? {},
+    grain: requestedGrain.displayGrain,
+  };
+}
+
 export function buildContractQueryPlan(question: string, intent: SemanticIntent, context: SemanticContractContext): { plan?: SemanticQueryPlan; match?: SemanticSearchResult } {
   const calculation = calculationForQuestion(question, intent);
   const operation = operationForIntent(intent, calculation);
   const categoryCandidates = buildCategoryValueCandidates(question, context, operation);
-  if (categoryCandidates.length === 1 || (categoryCandidates.length > 1 && categoryCandidates[0].score - categoryCandidates[1].score >= 25)) {
-    const candidate = categoryCandidates[0];
+  const firstCategoryCandidate = categoryCandidates[0];
+  const secondCategoryCandidate = categoryCandidates[1];
+  if (firstCategoryCandidate && (categoryCandidates.length === 1 || (secondCategoryCandidate && firstCategoryCandidate.score - secondCategoryCandidate.score >= 25))) {
+    const candidate = firstCategoryCandidate;
     const metric = categoryValueResult(candidate);
     const geographyResolutions = resolveGeographiesFromQuestion(question, extractNamedGeographies(question));
     const countryScopeRanking = intent === "rank_geographies" && geographyResolutions.some((resolution) => resolution.geography_type === "country");
@@ -423,7 +452,7 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
       match: metric,
       plan: {
         intent: plannedIntent,
-        source: "gold_bouwen_wonen",
+        source: goldSourceForDomain(candidate.contract.domain_id),
         measure_key: String(candidate.contract.measure_key),
         metric_code: candidate.contract.metric_code,
         semantic_concept_code: `category_value:${candidate.contract.dataset_code}:${candidate.contract.dimension_code}:${candidate.contract.category_code ?? candidate.contract.category_name}`,
@@ -463,11 +492,86 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
   }
 
   const candidates = buildCandidates(question, context, operation);
-  if (candidates.length !== 1 && (candidates.length === 0 || candidates[0].score - candidates[1].score < 40)) {
+  if (crossDomainQuestion(question)) {
+    const geographyResolutions = resolveGeographiesFromQuestion(question, extractNamedGeographies(question));
+    const explicitGeographyType = geographyResolutions[0]?.geography_type;
+    const components: CrossDomainComponent[] = [];
+    const seenDomains = new Set<string>();
+    const seenMetrics = new Set<string>();
+    for (const candidate of candidates) {
+      if (seenMetrics.has(candidate.contract.metric_code)) continue;
+      const geographyType = explicitGeographyType ?? requestedGeographyType(question, intent, candidate.contract, candidate.binding);
+      const component = componentForCandidate(candidate, geographyType);
+      if (!component.dataset_code || !component.measure_key || !component.grain) continue;
+      const firstComponent = components[0];
+      if (firstComponent && component.grain !== firstComponent.grain) continue;
+      components.push(component);
+      seenDomains.add(component.domain_id);
+      seenMetrics.add(component.metric_code);
+      if (components.length >= 3) break;
+    }
+
+    if (components.length >= 2 && seenDomains.size >= 2) {
+      const firstComponent = components[0];
+      const firstCandidate = candidates.find((candidate) => candidate.contract.metric_code === firstComponent?.metric_code) ?? candidates[0];
+      if (!firstComponent || !firstCandidate) return {};
+      const geographyType = geographyTypeFromGrain(firstComponent.grain) ?? explicitGeographyType ?? "municipality";
+      let yearRange = extractSemanticYears(question);
+      const warnings: string[] = ["Cross-domain results are associations only; Guara does not infer causality without an explicit causal model."];
+      if (!yearRange.year && !yearRange.year_start && !yearRange.year_end) {
+        const latestYears = components
+          .map((component) => {
+            const matchingCandidate = candidates.find((candidate) => candidate.contract.metric_code === component.metric_code);
+            return matchingCandidate ? latestYearForContract(matchingCandidate.contract, geographyType, context) : undefined;
+          })
+          .filter((year): year is number => typeof year === "number" && Number.isFinite(year));
+        if (latestYears.length === components.length) {
+          yearRange = { year: Math.min(...latestYears) };
+          warnings.push(`No year was specified, so Guara used the latest shared available year in Gold: ${yearRange.year}.`);
+        }
+      }
+      const metric = contractResult(firstCandidate);
+      return {
+        match: metric,
+        plan: {
+          intent: intent === "catalogue_search" ? "compare_geographies" : intent,
+          source: "cross_domain_gold",
+          component_measures: components.map(({ grain: _grain, ...component }) => component),
+          metric_code: components.map((component) => component.metric_code).join("+"),
+          calculation_code: "cross_domain_comparison",
+          measure_label: components.map((component) => component.label).join(" + "),
+          dataset_code: components.map((component) => component.dataset_code).join(","),
+          period_type: periodTypeFromGrain(firstComponent.grain),
+          ...yearRange,
+          geography_names: geographyResolutions.map((resolution) => resolution.resolved_name),
+          geography_type: geographyType,
+          grain: {
+            geography_type: geographyType,
+            period_type: periodTypeFromGrain(firstComponent.grain),
+            display_grain: firstComponent.grain,
+          },
+          expected_result_grain: ["geography_code", "calendar_year"],
+          sort_direction: intent === "rank_geographies" ? rankSortDirection(question) : undefined,
+          limit: 10,
+          semantic_confidence: 0.94,
+          resolution_method: "semantic_contract_engine",
+          warnings,
+          explanation: [
+            `Selected ${components.length} executable semantic contracts across ${seenDomains.size} domains.`,
+            `Joined domains only on shared grain ${firstComponent.grain}.`,
+            ...components.map((component) => `${component.domain_id}: ${component.metric_code} from ${component.dataset_code}.`),
+          ],
+        },
+      };
+    }
+  }
+  const firstCandidate = candidates[0];
+  const secondCandidate = candidates[1];
+  if (!firstCandidate || (candidates.length !== 1 && (!secondCandidate || firstCandidate.score - secondCandidate.score < 40))) {
     return {};
   }
 
-  const candidate = candidates[0];
+  const candidate = firstCandidate;
   const metric = contractResult(candidate);
   const geographyResolutions = resolveGeographiesFromQuestion(question, extractNamedGeographies(question));
   const countryScopeRanking = intent === "rank_geographies" && geographyResolutions.some((resolution) => resolution.geography_type === "country");
@@ -498,7 +602,7 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
     match: metric,
     plan: {
       intent: plannedIntent,
-      source: "gold_bouwen_wonen",
+      source: goldSourceForDomain(candidate.contract.domain_id),
       measure_key: String(candidate.binding?.measure_key ?? candidate.contract.measure_key),
       metric_code: candidate.contract.metric_code,
       semantic_concept_code: candidate.concept?.concept_code,

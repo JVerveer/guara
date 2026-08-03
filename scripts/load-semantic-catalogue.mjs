@@ -67,6 +67,36 @@ function approvedAggregation(row) {
   return aggregation || "none";
 }
 
+function domainLabel(domainId) {
+  if (domainId === "bouwen-en-wonen") return "Bouwen en wonen";
+  if (domainId === "inkomen-en-bestedingen") return "Inkomen en bestedingen";
+  return null;
+}
+
+function searchableDomain(domainId) {
+  if (domainId === "bouwen-en-wonen") return "housing_construction";
+  if (domainId === "inkomen-en-bestedingen") return "income_spending";
+  return null;
+}
+
+function domainTags(domainId) {
+  if (domainId === "bouwen-en-wonen") return ["housing"];
+  if (domainId === "inkomen-en-bestedingen") return ["income", "spending", "wealth"];
+  return [];
+}
+
+function incomeMeasureSynonyms(row) {
+  const haystack = normalizeText(`${row.measure_code} ${row.measure_name} ${row.measure_description ?? ""} ${row.dataset_title ?? ""}`);
+  const synonyms = [];
+  if (haystack.includes("inkomen")) synonyms.push("inkomen", "besteedbaar inkomen", "huishoudinkomen", "persoonlijk inkomen", "income");
+  if (haystack.includes("mediaan")) synonyms.push("mediaan inkomen", "median income");
+  if (haystack.includes("gemiddeld")) synonyms.push("gemiddeld inkomen", "average income");
+  if (haystack.includes("vermogen")) synonyms.push("vermogen", "huishoudvermogen", "wealth", "assets");
+  if (haystack.includes("laag inkomen")) synonyms.push("laag inkomen", "armoede", "low income", "poverty");
+  if (haystack.includes("bested")) synonyms.push("bestedingen", "uitgaven", "spending", "expenditure");
+  return Array.from(new Set(synonyms));
+}
+
 function isSafeAggregation(aggregation) {
   const normalized = String(aggregation ?? "").toLowerCase();
   return ["sum", "average", "min", "max", "count", "latest"].includes(normalized);
@@ -485,17 +515,22 @@ async function upsertDefinitionVersions(client, measures) {
 }
 
 async function loadCatalogue(client, options) {
-  const domainWhere = options.domain ? "where coalesce(hd.domain_id, dd.domain_id) = $1" : "";
+  const domainWhere = options.domain ? "where coalesce(hd.domain_id, id.domain_id, dd.domain_id) = $1" : "";
   const params = options.domain ? [options.domain, options.limit] : [options.limit];
   const limitParam = options.domain ? "$2" : "$1";
 
   const datasets = await client.query(
     `
-      select d.*, coalesce(hd.domain_id, dd.domain_id) as domain_id
+      select d.*, coalesce(hd.domain_id, id.domain_id, dd.domain_id) as domain_id
         , exists (
           select 1
           from gold_bouwen_wonen.fact_housing_observation f
           where f.housing_dataset_key = hd.housing_dataset_key
+          limit 1
+        ) or exists (
+          select 1
+          from gold_inkomen_bestedingen.fact_income_observation f
+          where f.income_dataset_key = id.income_dataset_key
           limit 1
         ) as has_fact_data
         , s.status as silver_status
@@ -503,6 +538,7 @@ async function loadCatalogue(client, options) {
         , s.observations_loaded as silver_observations_loaded
       from gold.dim_dataset d
       left join gold_bouwen_wonen.dim_housing_dataset hd on hd.dataset_key = d.dataset_key
+      left join gold_inkomen_bestedingen.dim_income_dataset id on id.dataset_key = d.dataset_key
       left join silver.cbs_dataset_domains dd on dd.dataset_id = d.dataset_code
       left join silver.cbs_dataset_load_status s on s.dataset_id = d.dataset_code
       ${domainWhere}
@@ -531,12 +567,18 @@ async function loadCatalogue(client, options) {
         s.status as silver_status,
         s.last_loaded_at as silver_loaded_at,
         s.observations_loaded as silver_observations_loaded,
-        coalesce(hd.domain_id, dd.domain_id) as domain_id,
+        coalesce(hd.domain_id, id.domain_id, dd.domain_id) as domain_id,
         hi.housing_indicator_key,
+        ii.income_indicator_key,
         exists (
           select 1
           from gold_bouwen_wonen.fact_housing_observation f
           where f.housing_indicator_key = hi.housing_indicator_key
+          limit 1
+        ) or exists (
+          select 1
+          from gold_inkomen_bestedingen.fact_income_observation f
+          where f.income_indicator_key = ii.income_indicator_key
           limit 1
         ) as has_fact_data
       from gold.dim_measure m
@@ -544,6 +586,8 @@ async function loadCatalogue(client, options) {
       left join gold.dim_dataset d on d.dataset_code = m.dataset_code and d.source_system = m.source_system
       left join gold_bouwen_wonen.dim_housing_dataset hd on hd.dataset_key = d.dataset_key
       left join gold_bouwen_wonen.dim_housing_indicator hi on hi.measure_key = m.measure_key
+      left join gold_inkomen_bestedingen.dim_income_dataset id on id.dataset_key = d.dataset_key
+      left join gold_inkomen_bestedingen.dim_income_indicator ii on ii.measure_key = m.measure_key
       left join silver.cbs_dataset_domains dd on dd.dataset_id = m.dataset_code
       left join silver.cbs_dataset_load_status s on s.dataset_id = m.dataset_code
       ${domainWhere}
@@ -593,7 +637,7 @@ async function loadCatalogue(client, options) {
       searchText: `${row.dataset_code} ${row.dataset_title} ${row.dataset_description ?? ""} ${row.domain_id === "bouwen-en-wonen" ? bouwenWonenDatasetSynonyms(row).join(" ") : ""}`,
       datasetCode: row.dataset_code,
       domainId: row.domain_id,
-      tags: ["dataset", row.source_system, row.domain_id, row.domain_id === "bouwen-en-wonen" ? "housing" : ""].filter(Boolean),
+      tags: ["dataset", row.source_system, row.domain_id, ...domainTags(row.domain_id)].filter(Boolean),
       metadata: {
         dataset_key: row.dataset_key,
         source_url: row.source_url,
@@ -603,8 +647,8 @@ async function loadCatalogue(client, options) {
         silver_loaded_at: row.silver_loaded_at ?? null,
         silver_observations_loaded: row.silver_observations_loaded ?? null,
         domain_id: row.domain_id,
-        domain_name: row.domain_id === "bouwen-en-wonen" ? "Bouwen en wonen" : null,
-        searchable_domain: row.domain_id === "bouwen-en-wonen" ? "housing_construction" : null,
+        domain_name: domainLabel(row.domain_id),
+        searchable_domain: searchableDomain(row.domain_id),
         has_fact_data: Boolean(row.has_fact_data),
       },
     })),
@@ -617,12 +661,12 @@ async function loadCatalogue(client, options) {
       title: row.measure_name,
       subtitle: `${row.dataset_code} · ${row.unit_code}`,
       description: row.measure_description,
-      searchText: `${row.measure_code} ${row.measure_name} ${row.measure_description ?? ""} ${row.topic ?? ""} ${row.subtopic ?? ""} ${row.unit_code} ${row.domain_id === "bouwen-en-wonen" ? bouwenWonenMeasureSynonyms(row).join(" ") : ""}`,
+      searchText: `${row.measure_code} ${row.measure_name} ${row.measure_description ?? ""} ${row.topic ?? ""} ${row.subtopic ?? ""} ${row.unit_code} ${row.domain_id === "bouwen-en-wonen" ? bouwenWonenMeasureSynonyms(row).join(" ") : ""} ${row.domain_id === "inkomen-en-bestedingen" ? incomeMeasureSynonyms(row).join(" ") : ""}`,
       datasetCode: row.dataset_code,
       measureCode: row.measure_code,
       unitCode: row.unit_code,
       domainId: row.domain_id,
-      tags: ["measure", row.value_type, row.default_aggregation, row.domain_id, row.domain_id === "bouwen-en-wonen" ? "housing" : ""].filter(Boolean),
+      tags: ["measure", row.value_type, row.default_aggregation, row.domain_id, ...domainTags(row.domain_id)].filter(Boolean),
       metadata: {
         measure_key: row.measure_key,
         dataset_key: row.dataset_key,
@@ -636,9 +680,10 @@ async function loadCatalogue(client, options) {
         aggregation: approvedAggregation(row),
         value_type: row.value_type,
         domain_id: row.domain_id,
-        domain_name: row.domain_id === "bouwen-en-wonen" ? "Bouwen en wonen" : null,
-        searchable_domain: row.domain_id === "bouwen-en-wonen" ? "housing_construction" : null,
+        domain_name: domainLabel(row.domain_id),
+        searchable_domain: searchableDomain(row.domain_id),
         housing_indicator_key: row.housing_indicator_key,
+        income_indicator_key: row.income_indicator_key,
         has_fact_data: Boolean(row.has_fact_data),
         metadata_completeness_status: metricByMeasure.get(String(row.measure_key)) ? "complete" : "incomplete",
       },

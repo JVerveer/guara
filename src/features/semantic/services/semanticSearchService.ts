@@ -7,6 +7,26 @@ import { fetchSemanticContractContext, type SemanticContractContext } from "./se
 import { buildContractQueryPlan } from "./semanticContractPlanner";
 import { buildRegistryQueryPlan } from "./semanticRegistry";
 
+const EXECUTABLE_GOLD_SOURCES = new Set<SemanticQueryPlan["source"]>(["gold_bouwen_wonen", "gold_inkomen_bestedingen", "cross_domain_gold"]);
+
+function isExecutableGoldSource(source: SemanticQueryPlan["source"]) {
+  return EXECUTABLE_GOLD_SOURCES.has(source);
+}
+
+function goldMartLabel(source: SemanticQueryPlan["source"]) {
+  if (source === "cross_domain_gold") return "cross-domain Gold";
+  if (source === "gold_inkomen_bestedingen") return "Inkomen en bestedingen";
+  if (source === "gold_bouwen_wonen") return "Bouwen en wonen";
+  return "Gold";
+}
+
+function goldMartProvenance(source: SemanticQueryPlan["source"]) {
+  if (source === "cross_domain_gold") return "Guara checked approved Gold marts and joined them only on shared geography and period.";
+  if (source === "gold_inkomen_bestedingen") return "Guara checked the trusted Inkomen en bestedingen data mart for matching values.";
+  if (source === "gold_bouwen_wonen") return "Guara checked the trusted Bouwen en wonen data mart for matching values.";
+  return "Guara found catalogue matches but no complete data question.";
+}
+
 function hashEmbedding(text: string): string {
   const vector = new Array(64).fill(0);
   const tokens = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -46,7 +66,7 @@ async function hybridSearch(question: string, objectTypes?: string[]): Promise<S
     investigation: null,
     filters: {
       strict_gold_only: true,
-      domain_id: "bouwen-en-wonen",
+      domain_id: null,
     },
     development_mode: false,
   });
@@ -116,7 +136,7 @@ async function curatedPatternMatches(question: string): Promise<SemanticSearchRe
 }
 
 async function executePlan(plan: SemanticQueryPlan): Promise<Record<string, unknown>> {
-  if (!isSupabaseConfigured() || plan.source !== "gold_bouwen_wonen" || !plan.measure_key) return {};
+  if (!isSupabaseConfigured() || !isExecutableGoldSource(plan.source) || (!plan.measure_key && !plan.component_measures?.length)) return {};
   if (plan.requires_clarification) return {};
   if (plan.semantic_model_diagnostics?.errors.length) return { rows: [], semantic_validation: plan.semantic_model_diagnostics };
   const supabase = await getSupabaseClient();
@@ -129,7 +149,7 @@ async function executePlan(plan: SemanticQueryPlan): Promise<Record<string, unkn
 }
 
 async function checkDataAvailability(plan: SemanticQueryPlan): Promise<Record<string, unknown>> {
-  if (!isSupabaseConfigured() || plan.source !== "gold_bouwen_wonen" || !plan.measure_key) return {};
+  if (!isSupabaseConfigured() || !isExecutableGoldSource(plan.source) || (!plan.measure_key && !plan.component_measures?.length)) return {};
   const supabase = await getSupabaseClient();
   const { data, error } = await (supabase as any).rpc("guara_check_query_availability", {
     plan,
@@ -308,6 +328,23 @@ function businessAnswerText(_question: string, plan: SemanticQueryPlan, resultRo
     };
   }
 
+  if (plan.calculation_code === "cross_domain_comparison") {
+    const top = geographyLabel(plan, first);
+    return {
+      title: `Cross-domain comparison for ${top} in ${period}`,
+      summary: `Guara compared approved metrics from multiple Gold domains using the shared ${plan.grain?.display_grain ?? "geography-year"} grain. This shows association, not causality.`,
+      bullets: resultRows.slice(0, 10).map((row) => {
+        const metrics = row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics)
+          ? row.metrics as Record<string, { label?: string; value?: unknown; unit_code?: string }>
+          : {};
+        const metricText = Object.entries(metrics)
+          .map(([, metric]) => `${metric.label ?? "metric"}: ${formatTypedValue(metric.value, metric.unit_code)}`)
+          .join("; ");
+        return `${geographyLabel(plan, row)} ${row.calendar_year ?? period}: ${metricText}`;
+      }),
+    };
+  }
+
   if (plan.calculation_code === "category_breakdown") {
     const category = plan.category_dimension_code ?? "category";
     return {
@@ -344,7 +381,7 @@ function businessAnswerText(_question: string, plan: SemanticQueryPlan, resultRo
       bullets: [
         `Geography: ${geography} (${first.geography_type ?? plan.geography_type ?? "available Gold grain"})`,
         `Measure: ${first.measure_name ?? plan.measure_label ?? measure}`,
-        `Source layer: Gold Bouwen en wonen mart`,
+        `Source layer: Gold ${goldMartLabel(plan.source)} mart`,
       ],
     };
   }
@@ -376,7 +413,7 @@ function businessAnswerText(_question: string, plan: SemanticQueryPlan, resultRo
 }
 
 async function executePlanWithFallback(plan: SemanticQueryPlan, _matches: SemanticSearchResult[]): Promise<{ plan: SemanticQueryPlan; execution: Record<string, unknown> }> {
-  const availability = plan.source === "gold_bouwen_wonen" && plan.measure_key ? await checkDataAvailability(plan) : {};
+  const availability = isExecutableGoldSource(plan.source) && (plan.measure_key || plan.component_measures?.length) ? await checkDataAvailability(plan) : {};
   const hasAvailabilityError = typeof availability.error === "string" && availability.error.length > 0;
   const unavailable =
     !hasAvailabilityError
@@ -417,7 +454,7 @@ async function executePlanWithFallback(plan: SemanticQueryPlan, _matches: Semant
     };
   }
 
-  if (plan.source !== "gold_bouwen_wonen" || !plan.measure_key || plan.semantic_model_diagnostics?.errors.length) return { plan, execution };
+  if (!isExecutableGoldSource(plan.source) || (!plan.measure_key && !plan.component_measures?.length) || plan.semantic_model_diagnostics?.errors.length) return { plan, execution };
   return { plan, execution: { ...execution, availability_check: availability } };
 }
 
@@ -466,7 +503,7 @@ export function answerText(question: string, plan: SemanticQueryPlan, result: Re
     };
   }
 
-  if (plan.source === "gold_bouwen_wonen" && plan.measure_key) {
+  if (isExecutableGoldSource(plan.source) && plan.measure_key) {
     const geographies = plan.geography_names?.length ? plan.geography_names.join(", ") : "the requested geography";
     const period =
       plan.year_start && plan.year_end ? `${plan.year_start}-${plan.year_end}`
@@ -664,7 +701,7 @@ export const semanticSearchService = {
       provenance: [
         "Guara read the question and identified the requested indicator, place and period.",
         "Guara searched the trusted semantic catalogue for matching CBS definitions.",
-        executedPlan.source === "gold_bouwen_wonen" ? "Guara checked the trusted Bouwen en wonen data mart for matching values." : "Guara found catalogue matches but no complete data question.",
+        goldMartProvenance(executedPlan.source),
         "Guara kept the source references so the answer can be inspected later.",
       ],
     };

@@ -17,7 +17,7 @@ function slug(value) {
 function grainCode(row) {
   const geography = String(row.geography_type ?? "unknown").trim() || "unknown";
   const period = String(row.period_type ?? "year").trim() || "year";
-  if (geography === "country") return "national_year";
+  if (geography === "country" || geography === "unknown") return "national_year";
   return `${geography}_${period}`;
 }
 
@@ -45,8 +45,178 @@ function supportsFor(grains, measure) {
 
 const curatedContracts = [
   {
+    metric_code: "average_personal_income",
+    label: "Average personal income",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83931NED", measure_code: "GemiddeldInkomen_2" },
+    description: "Average income of persons with income.",
+    aggregation: "average",
+    synonyms: {
+      nl: ["gemiddeld inkomen", "gemiddeld persoonlijk inkomen", "inkomen personen", "persoonlijk inkomen", "gemiddelde inkomens"],
+      en: ["average personal income", "average income", "personal income"],
+    },
+    exclusions: ["huishoudinkomen", "mediaan inkomen", "vermogen", "bestedingen"],
+    selection_priority: 10,
+  },
+  {
+    metric_code: "median_personal_income",
+    label: "Median personal income",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83931NED", measure_code: "MediaanInkomen_3" },
+    description: "Median income of persons with income.",
+    aggregation: "median",
+    synonyms: {
+      nl: ["mediaan inkomen", "mediaan persoonlijk inkomen", "mediane inkomens personen"],
+      en: ["median personal income", "median income"],
+    },
+    exclusions: ["gemiddeld inkomen", "huishoudinkomen", "vermogen"],
+    selection_priority: 12,
+  },
+  {
+    metric_code: "average_household_income",
+    label: "Average household income",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83932NED", measure_code: "GemiddeldInkomen_4" },
+    description: "Average income of private households.",
+    aggregation: "average",
+    synonyms: {
+      nl: ["gemiddeld huishoudinkomen", "gemiddeld inkomen huishoudens", "huishoudinkomen", "inkomen huishoudens"],
+      en: ["average household income", "household income"],
+    },
+    exclusions: ["persoonlijk inkomen", "mediaan inkomen", "vermogen"],
+    selection_priority: 10,
+  },
+  {
+    metric_code: "median_household_income",
+    label: "Median household income",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83932NED", measure_code: "MediaanInkomen_5" },
+    description: "Median income of private households.",
+    aggregation: "median",
+    synonyms: {
+      nl: ["mediaan huishoudinkomen", "mediaan inkomen huishoudens", "mediane huishoudinkomens"],
+      en: ["median household income"],
+    },
+    exclusions: ["gemiddeld inkomen", "persoonlijk inkomen", "vermogen"],
+    selection_priority: 12,
+  },
+  {
+    metric_code: "average_household_wealth",
+    label: "Average household wealth",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83835NED", measure_code: "GemiddeldVermogen_3" },
+    description: "Average household wealth.",
+    aggregation: "average",
+    synonyms: {
+      nl: ["gemiddeld vermogen", "gemiddeld huishoudvermogen", "vermogen huishoudens"],
+      en: ["average wealth", "average household wealth"],
+    },
+    exclusions: ["inkomen", "mediaan vermogen"],
+    selection_priority: 10,
+  },
+  {
+    metric_code: "median_household_wealth",
+    label: "Median household wealth",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83835NED", measure_code: "MediaanVermogen_4" },
+    description: "Median household wealth.",
+    aggregation: "median",
+    synonyms: {
+      nl: ["mediaan vermogen", "mediaan huishoudvermogen", "mediane vermogens"],
+      en: ["median wealth", "median household wealth"],
+    },
+    exclusions: ["inkomen", "gemiddeld vermogen"],
+    selection_priority: 12,
+  },
+  {
+    metric_code: "low_income_households_share",
+    label: "Share of low-income households",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83841NED", measure_code: "HuishoudensRelatief_2" },
+    description: "Percentage of households with a low income.",
+    aggregation: "average",
+    synonyms: {
+      nl: ["laag inkomen huishoudens", "huishoudens met laag inkomen", "armoede huishoudens", "percentage lage inkomens"],
+      en: ["low-income households", "share of low-income households", "household poverty"],
+    },
+    exclusions: ["personen met laag inkomen", "kinderen met laag inkomen", "aantal huishoudens"],
+    selection_priority: 10,
+  },
+  {
+    metric_code: "low_income_persons_share",
+    label: "Share of low-income persons",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83843NED", measure_code: "PersonenRelatief_2" },
+    description: "Percentage of persons with a low income.",
+    aggregation: "average",
+    synonyms: {
+      nl: ["personen met laag inkomen", "mensen met laag inkomen", "armoede personen", "percentage personen laag inkomen"],
+      en: ["low-income persons", "share of low-income persons", "people in poverty"],
+    },
+    exclusions: ["huishoudens met laag inkomen", "kinderen met laag inkomen"],
+    selection_priority: 10,
+  },
+  {
+    metric_code: "low_income_children_share",
+    label: "Share of low-income children",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83842NED", measure_code: "KinderenRelatief_4" },
+    description: "Percentage of children living in households with a low income.",
+    aggregation: "average",
+    synonyms: {
+      nl: ["kinderen met laag inkomen", "kinderarmoede", "armoede kinderen", "percentage kinderen laag inkomen"],
+      en: ["child poverty", "low-income children", "children in low-income households"],
+    },
+    exclusions: ["huishoudens met laag inkomen", "personen met laag inkomen"],
+    selection_priority: 10,
+  },
+  {
+    metric_code: "health_insurance_payment_arrears_share",
+    label: "Share with health insurance premium payment arrears",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "81064ned", measure_code: "PersMetBetalingsachterstandRelatief_2" },
+    description: "Percentage of people with payment arrears on health insurance premiums.",
+    aggregation: "average",
+    synonyms: {
+      nl: ["betalingsachterstand zorgpremie", "wanbetalers zorgpremie", "zorgpremie achterstand", "achterstand zorgverzekering"],
+      en: ["health insurance payment arrears", "healthcare premium arrears"],
+    },
+    exclusions: ["aantal wanbetalers", "inkomen", "vermogen"],
+    selection_priority: 10,
+  },
+  {
+    metric_code: "health_insurance_payment_arrears_persons",
+    label: "Persons with health insurance premium payment arrears",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "81064ned", measure_code: "PersonenMetEenBetalingsachterstand_1" },
+    description: "Number of people with payment arrears on health insurance premiums.",
+    aggregation: "sum",
+    synonyms: {
+      nl: ["aantal wanbetalers zorgpremie", "personen betalingsachterstand zorgpremie", "mensen met zorgpremie achterstand"],
+      en: ["people with health insurance payment arrears", "number with healthcare premium arrears"],
+    },
+    exclusions: ["percentage", "relatief", "inkomen"],
+    selection_priority: 10,
+  },
+  {
+    metric_code: "consumer_confidence",
+    label: "Consumer confidence",
+    domain_id: "inkomen-en-bestedingen",
+    match: { dataset_code: "83978NED", measure_code: "Consumentenvertrouwen_1" },
+    description: "Consumer confidence indicator by region.",
+    aggregation: "average",
+    default_grain: "province_year",
+    synonyms: {
+      nl: ["consumentenvertrouwen", "vertrouwen consumenten", "consumentenvertrouwen per provincie"],
+      en: ["consumer confidence", "consumer sentiment"],
+    },
+    exclusions: ["koopbereidheid", "economisch klimaat"],
+    selection_priority: 10,
+  },
+  {
     metric_code: "average_woz_home_value",
     label: "Average WOZ home value",
+    domain_id: "bouwen-en-wonen",
     match: { dataset_code: "85036NED", measure_name: "Gemiddelde WOZ-waarde van woningen" },
     description: "Average assessed WOZ value of homes.",
     aggregation: "average",
@@ -60,6 +230,7 @@ const curatedContracts = [
   {
     metric_code: "rent_increase_including_harmonisation",
     label: "Rent increase including rent harmonisation",
+    domain_id: "bouwen-en-wonen",
     match: { dataset_code: "83162NED", measure_name: "Huurverhoging inclusief huurharmonisatie" },
     description: "Average rent increase including rent harmonisation.",
     aggregation: "average",
@@ -73,6 +244,7 @@ const curatedContracts = [
   {
     metric_code: "current_home_satisfaction",
     label: "Satisfaction with current home",
+    domain_id: "bouwen-en-wonen",
     match: { dataset_code: "84571NED", measure_name: "Tevredenheid met de huidige woning" },
     description: "Share of people satisfied with their current home.",
     aggregation: "average",
@@ -91,6 +263,7 @@ const curatedContracts = [
   {
     metric_code: "housing_stock_start",
     label: "Housing stock at start of period",
+    domain_id: "bouwen-en-wonen",
     match: { dataset_code: "82550NED", measure_name: "Beginstand woningvoorraad" },
     description: "Number of homes in the housing stock at the start of the period.",
     aggregation: "sum",
@@ -104,6 +277,7 @@ const curatedContracts = [
   {
     metric_code: "corner_homes",
     label: "Corner homes",
+    domain_id: "bouwen-en-wonen",
     match: { dataset_code: "85035NED", measure_code: "BeginstandWoningvoorraad_1" },
     description: "Number of homes in the housing stock filtered to corner homes.",
     aggregation: "sum",
@@ -122,6 +296,7 @@ const curatedContracts = [
   {
     metric_code: "total_rental_homes",
     label: "Total rental homes",
+    domain_id: "bouwen-en-wonen",
     match: { dataset_code: "82900NED", measure_name: "Totaal huurwoningen" },
     description: "Total number of rental homes.",
     aggregation: "sum",
@@ -135,6 +310,7 @@ const curatedContracts = [
   {
     metric_code: "new_construction",
     label: "New construction",
+    domain_id: "bouwen-en-wonen",
     match: { dataset_code: "86054NED", measure_name: "Nieuwbouw" },
     description: "Number of newly built homes.",
     aggregation: "sum",
@@ -414,29 +590,73 @@ async function generatedContracts(client) {
 
 async function resolveCurated(client, row) {
   const params = [row.match.dataset_code, row.match.measure_name ?? null, row.match.measure_name_contains ?? null, row.match.measure_code ?? null];
-  const result = await client.query(`
-    select m.*, coalesce(array_agg(distinct g.geography_type || '_' || coalesce(nullif(g.period_type, ''), 'year'))
-      filter (where g.geography_type is not null), '{}') as grains
-    from semantic.semantic_measure_profile m
-    left join semantic.semantic_grain_profile g on g.measure_key = m.measure_key
-    where m.dataset_code = $1
-      and ($2::text is null or lower(m.measure_name) = lower($2))
-      and ($3::text is null or lower(m.measure_name) like '%' || lower($3) || '%')
-      and ($4::text is null or lower(m.measure_code) = lower($4))
-    group by m.dataset_key, m.dataset_code, m.measure_key, m.measure_code, m.measure_name, m.measure_description,
-      m.topic, m.subtopic, m.unit_key, m.unit_code, m.unit_name, m.unit_category, m.scale_factor, m.default_aggregation,
-      m.is_additive, m.is_non_additive, m.value_type, m.fact_row_count, m.populated_fact_row_count, m.min_year, m.max_year,
-      m.geography_types, m.period_types, m.geography_count, m.period_count, m.min_value, m.max_value, m.suggested_aggregation,
-      m.can_enable_metric, m.profile_depth, m.metadata_origin, m.generated_at
-    order by m.max_year desc nulls last
-    limit 1
-  `, params);
+  const result = row.domain_id === "inkomen-en-bestedingen"
+    ? await client.query(`
+      select
+        d.dataset_key,
+        d.dataset_code,
+        m.measure_key,
+        m.measure_code,
+        m.measure_name,
+        m.measure_description,
+        m.topic,
+        m.subtopic,
+        u.unit_key,
+        u.unit_code,
+        u.unit_name,
+        u.unit_category,
+        u.scale_factor,
+        m.default_aggregation,
+        m.is_additive,
+        m.is_non_additive,
+        m.value_type,
+        count(f.*)::bigint as fact_row_count,
+        count(f.*) filter (where f.observation_value is not null and f.is_missing = false)::bigint as populated_fact_row_count,
+        min(f.calendar_year) as min_year,
+        max(f.calendar_year) as max_year,
+        coalesce(array_agg(distinct (
+          case when f.geography_type in ('country', 'unknown') then 'national' else f.geography_type end
+          || '_' || coalesce(nullif(f.period_type, ''), 'year')
+        ))
+          filter (where f.geography_type is not null), '{}') as grains
+      from gold_inkomen_bestedingen.fact_income_observation f
+      join gold.dim_dataset d on d.dataset_key = f.dataset_key
+      join gold.dim_measure m on m.measure_key = f.measure_key
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      where d.dataset_code = $1
+        and ($2::text is null or lower(m.measure_name) = lower($2))
+        and ($3::text is null or lower(m.measure_name) like '%' || lower($3) || '%')
+        and ($4::text is null or lower(m.measure_code) = lower($4))
+      group by d.dataset_key, d.dataset_code, m.measure_key, m.measure_code, m.measure_name, m.measure_description,
+        m.topic, m.subtopic, u.unit_key, u.unit_code, u.unit_name, u.unit_category, u.scale_factor, m.default_aggregation,
+        m.is_additive, m.is_non_additive, m.value_type
+      order by max(f.calendar_year) desc nulls last
+      limit 1
+    `, params)
+    : await client.query(`
+      select m.*, coalesce(array_agg(distinct g.geography_type || '_' || coalesce(nullif(g.period_type, ''), 'year'))
+        filter (where g.geography_type is not null), '{}') as grains
+      from semantic.semantic_measure_profile m
+      left join semantic.semantic_grain_profile g on g.measure_key = m.measure_key
+      where m.dataset_code = $1
+        and ($2::text is null or lower(m.measure_name) = lower($2))
+        and ($3::text is null or lower(m.measure_name) like '%' || lower($3) || '%')
+        and ($4::text is null or lower(m.measure_code) = lower($4))
+      group by m.dataset_key, m.dataset_code, m.measure_key, m.measure_code, m.measure_name, m.measure_description,
+        m.topic, m.subtopic, m.unit_key, m.unit_code, m.unit_name, m.unit_category, m.scale_factor, m.default_aggregation,
+        m.is_additive, m.is_non_additive, m.value_type, m.fact_row_count, m.populated_fact_row_count, m.min_year, m.max_year,
+        m.geography_types, m.period_types, m.geography_count, m.period_count, m.min_value, m.max_value, m.suggested_aggregation,
+        m.can_enable_metric, m.profile_depth, m.metadata_origin, m.generated_at
+      order by m.max_year desc nulls last
+      limit 1
+    `, params);
   const match = result.rows[0];
   if (!match) return null;
   const grains = normalizedGrains(match.grains);
   return {
     metric_code: row.metric_code,
     label: row.label,
+    domain_id: row.domain_id ?? "bouwen-en-wonen",
     description: row.description,
     measure_key: String(match.measure_key),
     dataset_codes: [match.dataset_code],
@@ -474,7 +694,7 @@ async function upsertContracts(client, rows) {
       availability_checked_at, is_active, updated_at
     )
     select
-      metric_code, label, description, 'bouwen-en-wonen', measure_key::bigint, dataset_codes, unit_code, aggregation,
+      metric_code, label, description, coalesce(domain_id, 'bouwen-en-wonen'), measure_key::bigint, dataset_codes, unit_code, aggregation,
       valid_grains, default_grain, synonyms, exclusions, supports, category_filters, selection_priority,
       metadata_origin, contract_status, execution_status, semantic_quality_status, availability_status,
       now(), true, now()
@@ -482,6 +702,7 @@ async function upsertContracts(client, rows) {
       metric_code text,
       label text,
       description text,
+      domain_id text,
       measure_key text,
       dataset_codes text[],
       unit_code text,
@@ -500,6 +721,7 @@ async function upsertContracts(client, rows) {
       availability_status text
     )
     on conflict (metric_code) do update set
+      domain_id = excluded.domain_id,
       label = excluded.label,
       description = excluded.description,
       measure_key = excluded.measure_key,

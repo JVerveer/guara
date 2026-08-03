@@ -10,6 +10,11 @@ export interface SemanticPlanValidationResult {
 }
 
 const MINIMUM_EXECUTION_CONFIDENCE = 0.75;
+const EXECUTABLE_GOLD_SOURCES = new Set<SemanticQueryPlan["source"]>(["gold_bouwen_wonen", "gold_inkomen_bestedingen", "cross_domain_gold"]);
+
+function isExecutableGoldSource(source: SemanticQueryPlan["source"]) {
+  return EXECUTABLE_GOLD_SOURCES.has(source);
+}
 
 function normalize(value: string | undefined): string {
   return (value ?? "")
@@ -112,7 +117,23 @@ export function validateSemanticQueryPlan(plan: SemanticQueryPlan, matches: Sema
       .map((match) => String(match.metadata.measure_key))
   );
 
-  if (plan.source === "gold_bouwen_wonen") {
+  if (plan.source === "cross_domain_gold") {
+    const components = plan.component_measures ?? [];
+    const domains = new Set(components.map((component) => component.domain_id).filter(Boolean));
+    const sources = new Set(components.map((component) => component.source).filter(Boolean));
+    if (components.length < 2) errors.push("Cross-domain queries require at least two explicitly resolved component metrics.");
+    if (domains.size < 2) errors.push("Cross-domain queries require metrics from at least two domains.");
+    if (sources.size < 2) errors.push("Cross-domain queries require approved Gold sources from at least two marts.");
+    if (!plan.grain?.geography_type || !plan.grain?.period_type || !plan.grain?.display_grain) errors.push("Cross-domain queries require one explicit shared grain.");
+    for (const component of components) {
+      if (!component.metric_code || !component.measure_key || !component.dataset_code || !component.source) {
+        errors.push("Every cross-domain component must resolve metric, measure, dataset and source before execution.");
+      }
+      if (component.source !== "gold_bouwen_wonen" && component.source !== "gold_inkomen_bestedingen") {
+        errors.push("Cross-domain components can only use approved Gold marts.");
+      }
+    }
+  } else if (isExecutableGoldSource(plan.source)) {
     if (!plan.measure_key) errors.push("Exactly one metric is required before Guara can execute a Gold query.");
     if (selectedMetricKeys.size > 1) errors.push("Metric resolution was ambiguous; Guara will not execute until one metric is selected.");
     if (!metric) errors.push("The selected metric is not present in the semantic catalogue response.");
@@ -145,7 +166,7 @@ export function validateSemanticQueryPlan(plan: SemanticQueryPlan, matches: Sema
     }
   }
 
-  if (confidence < 0.9 && plan.source === "gold_bouwen_wonen") {
+  if (confidence < 0.9 && isExecutableGoldSource(plan.source)) {
     warnings.push(`Metric confidence: ${Math.round(confidence * 100)}% via ${method}.`);
   }
 

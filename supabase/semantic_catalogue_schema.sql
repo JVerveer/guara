@@ -732,6 +732,361 @@ end;
 $$;
 
 drop function if exists public.guara_execute_query_plan(jsonb);
+drop function if exists public.guara_execute_cross_domain_query_plan(jsonb);
+create or replace function public.guara_execute_cross_domain_query_plan(plan jsonb)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, gold, semantic
+as $$
+declare
+  year_value integer := nullif(plan->>'year', '')::integer;
+  year_start_value integer := nullif(plan->>'year_start', '')::integer;
+  year_end_value integer := nullif(plan->>'year_end', '')::integer;
+  geography_type_filter text := nullif(plan->>'geography_type', '');
+  limit_value integer := greatest(1, least(coalesce(nullif(plan->>'limit', '')::integer, 10), 50));
+  component_count integer := jsonb_array_length(coalesce(plan->'component_measures', '[]'::jsonb));
+  result jsonb;
+begin
+  if component_count < 2 then
+    raise exception 'Cross-domain comparison requires at least two component measures.';
+  end if;
+
+  select jsonb_build_object(
+    'columns', jsonb_build_array('geography_name', 'geography_code', 'geography_type', 'calendar_year', 'metrics', 'metric_count'),
+    'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
+  )
+  into result
+  from (
+    with components as (
+      select *
+      from jsonb_to_recordset(plan->'component_measures') as component(
+        metric_code text,
+        measure_key bigint,
+        dataset_code text,
+        source text,
+        label text,
+        domain_id text,
+        unit_code text,
+        category_filters jsonb
+      )
+      where source in ('gold_bouwen_wonen', 'gold_inkomen_bestedingen')
+    ),
+    values_by_component as (
+      select
+        c.metric_code,
+        c.label,
+        c.domain_id,
+        c.source,
+        c.dataset_code,
+        f.geography_name,
+        f.geography_code,
+        f.geography_type,
+        f.calendar_year,
+        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+        max(f.observation_value) as raw_value,
+        max(u.unit_code) as unit_code,
+        max(u.unit_name) as unit_name
+      from components c
+      join gold_bouwen_wonen.fact_housing_observation f
+        on c.source = 'gold_bouwen_wonen'
+       and f.measure_key = c.measure_key
+       and (c.dataset_code is null or f.dataset_code = c.dataset_code or f.source_dataset_id = c.dataset_code)
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      where f.observation_value is not null
+        and f.is_missing = false
+        and (geography_type_filter is null or f.geography_type = geography_type_filter)
+        and (year_value is null or f.calendar_year = year_value)
+        and (year_start_value is null or f.calendar_year >= year_start_value)
+        and (year_end_value is null or f.calendar_year <= year_end_value)
+        and (
+          jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+          or exists (
+            select 1
+            from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+            where lower(f.geography_name) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
+          )
+        )
+        and (
+          coalesce(jsonb_typeof(c.category_filters), '') <> 'object'
+          or c.category_filters = '{}'::jsonb
+          or not exists (
+            select 1
+            from jsonb_each_text(c.category_filters) required_filter(dimension_code, category_value)
+            where not exists (
+              select 1
+              from gold_bouwen_wonen.bridge_housing_observation_category required_category
+              where required_category.housing_observation_key = f.housing_observation_key
+                and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+                and (
+                  required_category.category_name = required_filter.category_value
+                  or required_category.category_code = required_filter.category_value
+                )
+            )
+          )
+        )
+      group by c.metric_code, c.label, c.domain_id, c.source, c.dataset_code, f.geography_name, f.geography_code, f.geography_type, f.calendar_year
+
+      union all
+
+      select
+        c.metric_code,
+        c.label,
+        c.domain_id,
+        c.source,
+        c.dataset_code,
+        f.geography_name,
+        f.geography_code,
+        f.geography_type,
+        f.calendar_year,
+        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+        max(f.observation_value) as raw_value,
+        max(u.unit_code) as unit_code,
+        max(u.unit_name) as unit_name
+      from components c
+      join gold_inkomen_bestedingen.fact_income_observation f
+        on c.source = 'gold_inkomen_bestedingen'
+       and f.measure_key = c.measure_key
+       and (c.dataset_code is null or f.dataset_code = c.dataset_code or f.source_dataset_id = c.dataset_code)
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      where f.observation_value is not null
+        and f.is_missing = false
+        and (geography_type_filter is null or f.geography_type = geography_type_filter)
+        and (year_value is null or f.calendar_year = year_value)
+        and (year_start_value is null or f.calendar_year >= year_start_value)
+        and (year_end_value is null or f.calendar_year <= year_end_value)
+        and (
+          jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+          or exists (
+            select 1
+            from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+            where lower(f.geography_name) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
+          )
+        )
+      group by c.metric_code, c.label, c.domain_id, c.source, c.dataset_code, f.geography_name, f.geography_code, f.geography_type, f.calendar_year
+    ),
+    complete_rows as (
+      select
+        geography_name,
+        geography_code,
+        geography_type,
+        calendar_year,
+        jsonb_object_agg(metric_code, jsonb_build_object(
+          'label', label,
+          'domain_id', domain_id,
+          'source', source,
+          'dataset_code', dataset_code,
+          'value', value,
+          'raw_value', raw_value,
+          'unit_code', unit_code,
+          'unit_name', unit_name
+        ) order by metric_code) as metrics,
+        count(distinct metric_code)::integer as metric_count
+      from values_by_component
+      group by geography_name, geography_code, geography_type, calendar_year
+      having count(distinct metric_code) = component_count
+    )
+    select *
+    from complete_rows
+    order by calendar_year desc nulls last, geography_name asc
+    limit limit_value
+  ) x;
+
+  return result;
+end;
+$$;
+
+drop function if exists public.guara_execute_income_query_plan(jsonb);
+create or replace function public.guara_execute_income_query_plan(plan jsonb)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, gold, semantic
+as $$
+declare
+  intent text := coalesce(plan->>'intent', '');
+  measure bigint := nullif(plan->>'measure_key', '')::bigint;
+  year_value integer := nullif(plan->>'year', '')::integer;
+  year_start_value integer := nullif(plan->>'year_start', '')::integer;
+  year_end_value integer := nullif(plan->>'year_end', '')::integer;
+  geography_type_filter text := coalesce(nullif(plan->>'geography_type', ''), case when intent = 'rank_geographies' then 'municipality' else null end);
+  sort_direction text := case when lower(coalesce(plan->>'sort_direction', 'desc')) = 'asc' then 'asc' else 'desc' end;
+  limit_value integer := greatest(1, least(coalesce(nullif(plan->>'limit', '')::integer, 10), 50));
+  metric_row record;
+  result jsonb;
+begin
+  if intent not in ('rank_geographies', 'compare_geographies', 'trend') then
+    raise exception 'Unsupported income query intent: %', intent;
+  end if;
+
+  if measure is null then
+    raise exception 'Missing required measure_key.';
+  end if;
+
+  select
+    coalesce(sm.metric_id::text, mc.metric_contract_id::text) as metric_id,
+    coalesce(sm.metric_label, mc.label) as metric_label,
+    coalesce(sm.aggregation, mc.aggregation) as aggregation,
+    coalesce(sm.supports_time_comparison, (mc.supports->>'trend')::boolean, true) as supports_time_comparison,
+    coalesce(sm.supports_geography_comparison, (mc.supports->>'comparison')::boolean, true) as supports_geography_comparison
+  into metric_row
+  from gold_inkomen_bestedingen.dim_income_indicator ii
+  left join semantic.metric sm
+    on sm.measure_key = ii.measure_key
+   and sm.is_enabled
+  left join semantic.metric_contract mc
+    on mc.measure_key = ii.measure_key
+   and mc.is_active
+   and mc.execution_status = 'enabled'
+  where ii.measure_key = measure
+    and (sm.metric_id is not null or mc.metric_contract_id is not null)
+  limit 1;
+
+  if metric_row.metric_id is null then
+    raise exception 'Measure is not available in the Inkomen en bestedingen mart.';
+  end if;
+
+  if intent in ('rank_geographies', 'compare_geographies') and not metric_row.supports_geography_comparison then
+    raise exception 'Metric does not support geography comparison.';
+  end if;
+
+  if intent = 'trend' and not metric_row.supports_time_comparison then
+    raise exception 'Metric does not support time comparison.';
+  end if;
+
+  if intent = 'trend' then
+    select jsonb_build_object(
+      'columns', jsonb_build_array('geography_name', 'geography_type', 'calendar_year', 'value', 'raw_value', 'unit_code', 'unit_name', 'scale_factor', 'measure_name', 'dataset_code'),
+      'rows', coalesce(jsonb_agg(to_jsonb(x) order by x.geography_name, x.calendar_year), '[]'::jsonb)
+    )
+    into result
+    from (
+      select
+        f.geography_name,
+        f.geography_type,
+        f.calendar_year,
+        max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+        max(f.observation_value) as raw_value,
+        max(u.unit_code) as unit_code,
+        max(u.unit_name) as unit_name,
+        max(u.scale_factor) as scale_factor,
+        max(m.measure_name) as measure_name,
+        max(f.dataset_code) as dataset_code
+      from gold_inkomen_bestedingen.fact_income_observation f
+      join gold.dim_unit u on u.unit_key = f.unit_key
+      join gold.dim_measure m on m.measure_key = f.measure_key
+      where f.measure_key = measure
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (plan->>'dataset_code' is null or f.dataset_code = plan->>'dataset_code' or f.source_dataset_id = plan->>'dataset_code')
+        and (geography_type_filter is null or f.geography_type = geography_type_filter)
+        and (year_value is null or f.calendar_year = year_value)
+        and (year_start_value is null or f.calendar_year >= year_start_value)
+        and (year_end_value is null or f.calendar_year <= year_end_value)
+        and (
+          jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+          or exists (
+            select 1
+            from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+            where lower(f.geography_name) = lower(requested_geography.name)
+               or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
+          )
+        )
+        and (
+          coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+          or not exists (
+            select 1
+            from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+            where not exists (
+              select 1
+              from gold_inkomen_bestedingen.bridge_income_observation_category required_category
+              where required_category.income_observation_key = f.income_observation_key
+                and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+                and (
+                  required_category.category_name = required_filter.category_value
+                  or required_category.category_code = required_filter.category_value
+                )
+            )
+          )
+        )
+      group by f.geography_code, f.geography_name, f.geography_type, f.calendar_year
+      order by f.geography_name, f.calendar_year
+      limit limit_value
+    ) x;
+    return result;
+  end if;
+
+  select jsonb_build_object(
+    'columns', jsonb_build_array('geography_name', 'geography_type', 'calendar_year', 'value', 'raw_value', 'unit_code', 'unit_name', 'scale_factor', 'measure_name', 'dataset_code'),
+    'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
+  )
+  into result
+  from (
+    select
+      f.geography_name,
+      f.geography_type,
+      f.calendar_year,
+      max(f.observation_value * coalesce(u.scale_factor, 1)) as value,
+      max(f.observation_value) as raw_value,
+      max(u.unit_code) as unit_code,
+      max(u.unit_name) as unit_name,
+      max(u.scale_factor) as scale_factor,
+      max(m.measure_name) as measure_name,
+      max(f.dataset_code) as dataset_code
+    from gold_inkomen_bestedingen.fact_income_observation f
+    join gold.dim_unit u on u.unit_key = f.unit_key
+    join gold.dim_measure m on m.measure_key = f.measure_key
+    where f.measure_key = measure
+      and f.observation_value is not null
+      and f.is_missing = false
+      and (plan->>'dataset_code' is null or f.dataset_code = plan->>'dataset_code' or f.source_dataset_id = plan->>'dataset_code')
+      and (geography_type_filter is null or f.geography_type = geography_type_filter)
+      and (year_value is null or f.calendar_year = year_value)
+      and (year_start_value is null or f.calendar_year >= year_start_value)
+      and (year_end_value is null or f.calendar_year <= year_end_value)
+      and (
+        jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+        or exists (
+          select 1
+          from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+          where lower(f.geography_name) = lower(requested_geography.name)
+             or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
+        )
+      )
+      and (
+        coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+        or not exists (
+          select 1
+          from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+          where not exists (
+            select 1
+            from gold_inkomen_bestedingen.bridge_income_observation_category required_category
+            where required_category.income_observation_key = f.income_observation_key
+              and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+              and (
+                required_category.category_name = required_filter.category_value
+                or required_category.category_code = required_filter.category_value
+              )
+          )
+        )
+      )
+    group by f.geography_code, f.geography_name, f.geography_type, f.calendar_year
+    order by
+      case when intent = 'compare_geographies' then f.geography_name end asc,
+      case when sort_direction = 'desc' then max(f.observation_value * coalesce(u.scale_factor, 1)) end desc nulls last,
+      case when sort_direction = 'asc' then max(f.observation_value * coalesce(u.scale_factor, 1)) end asc nulls last,
+      f.geography_name
+    limit limit_value
+  ) x;
+
+  return result;
+end;
+$$;
+
 create or replace function public.guara_execute_query_plan(plan jsonb)
 returns jsonb
 language plpgsql
@@ -753,8 +1108,13 @@ declare
   value_filter_operator text := lower(coalesce(plan->>'value_filter_operator', ''));
   value_filter_value numeric := nullif(plan->>'value_filter', '')::numeric;
   limit_value integer := greatest(1, least(coalesce(nullif(plan->>'limit', '')::integer, 10), 50));
+  source_name text := coalesce(nullif(plan->>'source', ''), 'gold_bouwen_wonen');
   result jsonb;
 begin
+  if source_name = 'cross_domain_gold' then
+    return public.guara_execute_cross_domain_query_plan(plan);
+  end if;
+
   if intent not in ('rank_geographies', 'compare_geographies', 'trend', 'lookup_measure') then
     raise exception 'Unsupported query intent: %', intent;
   end if;
@@ -817,6 +1177,10 @@ begin
 
   if measure is null then
     raise exception 'Missing required measure_key.';
+  end if;
+
+  if source_name = 'gold_inkomen_bestedingen' then
+    return public.guara_execute_income_query_plan(plan);
   end if;
 
   select
@@ -1499,6 +1863,142 @@ end;
 $$;
 
 drop function if exists public.guara_check_query_availability(jsonb);
+drop function if exists public.guara_check_income_query_availability(jsonb);
+create or replace function public.guara_check_income_query_availability(plan jsonb)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, gold, semantic
+as $$
+declare
+  measure bigint := nullif(plan->>'measure_key', '')::bigint;
+  dataset_filter text := nullif(plan->>'dataset_code', '');
+  year_value integer := nullif(plan->>'year', '')::integer;
+  year_start_value integer := nullif(plan->>'year_start', '')::integer;
+  year_end_value integer := nullif(plan->>'year_end', '')::integer;
+  geography_type_filter text := nullif(plan->>'geography_type', '');
+  metric_row_count bigint := 0;
+  dataset_row_count bigint := 0;
+  grain_row_count bigint := 0;
+  matching_row_count bigint := 0;
+  available_years jsonb := '[]'::jsonb;
+  available_geography_types jsonb := '[]'::jsonb;
+begin
+  if measure is null then
+    return jsonb_build_object(
+      'metric_available', false,
+      'dataset_available', false,
+      'grain_available', false,
+      'period_available', false,
+      'matching_rows', 0,
+      'reason', 'missing_measure_key'
+    );
+  end if;
+
+  select count(*)
+  into metric_row_count
+  from gold_inkomen_bestedingen.fact_income_observation f
+  where f.measure_key = measure
+    and f.observation_value is not null
+    and f.is_missing = false;
+
+  select count(*)
+  into dataset_row_count
+  from gold_inkomen_bestedingen.fact_income_observation f
+  where f.measure_key = measure
+    and (dataset_filter is null or f.dataset_code = dataset_filter)
+    and f.observation_value is not null
+    and f.is_missing = false;
+
+  select count(*)
+  into grain_row_count
+  from gold_inkomen_bestedingen.fact_income_observation f
+  where f.measure_key = measure
+    and (dataset_filter is null or f.dataset_code = dataset_filter)
+    and (geography_type_filter is null or f.geography_type = geography_type_filter)
+    and f.observation_value is not null
+    and f.is_missing = false;
+
+  select count(*)
+  into matching_row_count
+  from gold_inkomen_bestedingen.fact_income_observation f
+  where f.measure_key = measure
+    and (dataset_filter is null or f.dataset_code = dataset_filter)
+    and (geography_type_filter is null or f.geography_type = geography_type_filter)
+    and f.observation_value is not null
+    and f.is_missing = false
+    and (year_value is null or f.calendar_year = year_value)
+    and (year_start_value is null or f.calendar_year >= year_start_value)
+    and (year_end_value is null or f.calendar_year <= year_end_value)
+    and (
+      jsonb_array_length(coalesce(plan->'geography_names', '[]'::jsonb)) = 0
+      or exists (
+        select 1
+        from jsonb_array_elements_text(plan->'geography_names') requested_geography(name)
+        where lower(f.geography_name) = lower(requested_geography.name)
+           or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
+      )
+    )
+    and (
+      coalesce(jsonb_typeof(plan->'category_filters'), '') <> 'object'
+      or not exists (
+        select 1
+        from jsonb_each_text(plan->'category_filters') required_filter(dimension_code, category_value)
+        where not exists (
+          select 1
+          from gold_inkomen_bestedingen.bridge_income_observation_category required_category
+          where required_category.income_observation_key = f.income_observation_key
+            and lower(required_category.dimension_code) = lower(required_filter.dimension_code)
+            and (
+              required_category.category_name = required_filter.category_value
+              or required_category.category_code = required_filter.category_value
+            )
+        )
+      )
+    );
+
+  select coalesce(jsonb_agg(calendar_year order by calendar_year), '[]'::jsonb)
+  into available_years
+  from (
+    select distinct f.calendar_year
+    from gold_inkomen_bestedingen.fact_income_observation f
+    where f.measure_key = measure
+      and (dataset_filter is null or f.dataset_code = dataset_filter)
+      and (geography_type_filter is null or f.geography_type = geography_type_filter)
+      and f.observation_value is not null
+      and f.is_missing = false
+      and f.calendar_year is not null
+  ) years;
+
+  select coalesce(jsonb_agg(geography_type order by geography_type), '[]'::jsonb)
+  into available_geography_types
+  from (
+    select distinct f.geography_type
+    from gold_inkomen_bestedingen.fact_income_observation f
+    where f.measure_key = measure
+      and (dataset_filter is null or f.dataset_code = dataset_filter)
+      and f.observation_value is not null
+      and f.is_missing = false
+      and f.geography_type is not null
+  ) geography_types;
+
+  return jsonb_build_object(
+    'metric_available', metric_row_count > 0,
+    'dataset_available', dataset_row_count > 0,
+    'grain_available', grain_row_count > 0,
+    'period_available', matching_row_count > 0,
+    'metric_row_count', metric_row_count,
+    'dataset_row_count', dataset_row_count,
+    'grain_row_count', grain_row_count,
+    'matching_rows', matching_row_count,
+    'available_years', available_years,
+    'available_geography_types', available_geography_types,
+    'availability_source', 'gold_inkomen_bestedingen.fact_income_observation'
+  );
+end;
+$$;
+
 create or replace function public.guara_check_query_availability(plan jsonb)
 returns jsonb
 language plpgsql
@@ -1521,7 +2021,19 @@ declare
   available_geography_types jsonb := '[]'::jsonb;
   category_hash text := coalesce(nullif(plan->>'category_filter_hash', ''), md5(coalesce((plan->'category_filters')::text, '{}'::text)));
   indexed_metric_rows bigint := 0;
+  source_name text := coalesce(nullif(plan->>'source', ''), 'gold_bouwen_wonen');
 begin
+  if source_name = 'cross_domain_gold' then
+    return jsonb_build_object(
+      'metric_available', true,
+      'dataset_available', true,
+      'grain_available', true,
+      'period_available', jsonb_array_length(coalesce(public.guara_execute_cross_domain_query_plan(plan)->'rows', '[]'::jsonb)) > 0,
+      'matching_rows', jsonb_array_length(coalesce(public.guara_execute_cross_domain_query_plan(plan)->'rows', '[]'::jsonb)),
+      'availability_source', 'cross_domain_gold_shared_grain_execution_check'
+    );
+  end if;
+
   if measure is null then
     return jsonb_build_object(
       'metric_available', false,
@@ -1531,6 +2043,10 @@ begin
       'matching_rows', 0,
       'reason', 'missing_measure_key'
     );
+  end if;
+
+  if source_name = 'gold_inkomen_bestedingen' then
+    return public.guara_check_income_query_availability(plan);
   end if;
 
   select count(*)
@@ -1755,6 +2271,9 @@ $$;
 
 grant execute on function public.guara_execute_query_plan(jsonb) to anon, authenticated;
 grant execute on function public.guara_check_query_availability(jsonb) to anon, authenticated;
+grant execute on function public.guara_execute_cross_domain_query_plan(jsonb) to anon, authenticated;
+grant execute on function public.guara_execute_income_query_plan(jsonb) to anon, authenticated;
+grant execute on function public.guara_check_income_query_availability(jsonb) to anon, authenticated;
 
 drop function if exists public.guara_record_answer_provenance(text, text, jsonb, jsonb, jsonb, numeric);
 create or replace function public.guara_record_answer_provenance(

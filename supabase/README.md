@@ -205,6 +205,54 @@ The `gold_bouwen_wonen` mart loads from Silver directly into shared conformed Go
 - `gold_bouwen_wonen.fact_housing_observation`
 - `gold_bouwen_wonen.bridge_housing_observation_category`
 
+Direct Inkomen en bestedingen mart loading:
+
+```bash
+npm run load:cbs:gold:inkomen-en-bestedingen -- --ensure-schema --limit 100
+npm run load:cbs:gold:inkomen-en-bestedingen -- --dataset 86161NED
+npm run load:cbs:gold:inkomen-en-bestedingen -- --refresh --limit 100
+```
+
+The `gold_inkomen_bestedingen` mart follows the same direct Silver-to-Gold pattern:
+
+- `gold_inkomen_bestedingen.dim_income_dataset`
+- `gold_inkomen_bestedingen.dim_income_indicator`
+- `gold_inkomen_bestedingen.fact_income_observation`
+- `gold_inkomen_bestedingen.bridge_income_observation_category`
+
+Gold capability registry:
+
+```bash
+npm run load:gold:capabilities -- --ensure-schema
+npm run load:gold:capabilities -- --domain bouwen-en-wonen
+npm run load:gold:capabilities -- --domain inkomen-en-bestedingen
+npm run load:gold:capabilities -- --domain inkomen-en-bestedingen --dataset 81064ned
+```
+
+Run this after loading or refreshing a Gold mart. It profiles approved Gold fact marts and stores what each dataset and measure can safely answer by grain, year, geography level, and operation type:
+
+- `semantic.gold_dataset_capability`
+- `semantic.gold_measure_capability`
+- `semantic.gold_grain_capability`
+- `semantic.gold_capability_run`
+
+Semantic evaluation suite:
+
+```bash
+npm run test:semantic:evaluation -- --ensure-schema --seed-defaults
+npm run test:semantic:evaluation
+npm run test:semantic:evaluation -- --domain inkomen-en-bestedingen
+npm run test:semantic:evaluation -- --case income_arrears_municipality_rank_2024
+```
+
+The evaluation runner executes curated test cases against the safe Gold query RPCs and records pass/fail diagnostics:
+
+- `semantic.semantic_evaluation_suite`
+- `semantic.semantic_evaluation_case`
+- `semantic.semantic_evaluation_run`
+- `semantic.semantic_evaluation_result`
+- `gold_inkomen_bestedingen.bridge_income_observation_category`
+
 Semantic catalogue and controlled answering:
 
 ```bash

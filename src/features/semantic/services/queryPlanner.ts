@@ -517,6 +517,12 @@ function geographyFromDefaultGrain(metric: SemanticSearchResult | undefined): st
   return undefined;
 }
 
+function goldSourceForMetric(metric: SemanticSearchResult | undefined): SemanticQueryPlan["source"] {
+  return metric?.domain_id === "inkomen-en-bestedingen" || metric?.metadata?.domain_id === "inkomen-en-bestedingen"
+    ? "gold_inkomen_bestedingen"
+    : "gold_bouwen_wonen";
+}
+
 export function buildSemanticQueryPlan(question: string, intent: SemanticIntent, results: SemanticSearchResult[], curation: SemanticPlannerCuration = {}): SemanticQueryPlan {
   const measures = questionMeasures(question, results);
   const geographyResolutions = resolveGeographiesFromQuestion(question, extractNamedGeographies(question));
@@ -599,7 +605,7 @@ export function buildSemanticQueryPlan(question: string, intent: SemanticIntent,
 
   return {
     intent: intent === "measure_definition" ? "measure_definition" : intent,
-    source: "gold_bouwen_wonen",
+    source: goldSourceForMetric(mainMeasure),
     measure_key: String(mainMeasure.metadata.measure_key),
     secondary_measure_key: comparisonMeasure?.metadata.measure_key == null ? undefined : String(comparisonMeasure.metadata.measure_key),
     metric_code: typeof mainMeasure.metadata.metric_code === "string" ? mainMeasure.metadata.metric_code : mainMeasure.measure_code ?? undefined,

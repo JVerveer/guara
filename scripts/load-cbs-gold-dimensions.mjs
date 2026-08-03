@@ -410,14 +410,14 @@ async function loadDatasetDimensions(client, dataset) {
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
-  const client = createPostgresClient({
+  const selectionClient = createPostgresClient({
     applicationName: "guara-cbs-gold-dimension-loader",
     statementTimeoutMs: Math.max(1, options.writeTimeoutMs),
     queryTimeoutMs: Math.max(1, options.writeTimeoutMs),
   });
 
   try {
-    await client.connect();
+    await selectionClient.connect();
   } catch (error) {
     throw new Error(explainPostgresConnectionError(error));
   }
@@ -426,13 +426,20 @@ async function main() {
   const summary = { datasets: 0, dates: 0, geographies: 0, measures: 0, categories: 0, failed: 0 };
 
   try {
-    if (options.ensureSchema) await ensureSchema(client);
-    const datasets = await getDatasets(client, options);
+    if (options.ensureSchema) await ensureSchema(selectionClient);
+    const datasets = await getDatasets(selectionClient, options);
     console.log(`Found ${datasets.length} Silver dataset(s) for conformed Gold dimensions. Run ${runId}`);
+    await selectionClient.end();
 
     for (const dataset of datasets) {
+      const datasetClient = createPostgresClient({
+        applicationName: `guara-cbs-gold-dimensions-${dataset.dataset_id}`,
+        statementTimeoutMs: Math.max(1, options.writeTimeoutMs),
+        queryTimeoutMs: Math.max(1, options.writeTimeoutMs),
+      });
       try {
-        const result = await loadDatasetDimensions(client, dataset);
+        await datasetClient.connect();
+        const result = await loadDatasetDimensions(datasetClient, dataset);
         summary.datasets += 1;
         summary.dates += result.dates;
         summary.geographies += result.geographies;
@@ -444,13 +451,15 @@ async function main() {
       } catch (error) {
         summary.failed += 1;
         console.error(`Failed dimensions for ${dataset.dataset_id}: ${error.message}`);
+      } finally {
+        await datasetClient.end().catch(() => {});
       }
     }
 
     console.log(`Conformed dimension load summary: ${JSON.stringify(summary)}`);
     if (summary.failed > 0) process.exitCode = 1;
   } finally {
-    await client.end();
+    await selectionClient.end().catch(() => {});
   }
 }
 

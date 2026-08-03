@@ -422,6 +422,144 @@ const concepts = [
       },
     ],
   },
+  {
+    concept_code: "average_personal_income",
+    label: "Average personal income",
+    domain_id: "inkomen-en-bestedingen",
+    description: "Average income of persons with income.",
+    required_unit_code: "EUR_THOUSANDS",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["gemiddeld inkomen", "gemiddeld persoonlijk inkomen", "inkomen personen", "persoonlijk inkomen", "hoogste inkomens"],
+      en: ["average personal income", "average income", "highest incomes"],
+    },
+    exclusions: ["huishoudinkomen", "mediaan inkomen", "vermogen"],
+    bindings: [{ metric_code: "average_personal_income", binding_role: "primary", priority: 10, selection_reason: "Use average personal income as the default for generic personal-income questions." }],
+  },
+  {
+    concept_code: "median_personal_income",
+    label: "Median personal income",
+    domain_id: "inkomen-en-bestedingen",
+    description: "Median income of persons with income.",
+    required_unit_code: "EUR_THOUSANDS",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["mediaan inkomen", "mediaan persoonlijk inkomen", "mediane inkomens"],
+      en: ["median personal income", "median income"],
+    },
+    exclusions: ["gemiddeld inkomen", "huishoudinkomen", "vermogen"],
+    bindings: [{ metric_code: "median_personal_income", binding_role: "primary", priority: 10, selection_reason: "Use median personal income when the question explicitly asks for median income." }],
+  },
+  {
+    concept_code: "average_household_income",
+    label: "Average household income",
+    domain_id: "inkomen-en-bestedingen",
+    description: "Average income of private households.",
+    required_unit_code: "EUR_THOUSANDS",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["gemiddeld huishoudinkomen", "huishoudinkomen", "inkomen huishoudens"],
+      en: ["average household income", "household income"],
+    },
+    exclusions: ["persoonlijk inkomen", "mediaan inkomen", "vermogen"],
+    bindings: [{ metric_code: "average_household_income", binding_role: "primary", priority: 10, selection_reason: "Use average household income for household-income questions." }],
+  },
+  {
+    concept_code: "median_household_income",
+    label: "Median household income",
+    domain_id: "inkomen-en-bestedingen",
+    description: "Median income of private households.",
+    required_unit_code: "EUR_THOUSANDS",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["mediaan huishoudinkomen", "mediaan inkomen huishoudens"],
+      en: ["median household income"],
+    },
+    exclusions: ["gemiddeld inkomen", "persoonlijk inkomen", "vermogen"],
+    bindings: [{ metric_code: "median_household_income", binding_role: "primary", priority: 10, selection_reason: "Use median household income when the user asks for median household income." }],
+  },
+  {
+    concept_code: "household_wealth",
+    label: "Household wealth",
+    domain_id: "inkomen-en-bestedingen",
+    description: "Household wealth, defaulting to average wealth unless the user asks for median wealth.",
+    required_unit_code: "EUR_THOUSANDS",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["vermogen", "huishoudvermogen", "rijkste gemeenten", "meeste vermogen"],
+      en: ["wealth", "household wealth", "wealthiest municipalities"],
+    },
+    exclusions: ["inkomen", "bestedingen"],
+    bindings: [
+      { metric_code: "average_household_wealth", binding_role: "primary", priority: 10, selection_reason: "Use average household wealth as the default wealth metric." },
+      { metric_code: "median_household_wealth", binding_role: "alternate", priority: 20, selection_reason: "Use median household wealth when the question explicitly asks for median wealth." },
+    ],
+  },
+  {
+    concept_code: "low_income",
+    label: "Low income",
+    domain_id: "inkomen-en-bestedingen",
+    description: "Relative share of people, households, or children with a low income.",
+    required_unit_code: "PERCENT",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["laag inkomen", "armoede", "lage inkomens", "armoedepercentage"],
+      en: ["low income", "poverty", "poverty rate"],
+    },
+    exclusions: ["aantal huishoudens", "aantal personen"],
+    bindings: [
+      { metric_code: "low_income_households_share", binding_role: "primary", priority: 10, selection_reason: "Use low-income household share as the default low-income metric." },
+      { metric_code: "low_income_persons_share", binding_role: "alternate", priority: 20, selection_reason: "Use low-income persons share when people or persons are requested." },
+      { metric_code: "low_income_children_share", binding_role: "alternate", priority: 15, selection_reason: "Use low-income children share when children or child poverty are requested." },
+    ],
+  },
+  {
+    concept_code: "health_insurance_payment_arrears",
+    label: "Health insurance payment arrears",
+    domain_id: "inkomen-en-bestedingen",
+    description: "People with payment arrears on health insurance premiums, available by municipality, province, region and country.",
+    required_unit_code: "PERCENT",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["betalingsachterstand zorgpremie", "wanbetalers zorgpremie", "zorgpremie achterstand"],
+      en: ["health insurance payment arrears", "healthcare premium arrears"],
+    },
+    exclusions: ["inkomen", "vermogen"],
+    bindings: [
+      { metric_code: "health_insurance_payment_arrears_share", binding_role: "primary", priority: 10, selection_reason: "Use the relative arrears metric unless the user asks for an absolute count." },
+      { metric_code: "health_insurance_payment_arrears_persons", binding_role: "alternate", priority: 20, selection_reason: "Use the count metric when the user asks for number of people." },
+    ],
+  },
+  {
+    concept_code: "consumer_confidence",
+    label: "Consumer confidence",
+    domain_id: "inkomen-en-bestedingen",
+    description: "Consumer confidence by province, region and country.",
+    required_unit_code: "UNKNOWN",
+    default_grain: "province_year",
+    valid_grains: ["province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["consumentenvertrouwen", "vertrouwen consumenten"],
+      en: ["consumer confidence", "consumer sentiment"],
+    },
+    exclusions: ["koopbereidheid", "economisch klimaat"],
+    bindings: [{ metric_code: "consumer_confidence", binding_role: "primary", priority: 10, selection_reason: "Use the regional CBS consumer confidence indicator." }],
+  },
 ];
 
 async function upsertConcepts(client) {
@@ -432,13 +570,14 @@ async function upsertConcepts(client) {
       ambiguity_policy, metadata_origin, is_active, updated_at
     )
     select
-      concept_code, label, description, 'bouwen-en-wonen', 'nl', synonyms, exclusions,
+      concept_code, label, description, coalesce(domain_id, 'bouwen-en-wonen'), 'nl', synonyms, exclusions,
       required_unit_code, default_grain, valid_grains, supported_operations,
       'ask', 'curated', true, now()
     from jsonb_to_recordset($1::jsonb) as row(
       concept_code text,
       label text,
       description text,
+      domain_id text,
       synonyms jsonb,
       exclusions text[],
       required_unit_code text,
@@ -447,6 +586,7 @@ async function upsertConcepts(client) {
       supported_operations text[]
     )
     on conflict (concept_code) do update set
+      domain_id = excluded.domain_id,
       label = excluded.label,
       description = excluded.description,
       synonyms = excluded.synonyms,

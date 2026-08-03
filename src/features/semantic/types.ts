@@ -29,9 +29,19 @@ export interface SemanticSearchResult {
 
 export interface SemanticQueryPlan {
   intent: SemanticIntent;
-  source: "semantic_catalogue" | "gold_bouwen_wonen";
+  source: "semantic_catalogue" | "gold_bouwen_wonen" | "gold_inkomen_bestedingen" | "cross_domain_gold";
   measure_key?: string;
   secondary_measure_key?: string;
+  component_measures?: Array<{
+    metric_code: string;
+    measure_key: string;
+    dataset_code: string;
+    source: "gold_bouwen_wonen" | "gold_inkomen_bestedingen";
+    label: string;
+    domain_id: string;
+    unit_code?: string | null;
+    category_filters?: Record<string, string>;
+  }>;
   metric_id?: string;
   metric_code?: string;
   semantic_concept_code?: string;

@@ -39,12 +39,19 @@ export function createPostgresClient({
   });
   url.searchParams.set("application_name", applicationName);
 
-  return new Client({
+  const client = new Client({
     connectionString: url.toString(),
     ssl: process.env.SUPABASE_DB_SSL_DISABLE === "true" ? false : { rejectUnauthorized: false },
     statement_timeout: statementTimeoutMs,
     query_timeout: queryTimeoutMs,
   });
+
+  client.on("error", (error) => {
+    const message = error?.message ?? String(error);
+    console.error(`[${applicationName}] Postgres connection error: ${message}`);
+  });
+
+  return client;
 }
 
 export function explainPostgresConnectionError(error) {

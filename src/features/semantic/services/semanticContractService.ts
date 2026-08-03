@@ -525,7 +525,7 @@ export async function fetchSemanticContractContext(question: string): Promise<Se
   const supabase = await getSupabaseClient();
 
   const { data, error } = await (supabase as any).rpc("guara_semantic_contract_context", {
-    domain_id: "bouwen-en-wonen",
+    domain_id: null,
     contract_limit: 1000,
     measure_limit: 5000,
     grain_limit: 10000,
