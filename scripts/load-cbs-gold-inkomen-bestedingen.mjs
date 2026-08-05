@@ -26,6 +26,7 @@ function parseArgs(argv) {
     limit: 100,
     batchSize: 50000,
     writeBatchSize: 50000,
+    maxInsertRows: 10000,
     writeTimeoutMs: 900000,
     lookupChunkSize: 5000,
     maxBatches: 0,
@@ -40,6 +41,7 @@ function parseArgs(argv) {
     else if (arg === "--limit") options.limit = Number(argv[++index] ?? options.limit);
     else if (arg === "--batch-size") options.batchSize = Number(argv[++index] ?? options.batchSize);
     else if (arg === "--write-batch-size") options.writeBatchSize = Number(argv[++index] ?? options.writeBatchSize);
+    else if (arg === "--max-insert-rows") options.maxInsertRows = Number(argv[++index] ?? options.maxInsertRows);
     else if (arg === "--write-timeout-ms") options.writeTimeoutMs = Number(argv[++index] ?? options.writeTimeoutMs);
     else if (arg === "--lookup-chunk-size") options.lookupChunkSize = Number(argv[++index] ?? options.lookupChunkSize);
     else if (arg === "--max-batches") options.maxBatches = Number(argv[++index] ?? options.maxBatches);
@@ -56,6 +58,7 @@ Options:
   --batch-size 50000    Silver observations read per batch.
   --lookup-chunk-size   Silver row ids per dimensions/measures lookup chunk.
   --write-batch-size    Domain fact rows written per insert chunk.
+  --max-insert-rows     Safety cap for one physical insert statement. Defaults to 10000.
   --max-batches 1       Stop after N read batches; useful for smoke tests.
   --no-resume           Reprocess selected datasets instead of skipping/resuming Gold facts.
   --refresh             Rebuild selected mart facts from Silver.
@@ -611,10 +614,16 @@ async function upsertCategories(client, datasetKey, datasetId, primaryDimensionK
   return map;
 }
 
-async function insertIncomeFacts(client, facts, writeBatchSize, { returnFactKeys = true } = {}) {
+function effectiveInsertSize(writeBatchSize, maxInsertRows) {
+  const requestedSize = Math.max(1, Number(writeBatchSize) || 1);
+  const safetyCap = Math.max(1, Number(maxInsertRows) || requestedSize);
+  return Math.min(requestedSize, safetyCap);
+}
+
+async function insertIncomeFacts(client, facts, writeBatchSize, { maxInsertRows = writeBatchSize, returnFactKeys = true } = {}) {
   const rows = [];
   let count = 0;
-  for (const chunk of chunkRows(facts, writeBatchSize)) {
+  for (const chunk of chunkRows(facts, effectiveInsertSize(writeBatchSize, maxInsertRows))) {
     const result = await client.query(
       `
         insert into gold_inkomen_bestedingen.fact_income_observation (
@@ -711,9 +720,9 @@ async function insertIncomeFacts(client, facts, writeBatchSize, { returnFactKeys
   return { count, rows };
 }
 
-async function insertIncomeBridgeRows(client, bridgeRows, writeBatchSize) {
+async function insertIncomeBridgeRows(client, bridgeRows, writeBatchSize, { maxInsertRows = writeBatchSize } = {}) {
   let count = 0;
-  for (const chunk of chunkRows(bridgeRows, writeBatchSize)) {
+  for (const chunk of chunkRows(bridgeRows, effectiveInsertSize(writeBatchSize, maxInsertRows))) {
     const result = await client.query(
       `
         insert into gold_inkomen_bestedingen.bridge_income_observation_category (
@@ -925,6 +934,7 @@ async function loadDataset(client, dataset, options) {
         let insertedFacts;
         try {
           insertedFacts = await insertIncomeFacts(client, factPayloads, options.writeBatchSize, {
+            maxInsertRows: options.maxInsertRows,
             returnFactKeys: hasCategoryBridgeRows,
           });
 
@@ -939,7 +949,9 @@ async function loadDataset(client, dataset, options) {
                 bridgePayloads.push({ incomeObservationKey, ...category });
               }
             }
-            insertedBridgeRows = await insertIncomeBridgeRows(client, bridgePayloads, options.writeBatchSize);
+            insertedBridgeRows = await insertIncomeBridgeRows(client, bridgePayloads, options.writeBatchSize, {
+              maxInsertRows: options.maxInsertRows,
+            });
           }
 
           const nextRowIndex = Number(observationChunk.at(-1).row_index) + 1;
