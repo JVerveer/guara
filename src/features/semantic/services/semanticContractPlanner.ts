@@ -395,7 +395,7 @@ function goldSourceForDomain(domainId: string | null | undefined): SemanticQuery
 }
 
 function crossDomainQuestion(question: string): boolean {
-  return /\b(correlation|relatie|verband|samenhang|combineer|combine|cross.?domain|domein|ook|also|versus|vs|compared with|vergeleken met)\b/i.test(question)
+  return /\b(correlation|relatie|verband|samenhang|causaal|causality|causaliteit|oorzaak|oorzaken|verklaart|verklaren|effect|invloed|combineer|combine|cross.?domain|domein|ook|also|versus|vs|compared with|vergeleken met)\b/i.test(question)
     || /\b(hoge|hoog|high)\b.*\b(lage|laag|low|achterstand|arrears|woz|woningwaarde|nieuwbouw)\b/i.test(question)
     || /\b(woz|woningwaarde|nieuwbouw|woningvoorraad)\b.*\b(inkomen|armoede|zorgpremie|betalingsachterstand|achterstanden)\b/i.test(question);
 }

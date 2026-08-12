@@ -753,15 +753,19 @@ begin
     raise exception 'Cross-domain comparison requires at least two component measures.';
   end if;
 
-  select jsonb_build_object(
-    'columns', jsonb_build_array('geography_name', 'geography_code', 'geography_type', 'calendar_year', 'metrics', 'metric_count'),
-    'rows', coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb)
-  )
-  into result
-  from (
-    with components as (
-      select *
-      from jsonb_to_recordset(plan->'component_measures') as component(
+  with components as (
+      select
+        element.ordinality::integer as component_order,
+        component.metric_code,
+        component.measure_key,
+        component.dataset_code,
+        component.source,
+        component.label,
+        component.domain_id,
+        component.unit_code,
+        component.category_filters
+      from jsonb_array_elements(plan->'component_measures') with ordinality as element(value, ordinality)
+      cross join lateral jsonb_to_record(element.value) as component(
         metric_code text,
         measure_key bigint,
         dataset_code text,
@@ -775,6 +779,7 @@ begin
     ),
     values_by_component as (
       select
+        c.component_order,
         c.metric_code,
         c.label,
         c.domain_id,
@@ -827,11 +832,12 @@ begin
             )
           )
         )
-      group by c.metric_code, c.label, c.domain_id, c.source, c.dataset_code, f.geography_name, f.geography_code, f.geography_type, f.calendar_year
+      group by c.component_order, c.metric_code, c.label, c.domain_id, c.source, c.dataset_code, f.geography_name, f.geography_code, f.geography_type, f.calendar_year
 
       union all
 
       select
+        c.component_order,
         c.metric_code,
         c.label,
         c.domain_id,
@@ -866,7 +872,7 @@ begin
                or lower(regexp_replace(f.geography_name, '\s*\([^)]*\)\s*$', '')) = lower(regexp_replace(requested_geography.name, '\s*\([^)]*\)\s*$', ''))
           )
         )
-      group by c.metric_code, c.label, c.domain_id, c.source, c.dataset_code, f.geography_name, f.geography_code, f.geography_type, f.calendar_year
+      group by c.component_order, c.metric_code, c.label, c.domain_id, c.source, c.dataset_code, f.geography_name, f.geography_code, f.geography_type, f.calendar_year
     ),
     complete_rows as (
       select
@@ -888,12 +894,100 @@ begin
       from values_by_component
       group by geography_name, geography_code, geography_type, calendar_year
       having count(distinct metric_code) = component_count
+    ),
+    first_two_components as (
+      select
+        max(metric_code) filter (where component_order = 1) as primary_metric_code,
+        max(label) filter (where component_order = 1) as primary_label,
+        max(metric_code) filter (where component_order = 2) as secondary_metric_code,
+        max(label) filter (where component_order = 2) as secondary_label
+      from components
+    ),
+    relationship_input as (
+      select
+        cr.geography_code,
+        cr.calendar_year,
+        ft.primary_metric_code,
+        ft.primary_label,
+        ft.secondary_metric_code,
+        ft.secondary_label,
+        nullif(cr.metrics->ft.primary_metric_code->>'value', '')::double precision as primary_value,
+        nullif(cr.metrics->ft.secondary_metric_code->>'value', '')::double precision as secondary_value
+      from complete_rows cr
+      cross join first_two_components ft
+      where ft.primary_metric_code is not null
+        and ft.secondary_metric_code is not null
+        and cr.metrics ? ft.primary_metric_code
+        and cr.metrics ? ft.secondary_metric_code
+    ),
+    relation_stats as (
+      select
+        max(primary_metric_code) as primary_metric_code,
+        max(primary_label) as primary_label,
+        max(secondary_metric_code) as secondary_metric_code,
+        max(secondary_label) as secondary_label,
+        count(*)::integer as observation_count,
+        count(distinct geography_code)::integer as geography_count,
+        min(calendar_year)::integer as year_min,
+        max(calendar_year)::integer as year_max,
+        case
+          when count(*) >= 3 and stddev_pop(primary_value) > 0 and stddev_pop(secondary_value) > 0
+          then round(corr(primary_value, secondary_value)::numeric, 4)
+          else null
+        end as pearson_correlation
+      from relationship_input
+    ),
+    limited_rows as (
+      select *
+      from complete_rows
+      order by calendar_year desc nulls last, geography_name asc
+      limit limit_value
     )
-    select *
-    from complete_rows
-    order by calendar_year desc nulls last, geography_name asc
-    limit limit_value
-  ) x;
+  select jsonb_build_object(
+    'columns', jsonb_build_array('geography_name', 'geography_code', 'geography_type', 'calendar_year', 'metrics', 'metric_count'),
+    'rows', coalesce((select jsonb_agg(to_jsonb(x) order by x.calendar_year desc nulls last, x.geography_name asc) from limited_rows x), '[]'::jsonb),
+    'analysis', coalesce((
+      select jsonb_build_object(
+        'analysis_type', 'cross_domain_relationship',
+        'relationship_type', 'association',
+        'comparison_supported', true,
+        'causality_status', 'not_established',
+        'causality_statement', 'Guara can compare these Gold metrics and describe statistical association, but it cannot infer causality from this query alone.',
+        'observation_count', relation_stats.observation_count,
+        'geography_count', relation_stats.geography_count,
+        'year_min', relation_stats.year_min,
+        'year_max', relation_stats.year_max,
+        'primary_metric_code', relation_stats.primary_metric_code,
+        'secondary_metric_code', relation_stats.secondary_metric_code,
+        'primary_label', relation_stats.primary_label,
+        'secondary_label', relation_stats.secondary_label,
+        'pearson_correlation', relation_stats.pearson_correlation,
+        'relationship_direction',
+          case
+            when relation_stats.pearson_correlation is null then 'insufficient_data'
+            when relation_stats.pearson_correlation > 0 then 'positive'
+            when relation_stats.pearson_correlation < 0 then 'negative'
+            else 'none'
+          end,
+        'relationship_strength',
+          case
+            when relation_stats.pearson_correlation is null or relation_stats.observation_count < 5 then 'insufficient_data'
+            when abs(relation_stats.pearson_correlation) >= 0.7 then 'strong'
+            when abs(relation_stats.pearson_correlation) >= 0.4 then 'moderate'
+            when abs(relation_stats.pearson_correlation) >= 0.2 then 'weak'
+            else 'very_weak'
+          end,
+        'method', 'Pearson correlation across complete geography-period rows for the first two component metrics.',
+        'warnings', jsonb_build_array(
+          'Correlation is descriptive and does not establish causality.',
+          'Results depend on loaded Gold coverage, shared grain, period, and selected metrics.',
+          'Use controls, lagged variables, domain theory, and source review before making causal claims.'
+        )
+      )
+      from relation_stats
+    ), '{}'::jsonb)
+  )
+  into result;
 
   return result;
 end;

@@ -244,7 +244,21 @@ function changeLabel(value: unknown, unitCode?: unknown): string {
   return `${prefix}${formatTypedValue(numeric, unitCode)}`;
 }
 
-function businessAnswerText(_question: string, plan: SemanticQueryPlan, resultRows: Array<Record<string, unknown>>) {
+function crossDomainAnalysis(result: Record<string, unknown>): Record<string, unknown> {
+  return result.analysis && typeof result.analysis === "object" && !Array.isArray(result.analysis)
+    ? result.analysis as Record<string, unknown>
+    : {};
+}
+
+function relationshipPhrase(analysis: Record<string, unknown>): string {
+  const strength = String(analysis.relationship_strength ?? "unknown");
+  const direction = String(analysis.relationship_direction ?? "unknown");
+  if (strength === "insufficient_data" || direction === "insufficient_data") return "not enough complete observations to describe the statistical relationship";
+  if (direction === "none") return "no clear linear association";
+  return `${strength.replace("_", " ")} ${direction} association`;
+}
+
+function businessAnswerText(_question: string, plan: SemanticQueryPlan, resultRows: Array<Record<string, unknown>>, result: Record<string, unknown> = {}) {
   const first = resultRows[0] ?? {};
   const measure = humanMeasureName(plan, first);
   const period = periodLabel(plan, first);
@@ -329,11 +343,22 @@ function businessAnswerText(_question: string, plan: SemanticQueryPlan, resultRo
   }
 
   if (plan.calculation_code === "cross_domain_comparison") {
+    const analysis = crossDomainAnalysis(result);
+    const correlation = numberValue(analysis.pearson_correlation);
+    const observationCount = numberValue(analysis.observation_count);
+    const primary = String(analysis.primary_label ?? plan.component_measures?.[0]?.label ?? "the first metric");
+    const secondary = String(analysis.secondary_label ?? plan.component_measures?.[1]?.label ?? "the second metric");
+    const relationship = relationshipPhrase(analysis);
     const top = geographyLabel(plan, first);
     return {
-      title: `Cross-domain comparison for ${top} in ${period}`,
-      summary: `Guara compared approved metrics from multiple Gold domains using the shared ${plan.grain?.display_grain ?? "geography-year"} grain. This shows association, not causality.`,
-      bullets: resultRows.slice(0, 10).map((row) => {
+      title: `${primary} and ${secondary}: ${relationship}`,
+      summary: correlation == null
+        ? `Guara compared approved metrics from multiple Gold domains using the shared ${plan.grain?.display_grain ?? "geography-year"} grain. The result is descriptive and does not establish causality.`
+        : `Across ${formatNumber(observationCount ?? resultRows.length)} complete ${plan.grain?.display_grain ?? "geography-year"} observations, the Pearson correlation is ${formatNumber(correlation, 2)}. This is association, not causal evidence.`,
+      bullets: [
+        `Relationship check: ${relationship}`,
+        `Causality: ${String(analysis.causality_status ?? "not_established").replace("_", " ")}. ${String(analysis.causality_statement ?? "Guara does not infer causality from this comparison.")}`,
+        ...resultRows.slice(0, 10).map((row) => {
         const metrics = row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics)
           ? row.metrics as Record<string, { label?: string; value?: unknown; unit_code?: string }>
           : {};
@@ -341,7 +366,8 @@ function businessAnswerText(_question: string, plan: SemanticQueryPlan, resultRo
           .map(([, metric]) => `${metric.label ?? "metric"}: ${formatTypedValue(metric.value, metric.unit_code)}`)
           .join("; ");
         return `${geographyLabel(plan, row)} ${row.calendar_year ?? period}: ${metricText}`;
-      }),
+        }),
+      ],
     };
   }
 
@@ -476,7 +502,7 @@ export function answerText(question: string, plan: SemanticQueryPlan, result: Re
   }
 
   if (resultRows.length > 0) {
-    const businessText = businessAnswerText(question, plan, resultRows);
+    const businessText = businessAnswerText(question, plan, resultRows, result);
     const warnings = Array.from(new Set([...(plan.warnings ?? []), ...((result.returned_grain_warnings as string[] | undefined) ?? [])]));
     return {
       title: businessText.title,

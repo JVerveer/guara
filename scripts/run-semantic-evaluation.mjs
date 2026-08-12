@@ -10,6 +10,13 @@ const DEFAULT_SUITE = {
   domain_id: null,
 };
 
+const CROSS_DOMAIN_SUITE = {
+  suite_code: "cross_domain_gold_smoke",
+  suite_name: "Cross-domain Gold smoke tests",
+  description: "Deterministic execution checks for questions that combine Bouwen en wonen with Inkomen en bestedingen Gold marts.",
+  domain_id: "cross-domain",
+};
+
 const DEFAULT_CASES = [
   {
     case_code: "income_arrears_municipality_rank_2024",
@@ -98,6 +105,237 @@ const DEFAULT_CASES = [
   },
 ];
 
+const CROSS_DOMAIN_CASES = [
+  {
+    case_code: "cross_woz_arrears_municipality_2024",
+    question: "Welke gemeenten combineren een hoge gemiddelde WOZ-waarde met veel betalingsachterstanden zorgpremie in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "average_woz_home_value", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_rental_homes_arrears_municipality_2024",
+    question: "Vergelijk het aantal huurwoningen met betalingsachterstanden zorgpremie per gemeente in 2024.",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "total_rental_homes", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_new_construction_arrears_municipality_2024",
+    question: "Waar valt veel nieuwbouw samen met veel betalingsachterstanden zorgpremie in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "new_construction", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_demolished_arrears_municipality_2024",
+    question: "Welke gemeenten hebben veel gesloopte woningen en veel betalingsachterstanden zorgpremie in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "demolished_dwellings", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_housing_stock_arrears_municipality_2024",
+    question: "Vergelijk de beginstand woningvoorraad met betalingsachterstanden zorgpremie per gemeente in 2024.",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_stock_start", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_home_satisfaction_arrears_municipality_2024",
+    question: "Waar is woontevredenheid hoog maar zijn er ook veel betalingsachterstanden zorgpremie in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "current_home_satisfaction", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_physical_additions_arrears_municipality_2024",
+    question: "Welke gemeenten hebben veel fysieke toevoegingen aan de woningvoorraad en veel betalingsachterstanden zorgpremie in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "physical_housing_additions", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_physical_withdrawals_arrears_municipality_2024",
+    question: "Waar vallen fysieke onttrekkingen aan de woningvoorraad samen met betalingsachterstanden zorgpremie in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "physical_housing_withdrawals", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_transformations_arrears_municipality_2024",
+    question: "Vergelijk woningtransformaties met betalingsachterstanden zorgpremie per gemeente in 2024.",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_transformations", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_splits_arrears_municipality_2024",
+    question: "Welke gemeenten hebben veel woningsplitsingen en veel betalingsachterstanden zorgpremie in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_splits", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_mergers_arrears_municipality_2024",
+    question: "Welke gemeenten hebben veel woningsamenvoegingen en veel betalingsachterstanden zorgpremie in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_mergers", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_stock_balance_arrears_municipality_2024",
+    question: "Vergelijk het saldo woningvoorraad met betalingsachterstanden zorgpremie per gemeente in 2024.",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_stock_balance", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_rent_increase_arrears_municipality_2024",
+    question: "Waar zijn huurverhogingen hoog en betalingsachterstanden zorgpremie ook hoog in 2024?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "rent_increase_including_harmonisation", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+    minimum_rows: 4,
+  },
+  {
+    case_code: "cross_woz_consumer_confidence_province_2024",
+    question: "Vergelijk gemiddelde WOZ-waarde met consumentenvertrouwen per provincie in 2024.",
+    expected_geography_type: "province",
+    expected_grain: "province_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "average_woz_home_value", domain_id: "bouwen-en-wonen" },
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_new_construction_consumer_confidence_province_2024",
+    question: "Welke provincies combineren veel nieuwbouw met hoog consumentenvertrouwen in 2024?",
+    expected_geography_type: "province",
+    expected_grain: "province_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "new_construction", domain_id: "bouwen-en-wonen" },
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_demolished_consumer_confidence_province_2024",
+    question: "Vergelijk gesloopte woningen met consumentenvertrouwen per provincie in 2024.",
+    expected_geography_type: "province",
+    expected_grain: "province_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "demolished_dwellings", domain_id: "bouwen-en-wonen" },
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_housing_stock_consumer_confidence_province_2024",
+    question: "Vergelijk de woningvoorraad met consumentenvertrouwen per provincie in 2024.",
+    expected_geography_type: "province",
+    expected_grain: "province_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_stock_start", domain_id: "bouwen-en-wonen" },
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_rental_homes_consumer_confidence_province_2024",
+    question: "Vergelijk huurwoningen met consumentenvertrouwen per provincie in 2024.",
+    expected_geography_type: "province",
+    expected_grain: "province_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "total_rental_homes", domain_id: "bouwen-en-wonen" },
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_home_satisfaction_consumer_confidence_province_2024",
+    question: "Welke provincies combineren hoge woontevredenheid met hoog consumentenvertrouwen in 2024?",
+    expected_geography_type: "province",
+    expected_grain: "province_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "current_home_satisfaction", domain_id: "bouwen-en-wonen" },
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "cross_physical_additions_consumer_confidence_province_2024",
+    question: "Vergelijk fysieke toevoegingen aan de woningvoorraad met consumentenvertrouwen per provincie in 2024.",
+    expected_geography_type: "province",
+    expected_grain: "province_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "physical_housing_additions", domain_id: "bouwen-en-wonen" },
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+].map((testCase) => ({
+  domain_id: "cross-domain",
+  expected_intent: "compare_geographies",
+  expected_source: "cross_domain_gold",
+  should_execute: true,
+  minimum_rows: 5,
+  ...testCase,
+}));
+
 function parseArgs(argv) {
   const options = { ensureSchema: false, seedDefaults: false, suite: DEFAULT_SUITE.suite_code, domain: "", caseCode: "", statementTimeoutMs: 300000 };
   for (let index = 2; index < argv.length; index += 1) {
@@ -133,79 +371,86 @@ async function ensureSchema(client) {
 }
 
 async function seedDefaults(client) {
-  await client.query(
-    `
-      insert into semantic.semantic_evaluation_suite (suite_code, suite_name, description, domain_id, metadata, is_active)
-      values ($1, $2, $3, $4, $5::jsonb, true)
-      on conflict (suite_code) do update set
-        suite_name = excluded.suite_name,
-        description = excluded.description,
-        domain_id = excluded.domain_id,
-        metadata = excluded.metadata,
-        is_active = true,
-        updated_at = now()
-    `,
-    [DEFAULT_SUITE.suite_code, DEFAULT_SUITE.suite_name, DEFAULT_SUITE.description, DEFAULT_SUITE.domain_id, JSON.stringify({ metadata_origin: "curated_seed" })]
-  );
+  const suites = [
+    { suite: DEFAULT_SUITE, cases: DEFAULT_CASES },
+    { suite: CROSS_DOMAIN_SUITE, cases: CROSS_DOMAIN_CASES },
+  ];
 
-  for (const testCase of DEFAULT_CASES) {
+  for (const { suite, cases } of suites) {
     await client.query(
       `
-        insert into semantic.semantic_evaluation_case (
-          suite_code, case_code, question, language_code, domain_id, expected_intent,
-          expected_metric_code, expected_dataset_code, expected_source, expected_geography_type,
-          expected_grain, expected_year, expected_year_start, expected_year_end,
-          expected_category_filters, expected_component_metrics, should_execute, minimum_rows, expected_no_execute_reason,
-          metadata, is_active
-        )
-        values ($1, $2, $3, 'nl', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb, $16, $17, $18, $19::jsonb, true)
-        on conflict (case_code) do update set
-          suite_code = excluded.suite_code,
-          question = excluded.question,
+        insert into semantic.semantic_evaluation_suite (suite_code, suite_name, description, domain_id, metadata, is_active)
+        values ($1, $2, $3, $4, $5::jsonb, true)
+        on conflict (suite_code) do update set
+          suite_name = excluded.suite_name,
+          description = excluded.description,
           domain_id = excluded.domain_id,
-          expected_intent = excluded.expected_intent,
-          expected_metric_code = excluded.expected_metric_code,
-          expected_dataset_code = excluded.expected_dataset_code,
-          expected_source = excluded.expected_source,
-          expected_geography_type = excluded.expected_geography_type,
-          expected_grain = excluded.expected_grain,
-          expected_year = excluded.expected_year,
-          expected_year_start = excluded.expected_year_start,
-          expected_year_end = excluded.expected_year_end,
-          expected_category_filters = excluded.expected_category_filters,
-          expected_component_metrics = excluded.expected_component_metrics,
-          should_execute = excluded.should_execute,
-          minimum_rows = excluded.minimum_rows,
-          expected_no_execute_reason = excluded.expected_no_execute_reason,
           metadata = excluded.metadata,
           is_active = true,
           updated_at = now()
       `,
-      [
-        DEFAULT_SUITE.suite_code,
-        testCase.case_code,
-        testCase.question,
-        testCase.domain_id,
-        testCase.expected_intent,
-        testCase.expected_metric_code ?? null,
-        testCase.expected_dataset_code ?? null,
-        testCase.expected_source ?? null,
-        testCase.expected_geography_type ?? null,
-        testCase.expected_grain ?? null,
-        testCase.expected_year ?? null,
-        testCase.expected_year_start ?? null,
-        testCase.expected_year_end ?? null,
-        JSON.stringify(testCase.expected_category_filters ?? {}),
-        JSON.stringify(testCase.expected_component_metrics ?? []),
-        testCase.should_execute,
-        testCase.minimum_rows ?? 1,
-        testCase.expected_no_execute_reason ?? null,
-        JSON.stringify({ metadata_origin: "curated_seed" }),
-      ]
+      [suite.suite_code, suite.suite_name, suite.description, suite.domain_id, JSON.stringify({ metadata_origin: "curated_seed" })]
     );
-  }
 
-  console.log(`Seeded semantic evaluation suite "${DEFAULT_SUITE.suite_code}" with ${DEFAULT_CASES.length} case(s).`);
+    for (const testCase of cases) {
+      await client.query(
+        `
+          insert into semantic.semantic_evaluation_case (
+            suite_code, case_code, question, language_code, domain_id, expected_intent,
+            expected_metric_code, expected_dataset_code, expected_source, expected_geography_type,
+            expected_grain, expected_year, expected_year_start, expected_year_end,
+            expected_category_filters, expected_component_metrics, should_execute, minimum_rows, expected_no_execute_reason,
+            metadata, is_active
+          )
+          values ($1, $2, $3, 'nl', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb, $16, $17, $18, $19::jsonb, true)
+          on conflict (case_code) do update set
+            suite_code = excluded.suite_code,
+            question = excluded.question,
+            domain_id = excluded.domain_id,
+            expected_intent = excluded.expected_intent,
+            expected_metric_code = excluded.expected_metric_code,
+            expected_dataset_code = excluded.expected_dataset_code,
+            expected_source = excluded.expected_source,
+            expected_geography_type = excluded.expected_geography_type,
+            expected_grain = excluded.expected_grain,
+            expected_year = excluded.expected_year,
+            expected_year_start = excluded.expected_year_start,
+            expected_year_end = excluded.expected_year_end,
+            expected_category_filters = excluded.expected_category_filters,
+            expected_component_metrics = excluded.expected_component_metrics,
+            should_execute = excluded.should_execute,
+            minimum_rows = excluded.minimum_rows,
+            expected_no_execute_reason = excluded.expected_no_execute_reason,
+            metadata = excluded.metadata,
+            is_active = true,
+            updated_at = now()
+        `,
+        [
+          suite.suite_code,
+          testCase.case_code,
+          testCase.question,
+          testCase.domain_id,
+          testCase.expected_intent,
+          testCase.expected_metric_code ?? null,
+          testCase.expected_dataset_code ?? null,
+          testCase.expected_source ?? null,
+          testCase.expected_geography_type ?? null,
+          testCase.expected_grain ?? null,
+          testCase.expected_year ?? null,
+          testCase.expected_year_start ?? null,
+          testCase.expected_year_end ?? null,
+          JSON.stringify(testCase.expected_category_filters ?? {}),
+          JSON.stringify(testCase.expected_component_metrics ?? []),
+          testCase.should_execute,
+          testCase.minimum_rows ?? 1,
+          testCase.expected_no_execute_reason ?? null,
+          JSON.stringify({ metadata_origin: "curated_seed" }),
+        ]
+      );
+    }
+
+    console.log(`Seeded semantic evaluation suite "${suite.suite_code}" with ${cases.length} case(s).`);
+  }
 }
 
 async function createRun(client, options) {
@@ -389,6 +634,15 @@ async function evaluateCase(client, runId, testCase) {
   }
 
   const resultRows = Array.isArray(execution.rows) ? execution.rows : [];
+  const relationshipAnalysis = execution.analysis && typeof execution.analysis === "object" && !Array.isArray(execution.analysis)
+    ? execution.analysis
+    : {};
+  if (testCase.expected_source === "cross_domain_gold" && testCase.should_execute) {
+    checks.relationship_analysis_present = relationshipAnalysis.analysis_type === "cross_domain_relationship";
+    checks.relationship_type_is_association = relationshipAnalysis.relationship_type === "association";
+    checks.causality_not_established = relationshipAnalysis.causality_status === "not_established";
+    checks.relationship_has_sample_size = Number(relationshipAnalysis.observation_count ?? 0) >= Number(testCase.minimum_rows ?? 1);
+  }
   checks.minimum_rows_met = !testCase.should_execute || resultRows.length >= Number(testCase.minimum_rows ?? 1);
   checks.no_execute_expected = testCase.should_execute === false;
 
@@ -402,6 +656,10 @@ async function evaluateCase(client, runId, testCase) {
   if (testCase.should_execute && availability.grain_available !== true) failures.push("grain_not_available");
   if (testCase.should_execute && availability.period_available !== true) failures.push("period_not_available");
   if (testCase.should_execute && !checks.minimum_rows_met) failures.push("too_few_rows");
+  if (testCase.expected_source === "cross_domain_gold" && testCase.should_execute && !checks.relationship_analysis_present) failures.push("relationship_analysis_missing");
+  if (testCase.expected_source === "cross_domain_gold" && testCase.should_execute && !checks.relationship_type_is_association) failures.push("relationship_type_not_association");
+  if (testCase.expected_source === "cross_domain_gold" && testCase.should_execute && !checks.causality_not_established) failures.push("causality_status_not_safe");
+  if (testCase.expected_source === "cross_domain_gold" && testCase.should_execute && !checks.relationship_has_sample_size) failures.push("relationship_sample_too_small");
   if (!testCase.should_execute && availability.grain_available === true && availability.period_available === true) failures.push("unexpectedly_executable");
   if (errorMessage) failures.push("execution_error");
 
