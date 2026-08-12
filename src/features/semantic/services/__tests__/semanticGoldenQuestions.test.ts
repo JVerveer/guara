@@ -1162,6 +1162,126 @@ describe("semantic golden question planning", () => {
     expect(plan?.year).toBe(2024);
   });
 
+  it("prefers explicit cross-domain metric contracts over same-word category values", () => {
+    const context = {
+      contracts: [],
+      metricContracts: [
+        {
+          metric_code: "new_construction",
+          label: "Nieuwbouw",
+          description: "Newly built dwellings.",
+          domain_id: "bouwen-en-wonen",
+          measure_key: "new-construction-measure",
+          dataset_codes: ["86054NED"],
+          unit_code: "COUNT",
+          aggregation: "sum",
+          valid_grains: ["municipality_year", "province_year", "national_year"],
+          default_grain: "municipality_year",
+          synonyms: { nl: ["nieuwbouw", "nieuwbouwwoningen", "gebouwde nieuwbouwwoningen"], en: ["new construction"] },
+          exclusions: [],
+          supports: { ranking: true, comparison: true, trend: true },
+          category_filters: {},
+          selection_priority: 10,
+          metadata_origin: "curated",
+          contract_status: "curated",
+          execution_status: "enabled",
+          semantic_quality_status: "curated",
+          availability_status: "available",
+        },
+        {
+          metric_code: "health_insurance_payment_arrears_share",
+          label: "Betalingsachterstanden zorgpremie",
+          description: "Share with health insurance premium payment arrears.",
+          domain_id: "inkomen-en-bestedingen",
+          measure_key: "arrears-share-measure",
+          dataset_codes: ["81064ned"],
+          unit_code: "PERCENT",
+          aggregation: "average",
+          valid_grains: ["municipality_year", "province_year", "national_year"],
+          default_grain: "municipality_year",
+          synonyms: { nl: ["betalingsachterstanden zorgpremie", "zorgpremie achterstanden"], en: ["health insurance arrears"] },
+          exclusions: [],
+          supports: { ranking: true, comparison: true, trend: true },
+          category_filters: {},
+          selection_priority: 10,
+          metadata_origin: "curated",
+          contract_status: "curated",
+          execution_status: "enabled",
+          semantic_quality_status: "curated",
+          availability_status: "available",
+        },
+      ],
+      concepts: [],
+      conceptMetricBindings: [],
+      dimensionContracts: [],
+      categoryValueContracts: [
+        {
+          contract_code: "category_86318ned_aardwerkzaamheden_nieuwbouw",
+          domain_id: "bouwen-en-wonen",
+          dataset_code: "86318NED",
+          metric_code: "category_86318ned_aardwerkzaamheden_nieuwbouw",
+          measure_key: "permitted-temporary-homes-measure",
+          measure_name: "Vergunde tijdelijke woningen",
+          unit_code: "COUNT",
+          aggregation: "sum",
+          dimension_code: "AardWerkzaamheden",
+          category_code: "A028180",
+          category_name: "Nieuwbouw",
+          label: "Nieuwbouw",
+          description: "Category value contract for a dimension value named Nieuwbouw.",
+          synonyms: { nl: ["nieuwbouw"], en: ["new construction"] },
+          category_filters: { AardWerkzaamheden: "Nieuwbouw" },
+          valid_grains: ["municipality_year"],
+          default_grain: "municipality_year",
+          supports: { ranking: true, comparison: true, trend: true },
+          is_total: false,
+          is_unknown: false,
+          selection_priority: 1,
+          metadata_origin: "generated",
+          contract_status: "profiled",
+          execution_status: "enabled",
+          semantic_quality_status: "category_value_profiled",
+          availability_status: "available",
+          availability_checked_at: null,
+        },
+      ],
+      results: [],
+      metricGrains: [
+        {
+          measure_key: "new-construction-measure",
+          geography_type: "municipality",
+          period_type: "year",
+          min_year: 2021,
+          max_year: 2024,
+          is_supported: true,
+        },
+        {
+          measure_key: "arrears-share-measure",
+          geography_type: "municipality",
+          period_type: "year",
+          min_year: 2021,
+          max_year: 2024,
+          is_supported: true,
+        },
+      ],
+      metricPreferences: [],
+    };
+
+    const question = "Waar valt veel nieuwbouw samen met veel betalingsachterstanden zorgpremie in 2024?";
+    const plan = buildContractQueryPlan(question, classifySemanticIntent(question), context).plan;
+
+    expect(plan?.source).toBe("cross_domain_gold");
+    expect(plan?.calculation_code).toBe("cross_domain_comparison");
+    expect(plan?.dataset_code?.split(",").sort()).toEqual(["81064ned", "86054NED"].sort());
+    expect(plan?.component_measures?.map((component) => component.metric_code).sort()).toEqual([
+      "new_construction",
+      "health_insurance_payment_arrears_share",
+    ].sort());
+    expect(plan?.component_measures?.some((component) => component.dataset_code === "86318NED")).toBe(false);
+    expect(plan?.grain?.display_grain).toBe("municipality_year");
+    expect(plan?.year).toBe(2024);
+  });
+
   it("does not execute generated semantic contracts until they are reviewed or curated", () => {
     const context = {
       contracts: [],
