@@ -21,15 +21,19 @@ const DOMAINS = {
 function parseArgs(argv) {
   const options = {
     ensureSchema: false,
+    ensureIndexes: false,
     domain: "",
     dataset: "",
     statementTimeoutMs: 900000,
+    missingOnly: false,
     limit: 0,
   };
 
   for (let index = 2; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--ensure-schema") options.ensureSchema = true;
+    else if (arg === "--ensure-indexes") options.ensureIndexes = true;
+    else if (arg === "--missing-only") options.missingOnly = true;
     else if (arg === "--domain") options.domain = argv[++index] ?? "";
     else if (arg === "--dataset") options.dataset = String(argv[++index] ?? "").toUpperCase();
     else if (arg === "--limit") options.limit = Number(argv[++index] ?? 0);
@@ -42,8 +46,10 @@ function parseArgs(argv) {
 
 Options:
   --ensure-schema                 Apply supabase/semantic_workbench_schema.sql first.
+  --ensure-indexes                Create profile helper indexes concurrently.
   --domain <domain_id>            Limit to one domain.
   --dataset <CBS code>            Limit to one dataset code.
+  --missing-only                  Only profile measures missing from semantic.workbench_measure_profile.
   --statement-timeout-ms 900000   Postgres statement timeout.
 `);
       process.exit(0);
@@ -61,7 +67,22 @@ async function ensureSchema(client) {
   await client.query(readFileSync(resolve(process.cwd(), "supabase/semantic_workbench_schema.sql"), "utf8"));
 }
 
-async function measuresForDomain(client, mart, dataset, limit) {
+async function ensureProfileIndexes(client, selectedDomains) {
+  for (const [domainId, mart] of selectedDomains) {
+    const indexName = `${mart.fact}_dataset_measure_year_profile_idx`;
+    const fact = `${sqlIdentifier(mart.schema)}.${sqlIdentifier(mart.fact)}`;
+    console.log(`Ensuring Workbench profile index for ${domainId}: ${indexName}`);
+    await client.query(`
+      create index concurrently if not exists ${sqlIdentifier(indexName)}
+      on ${fact} (dataset_code, measure_key, calendar_year)
+      where calendar_year is not null
+        and observation_value is not null
+        and is_missing = false
+    `);
+  }
+}
+
+async function measuresForDomain(client, domainId, mart, dataset, limit, missingOnly) {
   const datasetTable = `${sqlIdentifier(mart.schema)}.${sqlIdentifier(mart.datasetDim)}`;
   const indicatorTable = `${sqlIdentifier(mart.schema)}.${sqlIdentifier(mart.indicatorDim)}`;
   const { rows } = await client.query(
@@ -69,11 +90,16 @@ async function measuresForDomain(client, mart, dataset, limit) {
       select d.dataset_code, i.measure_key
       from ${indicatorTable} i
       join ${datasetTable} d on d.dataset_key = i.dataset_key
+      left join semantic.workbench_measure_profile p
+        on p.domain_id = $2
+       and p.dataset_code = d.dataset_code
+       and p.measure_key = i.measure_key
       where ($1::text = '' or d.dataset_code = $1 or upper(d.dataset_code) = upper($1))
+        and ($3::boolean = false or p.measure_key is null)
       order by d.dataset_code, i.measure_key
-      ${limit > 0 ? "limit $2" : ""}
+      ${limit > 0 ? "limit $4" : ""}
     `,
-    limit > 0 ? [dataset ?? "", limit] : [dataset ?? ""]
+    limit > 0 ? [dataset ?? "", domainId, missingOnly, limit] : [dataset ?? "", domainId, missingOnly]
   );
   return rows.map((row) => ({ datasetCode: row.dataset_code, measureKey: row.measure_key }));
 }
@@ -151,6 +177,57 @@ async function profileMeasure(client, domainId, mart, datasetCode, measureKey) {
   return rowCount;
 }
 
+async function profileMeasureFromSilverPeriods(client, domainId, datasetCode, measureKey) {
+  const { rowCount } = await client.query(
+    `
+      with source_periods as (
+        select
+          $1::text as domain_id,
+          $2::text as dataset_code,
+          $3::bigint as measure_key,
+          min(substring(period_key from 1 for 4)::int) as min_year,
+          max(substring(period_key from 1 for 4)::int) as max_year
+        from silver.cbs_period_values
+        where dataset_id = $2
+          and substring(period_key from 1 for 4) ~ '^[0-9]{4}$'
+      ),
+      profiled as (
+        select
+          domain_id,
+          dataset_code,
+          measure_key,
+          0::bigint as loaded_fact_rows,
+          0::bigint as populated_fact_rows,
+          min_year,
+          max_year,
+          case
+            when min_year is null or max_year is null then '{}'::integer[]
+            else array(select generate_series(min_year, max_year))
+          end as available_years,
+          '{}'::text[] as geography_types,
+          '{}'::text[] as grains
+        from source_periods
+        where min_year is not null
+      )
+      insert into semantic.workbench_measure_profile (
+        domain_id, dataset_code, measure_key, loaded_fact_rows, populated_fact_rows,
+        min_year, max_year, available_years, geography_types, grains, profiled_at
+      )
+      select
+        domain_id, dataset_code, measure_key, loaded_fact_rows, populated_fact_rows,
+        min_year, max_year, available_years, geography_types, grains, now()
+      from profiled
+      on conflict (domain_id, dataset_code, measure_key) do update set
+        min_year = excluded.min_year,
+        max_year = excluded.max_year,
+        available_years = excluded.available_years,
+        profiled_at = now()
+    `,
+    [domainId, datasetCode, measureKey]
+  );
+  return rowCount;
+}
+
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
@@ -166,19 +243,45 @@ async function main() {
   await client.connect();
   try {
     if (options.ensureSchema) await ensureSchema(client);
+    if (options.ensureIndexes) await ensureProfileIndexes(client, selected);
     for (const [domainId, mart] of selected) {
-      const measures = await measuresForDomain(client, mart, options.dataset, options.limit);
+      const measures = await measuresForDomain(client, domainId, mart, options.dataset, options.limit, options.missingOnly);
       console.log(`Profiling Workbench measure years for ${domainId}: ${measures.length} measure(s).`);
       let total = 0;
+      let failed = 0;
       for (let index = 0; index < measures.length; index += 1) {
         const measure = measures[index];
-        const count = await profileMeasure(client, domainId, mart, measure.datasetCode, measure.measureKey);
-        total += count;
-        if (count > 0 || (index + 1) % 25 === 0 || index === measures.length - 1) {
-          console.log(`  ${index + 1}/${measures.length} ${measure.datasetCode}/${measure.measureKey}: ${count} profile row(s).`);
+        try {
+          const count = await profileMeasure(client, domainId, mart, measure.datasetCode, measure.measureKey);
+          total += count;
+          if (count > 0 || (index + 1) % 25 === 0 || index === measures.length - 1) {
+            console.log(`  ${index + 1}/${measures.length} ${measure.datasetCode}/${measure.measureKey}: ${count} profile row(s).`);
+          }
+        } catch (error) {
+          try {
+            const fallbackCount = await profileMeasureFromSilverPeriods(
+              client,
+              domainId,
+              measure.datasetCode,
+              measure.measureKey
+            );
+            total += fallbackCount;
+            console.warn(
+              `  ${index + 1}/${measures.length} ${measure.datasetCode}/${measure.measureKey}: fact profile failed; used source period fallback (${fallbackCount} profile row(s)): ${
+                error?.message ?? String(error)
+              }`
+            );
+          } catch (fallbackError) {
+            failed += 1;
+            console.warn(
+              `  ${index + 1}/${measures.length} ${measure.datasetCode}/${measure.measureKey}: skipped after error: ${
+                error?.message ?? String(error)
+              }; fallback failed: ${fallbackError?.message ?? String(fallbackError)}`
+            );
+          }
         }
       }
-      console.log(`Done ${domainId}: upserted ${total} measure profile row(s).`);
+      console.log(`Done ${domainId}: upserted ${total} measure profile row(s), skipped ${failed} failed measure(s).`);
     }
   } finally {
     await client.end();
