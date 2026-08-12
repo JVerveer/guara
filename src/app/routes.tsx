@@ -6,6 +6,7 @@ import { SourceBrowserScreen } from "@/pages/SourceBrowserScreen";
 import { DatasetDetailScreen } from "@/pages/DatasetDetailScreen";
 import { PlanningScreen } from "@/pages/PlanningScreen";
 import { InvestigationWorkspaceScreen } from "@/pages/InvestigationWorkspaceScreen";
+import { SemanticWorkbenchScreen } from "@/pages/SemanticWorkbenchScreen";
 import type { ResearchPlan } from "@/features/investigation/types";
 
 interface RouteProps {
@@ -55,6 +56,8 @@ export function renderRoute(screen: Screen, setScreen: (s: Screen) => void, stat
       return <DatasetExplorerScreen {...props} setSelectedDatasetId={state.setSelectedDatasetId} />;
     case "sources":
       return <SourceBrowserScreen />;
+    case "semantic-workbench":
+      return <SemanticWorkbenchScreen />;
     case "dataset-detail":
       return <DatasetDetailScreen datasetId={state.selectedDatasetId} />;
   }

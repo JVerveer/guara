@@ -5,6 +5,7 @@ import {
   Settings,
   Globe,
   Compass,
+  ShieldCheck,
   Moon,
   Sun,
 } from "lucide-react";
@@ -85,6 +86,7 @@ export function Sidebar({ screen, setScreen }: SidebarProps) {
           { label: t("nav.savedReports"), icon: <Bookmark size={14} />, screen: "home" as Screen },
           { label: t("nav.datasetExplorer"), icon: <Database size={14} />, screen: "datasets" as Screen },
           { label: t("nav.sourceBrowser"), icon: <Globe size={14} />, screen: "sources" as Screen },
+          { label: "Semantic Workbench", icon: <ShieldCheck size={14} />, screen: "semantic-workbench" as Screen },
         ].map(({ label, icon, screen: target }) => (
           <li key={label}>
             <NavItem

@@ -6,7 +6,7 @@ import { buildContractQueryPlan } from "../semanticContractPlanner";
 import { buildSemanticQueryPlan, classifySemanticIntent } from "../queryPlanner";
 import { attachSemanticDiagnostics, validateSemanticQueryPlan, withExplicitGrain } from "../queryPlanValidationService";
 import { buildRegistryQueryPlan } from "../semanticRegistry";
-import { answerText } from "../semanticSearchService";
+import { answerText, semanticSearchService } from "../semanticSearchService";
 
 function metric(title: string, measureKey: string, datasetCode: string): SemanticSearchResult {
   return {
@@ -611,6 +611,31 @@ describe("semantic golden question planning", () => {
     expect(plan.calculation_code).toBe("change_rank");
     expect(plan.year_start).toBe(2020);
     expect(plan.year_end).toBe(2023);
+  });
+
+  it("plans Dutch strongest-increase-since questions as change_rank to the latest available year", () => {
+    const question = "Waar nam het aantal huurwoningen het sterkst toe sinds 2021?";
+    const intent = classifySemanticIntent(question);
+    const plan = buildSemanticQueryPlan(question, intent, catalogue, {
+      metricGrains: [
+        {
+          measure_key: "huur-totaal",
+          geography_type: "municipality",
+          period_type: "year",
+          min_year: 2012,
+          max_year: 2025,
+          is_supported: true,
+        },
+      ],
+    });
+
+    expect(intent).toBe("rank_geographies");
+    expect(plan.calculation_code).toBe("change_rank");
+    expect(plan.measure_key).toBe("huur-totaal");
+    expect(plan.geography_type).toBe("municipality");
+    expect(plan.year_start).toBe(2021);
+    expect(plan.year_end).toBe(2025);
+    expect(plan.warnings?.some((warning) => warning.includes("compared 2021 with the latest available year"))).toBe(true);
   });
 
   it("plans province-level questions with province geography", () => {
@@ -1282,6 +1307,185 @@ describe("semantic golden question planning", () => {
     expect(plan?.year).toBe(2024);
   });
 
+  it("treats Dutch vergelijk questions with two domains as cross-domain comparisons", () => {
+    const context = {
+      contracts: [],
+      metricContracts: [
+        {
+          metric_code: "total_rental_homes",
+          label: "Huurwoningen",
+          description: "Total rental homes.",
+          domain_id: "bouwen-en-wonen",
+          measure_key: "rental-homes-measure",
+          dataset_codes: ["82900NED"],
+          unit_code: "COUNT",
+          aggregation: "sum",
+          valid_grains: ["municipality_year", "province_year", "national_year"],
+          default_grain: "municipality_year",
+          synonyms: { nl: ["huurwoningen", "totaal huurwoningen"], en: ["rental homes"] },
+          exclusions: [],
+          supports: { ranking: true, comparison: true, trend: true },
+          category_filters: {},
+          selection_priority: 10,
+          metadata_origin: "curated",
+          contract_status: "curated",
+          execution_status: "enabled",
+          semantic_quality_status: "curated",
+          availability_status: "available",
+        },
+        {
+          metric_code: "consumer_confidence",
+          label: "Consumentenvertrouwen",
+          description: "Consumer confidence.",
+          domain_id: "inkomen-en-bestedingen",
+          measure_key: "consumer-confidence-measure",
+          dataset_codes: ["83978NED"],
+          unit_code: "UNKNOWN",
+          aggregation: "average",
+          valid_grains: ["national_year", "province_year", "region_year"],
+          default_grain: "province_year",
+          synonyms: { nl: ["consumentenvertrouwen"], en: ["consumer confidence"] },
+          exclusions: [],
+          supports: { ranking: true, comparison: true, trend: true },
+          category_filters: {},
+          selection_priority: 10,
+          metadata_origin: "curated",
+          contract_status: "curated",
+          execution_status: "enabled",
+          semantic_quality_status: "curated",
+          availability_status: "available",
+        },
+      ],
+      concepts: [],
+      conceptMetricBindings: [],
+      dimensionContracts: [],
+      categoryValueContracts: [],
+      results: [],
+      metricGrains: [
+        {
+          measure_key: "rental-homes-measure",
+          geography_type: "province",
+          period_type: "year",
+          min_year: 2021,
+          max_year: 2024,
+          is_supported: true,
+        },
+        {
+          measure_key: "consumer-confidence-measure",
+          geography_type: "province",
+          period_type: "year",
+          min_year: 2021,
+          max_year: 2024,
+          is_supported: true,
+        },
+      ],
+      metricPreferences: [],
+    };
+
+    const question = "Vergelijk huurwoningen met consumentenvertrouwen per provincie in 2024.";
+    const plan = buildContractQueryPlan(question, classifySemanticIntent(question), context).plan;
+
+    expect(plan?.source).toBe("cross_domain_gold");
+    expect(plan?.calculation_code).toBe("cross_domain_comparison");
+    expect(plan?.component_measures?.map((component) => component.metric_code).sort()).toEqual([
+      "consumer_confidence",
+      "total_rental_homes",
+    ].sort());
+    expect(plan?.dataset_code?.split(",").sort()).toEqual(["82900NED", "83978NED"].sort());
+    expect(plan?.grain?.display_grain).toBe("province_year");
+    expect(plan?.geography_type).toBe("province");
+    expect(plan?.year).toBe(2024);
+  });
+
+  it("treats Dutch high-and-high questions as cross-domain comparisons", () => {
+    const context = {
+      contracts: [],
+      metricContracts: [
+        {
+          metric_code: "housing_mergers",
+          label: "Woningsamenvoegingen",
+          description: "Housing mergers.",
+          domain_id: "bouwen-en-wonen",
+          measure_key: "housing-mergers-measure",
+          dataset_codes: ["86054NED"],
+          unit_code: "COUNT",
+          aggregation: "sum",
+          valid_grains: ["municipality_year", "province_year", "national_year"],
+          default_grain: "municipality_year",
+          synonyms: { nl: ["woningsamenvoegingen", "samengevoegde woningen"], en: ["housing mergers"] },
+          exclusions: [],
+          supports: { ranking: true, comparison: true, trend: true },
+          category_filters: {},
+          selection_priority: 10,
+          metadata_origin: "curated",
+          contract_status: "curated",
+          execution_status: "enabled",
+          semantic_quality_status: "curated",
+          availability_status: "available",
+        },
+        {
+          metric_code: "health_insurance_payment_arrears_share",
+          label: "Betalingsachterstanden zorgpremie",
+          description: "Share with health insurance premium payment arrears.",
+          domain_id: "inkomen-en-bestedingen",
+          measure_key: "arrears-share-measure",
+          dataset_codes: ["81064ned"],
+          unit_code: "PERCENT",
+          aggregation: "average",
+          valid_grains: ["municipality_year", "province_year", "national_year"],
+          default_grain: "municipality_year",
+          synonyms: { nl: ["betalingsachterstanden zorgpremie", "zorgpremie achterstanden"], en: ["health insurance arrears"] },
+          exclusions: [],
+          supports: { ranking: true, comparison: true, trend: true },
+          category_filters: {},
+          selection_priority: 10,
+          metadata_origin: "curated",
+          contract_status: "curated",
+          execution_status: "enabled",
+          semantic_quality_status: "curated",
+          availability_status: "available",
+        },
+      ],
+      concepts: [],
+      conceptMetricBindings: [],
+      dimensionContracts: [],
+      categoryValueContracts: [],
+      results: [],
+      metricGrains: [
+        {
+          measure_key: "housing-mergers-measure",
+          geography_type: "municipality",
+          period_type: "year",
+          min_year: 2021,
+          max_year: 2024,
+          is_supported: true,
+        },
+        {
+          measure_key: "arrears-share-measure",
+          geography_type: "municipality",
+          period_type: "year",
+          min_year: 2021,
+          max_year: 2024,
+          is_supported: true,
+        },
+      ],
+      metricPreferences: [],
+    };
+
+    const question = "Welke gemeenten hebben veel woningsamenvoegingen en veel betalingsachterstanden zorgpremie in 2024?";
+    const plan = buildContractQueryPlan(question, classifySemanticIntent(question), context).plan;
+
+    expect(plan?.source).toBe("cross_domain_gold");
+    expect(plan?.calculation_code).toBe("cross_domain_comparison");
+    expect(plan?.component_measures?.map((component) => component.metric_code).sort()).toEqual([
+      "health_insurance_payment_arrears_share",
+      "housing_mergers",
+    ].sort());
+    expect(plan?.dataset_code?.split(",").sort()).toEqual(["81064ned", "86054NED"].sort());
+    expect(plan?.grain?.display_grain).toBe("municipality_year");
+    expect(plan?.year).toBe(2024);
+  });
+
   it("does not execute generated semantic contracts until they are reviewed or curated", () => {
     const context = {
       contracts: [],
@@ -1743,4 +1947,21 @@ describe("semantic golden question planning", () => {
     expect(text.bullets[0]).toContain("Possible metric");
     expect(text.confidence).toBe(42);
   });
+
+  it.runIf(Boolean(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY))(
+    "answers the live rental-homes plus consumer-confidence province comparison from Gold",
+    async () => {
+      const answer = await semanticSearchService.answer("Vergelijk huurwoningen met consumentenvertrouwen per provincie in 2024.");
+
+      expect(answer.queryPlan.source).toBe("cross_domain_gold");
+      expect(answer.queryPlan.calculation_code).toBe("cross_domain_comparison");
+      expect(answer.queryPlan.grain?.display_grain).toBe("province_year");
+      expect(answer.queryPlan.component_measures?.map((component) => component.metric_code).sort()).toEqual([
+        "consumer_confidence",
+        "total_rental_homes",
+      ].sort());
+      expect(Array.isArray(answer.executionResult.rows) ? answer.executionResult.rows.length : 0).toBeGreaterThan(0);
+      expect(answer.title).not.toContain("Semantic catalogue results");
+    }
+  );
 });

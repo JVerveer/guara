@@ -8,4 +8,5 @@ export type Screen =
   | "result"
   | "datasets"
   | "sources"
+  | "semantic-workbench"
   | "dataset-detail";

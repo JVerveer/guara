@@ -158,6 +158,41 @@ async function checkDataAvailability(plan: SemanticQueryPlan): Promise<Record<st
   return (data ?? {}) as Record<string, unknown>;
 }
 
+async function latestSharedCrossDomainYear(plan: SemanticQueryPlan): Promise<number | undefined> {
+  if (!isSupabaseConfigured() || plan.source !== "cross_domain_gold" || plan.year || plan.year_start || plan.year_end) return undefined;
+  const components = plan.component_measures ?? [];
+  if (components.length < 2) return undefined;
+  const supabase = await getSupabaseClient();
+  const yearSets: Array<Set<number>> = [];
+
+  for (const component of components) {
+    const { data, error } = await (supabase as any)
+      .schema("semantic")
+      .from("contract_availability")
+      .select("calendar_year")
+      .eq("measure_key", component.measure_key)
+      .eq("dataset_code", component.dataset_code)
+      .eq("geography_type", plan.geography_type ?? plan.grain?.geography_type ?? "municipality")
+      .gt("fact_row_count", 0);
+    if (error || !data?.length) return undefined;
+    yearSets.push(new Set(data.map((row: any) => Number(row.calendar_year)).filter((year: number) => Number.isFinite(year))));
+  }
+
+  const [first, ...rest] = yearSets;
+  const sharedYears = Array.from(first ?? []).filter((year) => rest.every((set) => set.has(year)));
+  return sharedYears.length ? Math.max(...sharedYears) : undefined;
+}
+
+async function withDefaultGoldPeriod(plan: SemanticQueryPlan): Promise<SemanticQueryPlan> {
+  const latestCrossDomainYear = await latestSharedCrossDomainYear(plan);
+  if (!latestCrossDomainYear) return plan;
+  return {
+    ...plan,
+    year: latestCrossDomainYear,
+    warnings: Array.from(new Set([...(plan.warnings ?? []), `No year was specified, so Guara used the latest shared available year in Gold: ${latestCrossDomainYear}.`])),
+  };
+}
+
 function rows(result: Record<string, unknown>): Array<Record<string, unknown>> {
   return Array.isArray(result.rows) ? (result.rows as Array<Record<string, unknown>>) : [];
 }
@@ -702,7 +737,7 @@ export const semanticSearchService = {
     const curation = plannerCurationFromContractContext(mergedMatches, contractContext);
     curation.metricGrains = mergeMetricGrains(curation.metricGrains, contractContext.metricGrains);
     const registryPlan = buildRegistryQueryPlan(normalized, intent, mergedMatches, curation);
-    const rawPlan = withExplicitGrain(contractPlanResult.plan ?? registryPlan ?? buildSemanticQueryPlan(normalized, intent, mergedMatches, curation));
+    const rawPlan = withExplicitGrain(await withDefaultGoldPeriod(contractPlanResult.plan ?? registryPlan ?? buildSemanticQueryPlan(normalized, intent, mergedMatches, curation)));
     const validation = validateSemanticQueryPlan(rawPlan, mergedMatches);
     const plan = attachSemanticDiagnostics(rawPlan, validation);
     const { plan: executedPlan, execution } = validation.ok

@@ -61,6 +61,15 @@ function constructionYear(question: string): number | null {
   return Number.isFinite(year) ? year : null;
 }
 
+function constructionYearTarget(question: string): number | null {
+  const range = question.match(/\b(?:bouwjaar|gebouwd(?:e)?|bouwperiode)[^0-9]{0,24}(19[0-9]\d|20[0-2]\d)\s*(?:en|tot|t\/m|-)\s*(19[0-9]\d|20[0-2]\d)\b/i)
+    ?? question.match(/\b(19[0-9]\d|20[0-2]\d)\s*(?:en|tot|t\/m|-)\s*(19[0-9]\d|20[0-2]\d)\b(?=.*\b(?:bouwjaar|gebouwd(?:e)?|bouwperiode)\b)/i);
+  if (range?.[1] && range[2]) {
+    return Math.round((Number(range[1]) + Number(range[2])) / 2);
+  }
+  return constructionYear(question);
+}
+
 function categoryContainsConstructionYear(contract: SemanticCategoryValueContract, year: number | null): boolean {
   if (year == null || !/bouwjaar|bouwjaarklasse|bouwperiode/i.test(contract.dimension_code)) return false;
   const normalized = normalizeSemanticText(contract.category_name);
@@ -91,9 +100,9 @@ function operationForIntent(intent: SemanticIntent, calculation: string): string
 
 function calculationForQuestion(question: string, intent: SemanticIntent): string {
   const lower = question.toLowerCase();
-  if (/biggest increase|largest increase|strongest increase|grootste stijging/.test(lower)) return "change_rank";
+  if (/biggest increase|largest increase|strongest increase|grootste stijging|grootste toename|grootste daling|grootste afname|sterkst(?:e)? toe|sterkst(?:e)? toegenomen|hardst(?:e)? gestegen|stegen .*hardst|steeg .*hardst|nam .*toe|namen .*toe|daalde|daalden|decrease|decline|increase .*since|increased .*since/.test(lower)) return "change_rank";
   if (/share of|percentage of|what share|aandeel/.test(lower)) return "share_of_total";
-  if (/trend|since|after|ontwikkeling|vanaf/.test(lower) || intent === "trend") return "trend";
+  if (/trend|since|after|ontwikkeling|ontwikkel|verander|vanaf|sinds/.test(lower) || intent === "trend") return "trend";
   if (intent === "rank_geographies") return "ranking";
   return "comparison";
 }
@@ -158,7 +167,7 @@ function buildCandidates(question: string, context: SemanticContractContext, ope
 
 function categoryValueScore(question: string, contract: SemanticCategoryValueContract): number {
   const normalizedQuestion = normalizeSemanticText(question);
-  const constructionYearMatch = categoryContainsConstructionYear(contract, constructionYear(question));
+  const constructionYearMatch = categoryContainsConstructionYear(contract, constructionYearTarget(question));
   const label = normalizeSemanticText(contract.label);
   const categoryName = normalizeSemanticText(contract.category_name);
   const synonyms = synonymValues(contract.synonyms);
@@ -285,6 +294,46 @@ function latestYearForContract(contract: ExplicitMetricContract, geographyType: 
   return years.length ? Math.max(...years) : undefined;
 }
 
+function earliestYearForContract(contract: ExplicitMetricContract, geographyType: string | undefined, context: SemanticContractContext): number | undefined {
+  const measureKey = String(contract.measure_key);
+  const years = context.metricGrains
+    .filter((grain) => grain.measure_key === measureKey)
+    .filter((grain) => !geographyType || grain.geography_type === geographyType)
+    .filter((grain) => grain.is_supported !== false)
+    .map((grain) => grain.min_year)
+    .filter((year): year is number => typeof year === "number" && Number.isFinite(year));
+  return years.length ? Math.min(...years) : undefined;
+}
+
+function completeChangeRankYears(
+  years: { year?: number; year_start?: number; year_end?: number },
+  contract: ExplicitMetricContract,
+  geographyType: string | undefined,
+  context: SemanticContractContext,
+  warnings: string[]
+): { year?: number; year_start?: number; year_end?: number } {
+  if (years.year_start == null || years.year_end != null) return years;
+  const latest = latestYearForContract(contract, geographyType, context);
+  if (!latest || latest <= years.year_start) return years;
+  warnings.push(`No end year was specified, so Guara compared ${years.year_start} with the latest available year in Gold: ${latest}.`);
+  return { year_start: years.year_start, year_end: latest };
+}
+
+function defaultChangeRankYears(
+  years: { year?: number; year_start?: number; year_end?: number },
+  contract: ExplicitMetricContract,
+  geographyType: string | undefined,
+  context: SemanticContractContext,
+  warnings: string[]
+): { year?: number; year_start?: number; year_end?: number } {
+  if (years.year_start != null || years.year_end != null || years.year != null) return completeChangeRankYears(years, contract, geographyType, context, warnings);
+  const earliest = earliestYearForContract(contract, geographyType, context);
+  const latest = latestYearForContract(contract, geographyType, context);
+  if (!earliest || !latest || earliest >= latest) return years;
+  warnings.push(`No period was specified, so Guara compared the earliest and latest available years in Gold: ${earliest}-${latest}.`);
+  return { year_start: earliest, year_end: latest };
+}
+
 function latestYearForCategoryContract(contract: SemanticCategoryValueContract, geographyType: string | undefined, context: SemanticContractContext): number | undefined {
   const measureKey = String(contract.measure_key);
   const years = context.metricGrains
@@ -395,9 +444,12 @@ function goldSourceForDomain(domainId: string | null | undefined): SemanticQuery
 }
 
 function crossDomainQuestion(question: string): boolean {
-  return /\b(correlation|relatie|verband|samenhang|causaal|causality|causaliteit|oorzaak|oorzaken|verklaart|verklaren|effect|invloed|combineer|combine|cross.?domain|domein|ook|also|versus|vs|compared with|vergeleken met)\b/i.test(question)
-    || /\b(hoge|hoog|high)\b.*\b(lage|laag|low|achterstand|arrears|woz|woningwaarde|nieuwbouw)\b/i.test(question)
-    || /\b(woz|woningwaarde|nieuwbouw|woningvoorraad)\b.*\b(inkomen|armoede|zorgpremie|betalingsachterstand|achterstanden)\b/i.test(question);
+  return /\b(correlation|relatie|verband|samenhang|causaal|causality|causaliteit|oorzaak|oorzaken|verklaart|verklaren|effect|invloed|combineer|combine|cross.?domain|domein|ook|also|versus|vs|compared with|vergeleken met|gevoeliger|sensitive)\b/i.test(question)
+    || /\b(vergelijk|vergelijken|compare)\b.+\bmet\b/i.test(question)
+    || /\b(veel|hoge|hoog|high|meeste)\b.+\b(en|met|samen\s+met)\b.+\b(veel|hoge|hoog|high|meeste)\b/i.test(question)
+    || /\b(valt|vallen|komt|komen)\b.+\bsamen\b/i.test(question)
+    || /\b(hoge|hoog|high|lagere|lager|lower|meer|more|veel)\b.*\b(lage|laag|low|achterstand|arrears|woz|woningwaarde|nieuwbouw|zorgpremie|betalingsachterstand|achterstanden)\b/i.test(question)
+    || /\b(woz|woningwaarde|nieuwbouw|woningvoorraad|huurwoningen|woontevredenheid|tevredenheid)\b.*\b(inkomen|armoede|zorgpremie|betalingsachterstand|achterstanden)\b/i.test(question);
 }
 
 function componentForCandidate(candidate: ContractCandidate, geographyType: string | undefined) {
@@ -431,6 +483,7 @@ function buildCrossDomainPlan(
   const seenMetrics = new Set<string>();
   for (const candidate of candidates) {
     if (seenMetrics.has(candidate.contract.metric_code)) continue;
+    if (candidate.contract.domain_id && seenDomains.has(candidate.contract.domain_id)) continue;
     const geographyType = explicitGeographyType ?? requestedGeographyType(question, intent, candidate.contract, candidate.binding);
     const component = componentForCandidate(candidate, geographyType);
     if (!component.dataset_code || !component.measure_key || !component.grain) continue;
@@ -439,7 +492,7 @@ function buildCrossDomainPlan(
     components.push(component);
     seenDomains.add(component.domain_id);
     seenMetrics.add(component.metric_code);
-    if (components.length >= 3) break;
+    if (components.length >= 2 && seenDomains.size >= 2) break;
   }
 
   if (components.length < 2 || seenDomains.size < 2) return {};
@@ -450,6 +503,9 @@ function buildCrossDomainPlan(
   const geographyType = geographyTypeFromGrain(firstComponent.grain) ?? explicitGeographyType ?? "municipality";
   let yearRange = extractSemanticYears(question);
   const warnings: string[] = ["Cross-domain results are associations only; Guara does not infer causality without an explicit causal model."];
+  if (calculation === "change_rank") {
+    yearRange = defaultChangeRankYears(yearRange, firstCandidate.contract, geographyType, context, warnings);
+  }
   if (!yearRange.year && !yearRange.year_start && !yearRange.year_end) {
     const latestYears = components
       .map((component) => {
@@ -531,7 +587,7 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
       : undefined;
     const resolvedDimensionFilters = resolveDimensionFilters(question, candidate.contract.dataset_code, baseCategoryFilters, context.dimensionContracts);
     const categoryFilters = resolvedDimensionFilters.filters;
-    const plannedIntent = intent === "catalogue_search" && geographyNames.length ? "compare_geographies" : intent === "catalogue_search" ? classifySemanticIntent(question) : intent;
+    const plannedIntent = calculation === "change_rank" ? "rank_geographies" : intent === "catalogue_search" && geographyNames.length ? "compare_geographies" : intent === "catalogue_search" ? classifySemanticIntent(question) : intent;
     const requestedGrain = requestedCategoryGrain(geographyType, candidate.contract);
 
     return {
@@ -559,8 +615,8 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
         category_filters: categoryFilters,
         excluded_geography_names: extractExcludedGeographies(question),
         ...extractValueFilter(question),
-        sort_direction: intent === "rank_geographies" ? rankSortDirection(question) : undefined,
-        limit: intent === "trend" ? 50 : 10,
+        sort_direction: plannedIntent === "rank_geographies" ? rankSortDirection(question) : undefined,
+        limit: plannedIntent === "trend" ? 50 : 10,
         semantic_confidence: 0.97,
         resolution_method: "semantic_contract_engine",
         contract_status: candidate.contract.contract_status ?? undefined,
@@ -593,6 +649,10 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
   let yearRange = extractSemanticYears(question);
   const warnings: string[] = [];
 
+  if (calculation === "change_rank") {
+    yearRange = defaultChangeRankYears(yearRange, candidate.contract, geographyType, context, warnings);
+  }
+
   if (!yearRange.year && !yearRange.year_start && !yearRange.year_end) {
     const latest = latestYearForContract(candidate.contract, geographyType, context);
     if (latest) {
@@ -607,7 +667,7 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
   const datasetCode = candidate.binding?.dataset_code ?? candidate.contract.dataset_codes?.[0];
   const resolvedDimensionFilters = resolveDimensionFilters(question, datasetCode, baseCategoryFilters, context.dimensionContracts);
   const categoryFilters = resolvedDimensionFilters.filters;
-  const plannedIntent = intent === "catalogue_search" && geographyNames.length ? "compare_geographies" : intent === "catalogue_search" ? classifySemanticIntent(question) : intent;
+  const plannedIntent = calculation === "change_rank" ? "rank_geographies" : intent === "catalogue_search" && geographyNames.length ? "compare_geographies" : intent === "catalogue_search" ? classifySemanticIntent(question) : intent;
   const requestedGrain = requestedContractGrain(geographyType, candidate.contract, candidate.binding);
 
   return {
@@ -635,8 +695,8 @@ export function buildContractQueryPlan(question: string, intent: SemanticIntent,
       category_filters: categoryFilters,
       excluded_geography_names: extractExcludedGeographies(question),
       ...extractValueFilter(question),
-      sort_direction: intent === "rank_geographies" ? rankSortDirection(question) : undefined,
-      limit: intent === "trend" ? 50 : 10,
+      sort_direction: plannedIntent === "rank_geographies" ? rankSortDirection(question) : undefined,
+      limit: plannedIntent === "trend" ? 50 : 10,
       semantic_confidence: 0.97,
       resolution_method: "semantic_contract_engine",
       contract_status: candidate.contract.contract_status ?? undefined,

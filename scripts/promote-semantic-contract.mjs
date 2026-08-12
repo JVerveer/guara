@@ -95,34 +95,132 @@ async function diagnostics(client, metricCode) {
   return rows[0] ?? null;
 }
 
-async function promote(client, metricCode, toStatus, force) {
+async function workbenchDiagnostics(client, metricCode) {
+  const { rows } = await client.query(
+    `
+      select diagnostic_code, severity, message, is_blocking, metadata
+      from semantic.metric_contract_diagnostic
+      where metric_code = $1
+      order by is_blocking desc, severity, diagnostic_code
+    `,
+    [metricCode]
+  );
+  return rows;
+}
+
+async function reviewRecord(client, metricCode) {
+  const { rows } = await client.query(
+    `
+      select *
+      from semantic.metric_contract_review
+      where metric_code = $1
+      limit 1
+    `,
+    [metricCode]
+  );
+  return rows[0] ?? null;
+}
+
+async function currentContract(client, metricCode) {
+  const { rows } = await client.query(
+    `
+      select *
+      from semantic.metric_contract
+      where metric_code = $1
+      limit 1
+    `,
+    [metricCode]
+  );
+  return rows[0] ?? null;
+}
+
+async function promote(client, metricCode, toStatus, force, reviewer, reason) {
+  const before = await currentContract(client, metricCode);
+  if (!before) throw new Error(`Metric contract not found: ${metricCode}`);
   const check = await diagnostics(client, metricCode);
-  if (!check) throw new Error(`Metric contract not found: ${metricCode}`);
-  if (!force && ["reviewed", "curated"].includes(toStatus) && check.errors?.length) {
-    throw new Error(`Cannot promote ${metricCode} to ${toStatus}. Failing checks: ${check.errors.join(", ")}`);
+  const review = await reviewRecord(client, metricCode);
+  const workbenchChecks = await workbenchDiagnostics(client, metricCode);
+  const blockingWorkbenchChecks = workbenchChecks.filter((item) => item.is_blocking);
+  const errors = [...(check?.errors ?? []), ...blockingWorkbenchChecks.map((item) => item.diagnostic_code)];
+  if (!force && ["reviewed", "curated"].includes(toStatus) && errors.length) {
+    throw new Error(`Cannot promote ${metricCode} to ${toStatus}. Failing checks: ${Array.from(new Set(errors)).join(", ")}`);
   }
   const executionStatus = ["reviewed", "curated"].includes(toStatus) ? "enabled" : "disabled";
   const qualityStatus = toStatus === "curated" ? "curated" : toStatus === "reviewed" ? "reviewed" : toStatus;
-  await client.query(`
-    update semantic.metric_contract
-    set
-      contract_status = $2,
-      execution_status = $3,
-      semantic_quality_status = $4,
-      metadata_origin = case when $2 in ('reviewed', 'curated') then 'curated' else metadata_origin end,
-      updated_at = now()
-    where metric_code = $1
-  `, [metricCode, toStatus, executionStatus, qualityStatus]);
-  return { executionStatus, qualityStatus, warnings: check.errors ?? [] };
+  await client.query("begin");
+  try {
+    const { rows } = await client.query(
+      `
+        update semantic.metric_contract
+        set
+          contract_status = $2,
+          execution_status = $3,
+          semantic_quality_status = $4,
+          metadata_origin = case when $2 in ('reviewed', 'curated') then 'curated' else metadata_origin end,
+          updated_at = now()
+        where metric_code = $1
+        returning *
+      `,
+      [metricCode, toStatus, executionStatus, qualityStatus]
+    );
+    const after = rows[0];
+
+    if (review) {
+      await client.query(
+        `
+          update semantic.metric_contract_review
+          set
+            review_status = case when $2 in ('reviewed', 'curated') then 'promoted' else $2 end,
+            reviewed_by = coalesce($3, reviewed_by),
+            reviewed_at = case when $2 in ('reviewed', 'curated') then now() else reviewed_at end,
+            promoted_at = case when $2 in ('reviewed', 'curated') then now() else promoted_at end,
+            rejection_reason = case when $2 = 'deprecated' then $4 else rejection_reason end,
+            updated_at = now()
+          where review_id = $1
+        `,
+        [review.review_id, toStatus, reviewer, reason]
+      );
+    }
+
+    await client.query(
+      `
+        insert into semantic.metric_contract_promotion_event (
+          metric_code, review_id, from_status, to_status, from_execution_status, to_execution_status,
+          promoted_by, event_reason, contract_snapshot, diagnostics_snapshot
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
+      `,
+      [
+        metricCode,
+        review?.review_id ?? null,
+        before.contract_status,
+        toStatus,
+        before.execution_status,
+        executionStatus,
+        reviewer,
+        reason,
+        JSON.stringify(after),
+        JSON.stringify(workbenchChecks),
+      ]
+    );
+
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  }
+  return { executionStatus, qualityStatus, warnings: Array.from(new Set(errors)) };
 }
 
 async function main() {
   loadLocalEnv();
   const metricCode = argValue("metric-code");
   const toStatus = argValue("to");
+  const reviewer = argValue("reviewed-by") || argValue("promoted-by") || null;
+  const reason = argValue("reason") || null;
   const force = hasFlag("force");
   if (!metricCode || !toStatus || !allowedStatuses.has(toStatus)) {
-    throw new Error("Usage: npm run promote:semantic:contract -- --metric-code <code> --to reviewed|curated|deprecated [--force]");
+    throw new Error("Usage: npm run promote:semantic:contract -- --metric-code <code> --to reviewed|curated|deprecated [--reviewed-by <name>] [--reason <text>] [--force]");
   }
 
   const client = createPostgresClient({
@@ -132,7 +230,7 @@ async function main() {
   });
   await client.connect();
   try {
-    const result = await promote(client, metricCode, toStatus, force);
+    const result = await promote(client, metricCode, toStatus, force, reviewer, reason);
     await client.query("notify pgrst, 'reload schema'");
     console.log(`Promoted ${metricCode} to ${toStatus} (${result.executionStatus}).`);
     if (force && result.warnings.length) console.log(`Forced despite checks: ${result.warnings.join(", ")}`);

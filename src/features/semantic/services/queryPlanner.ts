@@ -37,14 +37,16 @@ export function classifySemanticIntent(question: string): SemanticIntent {
   const lower = question.toLowerCase();
   if (/what does|meaning|definition|betekent|definitie/.test(lower)) return "measure_definition";
   if (/which dataset|do we have|dataset|gegevens|data about|data over/.test(lower)) return "dataset_lookup";
+  if (/biggest increase|largest increase|strongest increase|grootste stijging|grootste toename|grootste daling|grootste afname|sterkst(?:e)? toe|sterkst(?:e)? toegenomen|hardst(?:e)? gestegen|stegen .*hardst|steeg .*hardst|nam .*toe|namen .*toe|daalde|daalden|decrease|decline|increase .*since|increased .*since/.test(lower)) return "rank_geographies";
+  if (/change|changed|trend|since|after|ontwikkeling|ontwikkel|verander|sinds|vanaf/.test(lower)) return "trend";
   if (/\b(waar|where)\b.*\b(minste|minst|meeste|meest|hoogste|hoogst|laagste|laagst|duurste|goedkoopste|least|most|highest|lowest)\b/.test(lower)) return "rank_geographies";
   if (/\b(woningtype|woningtypes|type woningen|housing type|housing types)\b/.test(lower) && /\b(regio|region|per)\b/.test(lower)) return "compare_geographies";
   if (/\b(per|by|naar)\b/.test(lower)) return "compare_geographies";
   if (/share of|percentage of|what share|aandeel/.test(lower)) return "compare_geographies";
   if (/compare|vergelijk/.test(lower)) return "compare_geographies";
   if (/\b(how many|how much|hoeveel|what is|what are|what was|what were|wat is|wat zijn|wat was|wat waren)\b/.test(lower)) return "compare_geographies";
-  if (/biggest increase|largest increase|strongest increase|grootste stijging/.test(lower)) return "rank_geographies";
-  if (/change|changed|trend|since|after|ontwikkeling|verander/.test(lower)) return "trend";
+  if (/biggest increase|largest increase|strongest increase|grootste stijging|grootste toename|grootste daling|grootste afname|sterkst(?:e)? toe|sterkst(?:e)? toegenomen|hardst(?:e)? gestegen|stegen .*hardst|steeg .*hardst|nam .*toe|namen .*toe|daalde|daalden|decrease|decline|increase .*since|increased .*since/.test(lower)) return "rank_geographies";
+  if (/change|changed|trend|since|after|ontwikkeling|ontwikkel|verander|sinds|vanaf/.test(lower)) return "trend";
   if (/which municipalities|find municipalities|municipalities.*most|top|highest|lowest|outliers|rank municipalities|gemeenten|meeste|hoogste|laagste/.test(lower)) return "rank_geographies";
   if (/\b(show|give|list|toon|laat zien)\b/.test(lower) && (MUNICIPALITIES.some((name) => lower.includes(name.toLowerCase())) || /\b(nederland|netherlands)\b/.test(lower))) return "compare_geographies";
   if (MUNICIPALITIES.some((name) => lower.includes(name.toLowerCase())) || PROVINCES.some((name) => lower.includes(name.toLowerCase())) || /\b(nederland|netherlands)\b/.test(lower)) return "compare_geographies";
@@ -52,9 +54,16 @@ export function classifySemanticIntent(question: string): SemanticIntent {
 }
 
 export function extractSemanticYears(question: string): { year?: number; year_start?: number; year_end?: number } {
-  const years = Array.from(question.matchAll(/\b(19[7-9]\d|20[0-2]\d)\b/g)).map((match) => Number(match[1]));
+  const years = Array.from(question.matchAll(/\b(19[7-9]\d|20[0-2]\d)\b/g))
+    .filter((match) => {
+      const before = question.slice(Math.max(0, match.index - 24), match.index).toLowerCase();
+      const after = question.slice(match.index + match[0].length, Math.min(question.length, match.index + match[0].length + 24)).toLowerCase();
+      const constructionContext = /(bouwjaar|gebouwd|bouwperiode|bouwjaarklasse)/.test(before) || /(bouwjaar|gebouwd|bouwperiode|bouwjaarklasse)/.test(after);
+      return !constructionContext;
+    })
+    .map((match) => Number(match[1]));
   if (years.length >= 2) return { year_start: Math.min(...years), year_end: Math.max(...years) };
-  if (years[0] && /\b(since|after|na|vanaf)\b/i.test(question)) return { year_start: years[0] };
+  if (years[0] && /\b(since|after|na|vanaf|sinds)\b/i.test(question)) return { year_start: years[0] };
   return { year: years[0] };
 }
 
@@ -88,13 +97,13 @@ function isUnresolvedGeographyReference(value: string): boolean {
 }
 
 function containsMetricTerms(value: string): boolean {
-  return /\b(beginstand|woningvoorraad|huurwoningen|woningen|woz|nieuwbouw|verkoopprijs|indicator|metric|measure)\b/i.test(value);
+  return /\b(beginstand|woningvoorraad|huurwoningen|woningen|woz|nieuwbouw|verkoopprijs|betalingsachterstand|betalingsachterstanden|zorgpremie|consumentenvertrouwen|woontevredenheid|indicator|metric|measure)\b/i.test(value);
 }
 
 function cleanPlacePhrase(value: string): string {
   return value
     .replace(/\b(19[7-9]\d|20[0-2]\d)\b/g, " ")
-    .replace(/\b(province|provincie|municipality|municipalities|gemeente|gemeenten|city|stad|plaats|places|geographies|regions|regios|people|persons|residents|mensen|personen|inwoners|huishoudens|these|those|selected|above|same|this|that|deze|die|bovenstaande|the|de|het|een|of|van|in)\b/gi, " ")
+    .replace(/\b(province|provincie|municipality|municipalities|gemeente|gemeenten|city|stad|plaats|places|geographies|regions|regios|people|persons|residents|mensen|personen|inwoners|huishoudens|these|those|selected|above|same|this|that|deze|die|bovenstaande|the|de|het|een|of|van|in|met|meer|minder|veel|sinds|vanaf|na|tussen)\b/gi, " ")
     .replace(/[?.!,;:]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -102,7 +111,7 @@ function cleanPlacePhrase(value: string): string {
 
 function extractPlacePhrases(question: string): string[] {
   const phrases: string[] = [];
-  const prepositionMatches = question.matchAll(/\b(?:in|for|voor)\s+(.+?)(?=\s+\b(?:in|between|from|since|after|before|during|voor|tussen|vanaf|na)\b\s+(?:19[7-9]\d|20[0-2]\d)|\s+\b(?:between|from|since|after|before|during|tussen|vanaf|na)\b|\s+\b(?:19[7-9]\d|20[0-2]\d)\b|[?.!,;:]|$)/gi);
+  const prepositionMatches = question.matchAll(/\b(?:in|for|voor)\s+(.+?)(?=\s+\b(?:in|between|from|since|after|before|during|voor|tussen|vanaf|sinds|na)\b\s+(?:19[7-9]\d|20[0-2]\d)|\s+\b(?:between|from|since|after|before|during|tussen|vanaf|sinds|na)\b|\s+\b(?:19[7-9]\d|20[0-2]\d)\b|[?.!,;:]|$)/gi);
   for (const match of prepositionMatches) {
     const cleaned = cleanPlacePhrase(match[1] ?? "");
     if (!cleaned || normalizeSemanticText(cleaned) === "the national average") continue;
@@ -110,7 +119,7 @@ function extractPlacePhrases(question: string): string[] {
     phrases.push(...cleaned.split(/\s+(?:and|en|or|of)\s+|,/i).map(cleanPlacePhrase).filter(Boolean));
   }
 
-  const provinceMatch = question.match(/\b(?:province|provincie)\s+(.+?)(?=\s+\b(?:in|between|from|since|after|before|during|voor|tussen|vanaf|na)\b|\s+\b(?:19[7-9]\d|20[0-2]\d)\b|[?.!,;:]|$)/i);
+  const provinceMatch = question.match(/\b(?:province|provincie)\s+(.+?)(?=\s+\b(?:in|between|from|since|after|before|during|voor|tussen|vanaf|sinds|na)\b|\s+\b(?:19[7-9]\d|20[0-2]\d)\b|[?.!,;:]|$)/i);
   if (provinceMatch?.[1]) phrases.push(cleanPlacePhrase(provinceMatch[1]));
 
   return uniqueStrings(phrases)
@@ -131,7 +140,7 @@ export function extractExcludedGeographies(question: string): string[] {
 }
 
 export function rankSortDirection(question: string): "asc" | "desc" {
-  return /\b(lowest|least|laagste|laagst|minst|minste|smallest|kleinste|goedkoopste|below|less than|under|onder|minder dan)\b/i.test(question) ? "asc" : "desc";
+  return /\b(lowest|least|laagste|laagst|minst|minste|smallest|kleinste|goedkoopste|below|less than|under|onder|minder dan|grootste daling|grootste afname|sterkste daling|sterkste afname|daalde|daalden|decrease|decline)\b/i.test(question) ? "asc" : "desc";
 }
 
 export function extractValueFilter(question: string): { value_filter_operator?: "lt" | "lte" | "gt" | "gte"; value_filter?: number } {
@@ -321,7 +330,7 @@ export function derivedCalculationCode(question: string, intent: SemanticIntent,
   if (/\b(woningtype|woningtypes|type woningen|housing type|housing types)\b/.test(lower) && /\b(regio|region|per)\b/.test(lower)) return "category_breakdown";
   if (/\b(per|by|naar)\b/.test(lower)) return "category_breakdown";
   if (/share of|percentage of|what share|aandeel/.test(lower) && measures.length >= 2) return "share_of_total";
-  if (/biggest increase|largest increase|strongest increase|grootste stijging/.test(lower)) return "change_rank";
+  if (/biggest increase|largest increase|strongest increase|grootste stijging|grootste toename|grootste daling|grootste afname|sterkst(?:e)? toe|sterkst(?:e)? toegenomen|hardst(?:e)? gestegen|stegen .*hardst|steeg .*hardst|nam .*toe|namen .*toe|daalde|daalden|decrease|decline|increase .*since|increased .*since/.test(lower)) return "change_rank";
   if (/national average|landelijk gemiddelde|nationale gemiddelde/.test(lower)) return "compare_to_average";
   if (/\bhigh\b.*\blow\b|\bhoog\b.*\blaag\b/.test(lower) && measures.length >= 2) return "multi_metric_rank";
   if (intent === "compare_geographies" && measures.length >= 2) return "metric_comparison";
@@ -508,6 +517,51 @@ function latestSupportedYear(
   return years.length ? Math.max(...years) : undefined;
 }
 
+function earliestSupportedYear(
+  metric: SemanticSearchResult | undefined,
+  geographyType: string | undefined,
+  grains: SemanticMetricGrain[] = []
+): number | undefined {
+  const key = measureKey(metric);
+  if (!key) return undefined;
+  const years = grains
+    .filter((grain) => String(grain.measure_key) === key)
+    .filter((grain) => !geographyType || grain.geography_type === geographyType)
+    .filter((grain) => grain.is_supported !== false)
+    .map((grain) => grain.min_year)
+    .filter((year): year is number => typeof year === "number" && Number.isFinite(year));
+  return years.length ? Math.min(...years) : undefined;
+}
+
+function completeChangeRankYears(
+  years: { year?: number; year_start?: number; year_end?: number },
+  metric: SemanticSearchResult | undefined,
+  geographyType: string | undefined,
+  grains: SemanticMetricGrain[] = [],
+  warnings: string[]
+): { year?: number; year_start?: number; year_end?: number } {
+  if (years.year_start == null || years.year_end != null) return years;
+  const latestYear = latestSupportedYear(metric, geographyType, grains);
+  if (!latestYear || latestYear <= years.year_start) return years;
+  warnings.push(`No end year was specified, so Guara compared ${years.year_start} with the latest available year in Gold: ${latestYear}.`);
+  return { year_start: years.year_start, year_end: latestYear };
+}
+
+function defaultChangeRankYears(
+  years: { year?: number; year_start?: number; year_end?: number },
+  metric: SemanticSearchResult | undefined,
+  geographyType: string | undefined,
+  grains: SemanticMetricGrain[] = [],
+  warnings: string[]
+): { year?: number; year_start?: number; year_end?: number } {
+  if (years.year_start != null || years.year_end != null || years.year != null) return completeChangeRankYears(years, metric, geographyType, grains, warnings);
+  const earliestYear = earliestSupportedYear(metric, geographyType, grains);
+  const latestYear = latestSupportedYear(metric, geographyType, grains);
+  if (!earliestYear || !latestYear || earliestYear >= latestYear) return years;
+  warnings.push(`No period was specified, so Guara compared the earliest and latest available years in Gold: ${earliestYear}-${latestYear}.`);
+  return { year_start: earliestYear, year_end: latestYear };
+}
+
 function geographyFromDefaultGrain(metric: SemanticSearchResult | undefined): string | undefined {
   const grain = typeof metric?.metadata?.default_grain === "string" ? metric.metadata.default_grain : "";
   if (grain.startsWith("municipality_")) return "municipality";
@@ -560,9 +614,14 @@ export function buildSemanticQueryPlan(question: string, intent: SemanticIntent,
   const selectedContract = contractForMeasure(mainMeasure, curation.datasetContracts);
   const filters = defaultCategoryFilters(question, mainMeasure, selectedContract);
   const defaultGrainGeography = geographyFromDefaultGrain(mainMeasure);
+  const effectiveGeographyType = geographyType ?? defaultGrainGeography ?? (intent === "rank_geographies" ? "municipality" : undefined);
+
+  if (calculation === "change_rank") {
+    yearRange = defaultChangeRankYears(yearRange, mainMeasure, effectiveGeographyType, curation.metricGrains, warnings);
+  }
 
   if (!yearRange.year && !yearRange.year_start && !yearRange.year_end) {
-    const latestYear = latestSupportedYear(mainMeasure, geographyType, curation.metricGrains);
+    const latestYear = latestSupportedYear(mainMeasure, effectiveGeographyType, curation.metricGrains);
     if (latestYear) {
       yearRange = { year: latestYear };
       warnings.push(`No year was specified, so Guara used the latest available year in Gold: ${latestYear}.`);
@@ -588,7 +647,7 @@ export function buildSemanticQueryPlan(question: string, intent: SemanticIntent,
     if (secondaryGrainStatus === "unsupported") warnings.push(`Secondary metric "${comparisonMeasure.title}" has no generated support for ${geographyType ?? "requested"} grain in the requested period.`);
     if (secondaryGrainStatus === "unknown" && geographyType) warnings.push(`Generated grain metadata is missing for secondary metric "${comparisonMeasure.title}" at ${geographyType} grain.`);
   }
-  const finalGeographyType = categoryDefaults.geography_type ?? geographyType ?? defaultGrainGeography ?? (intent === "rank_geographies" ? "municipality" : undefined);
+  const finalGeographyType = categoryDefaults.geography_type ?? effectiveGeographyType;
   const finalDatasetCode = categoryDefaults.dataset_code ?? mainMeasure.dataset_code ?? selectedContract?.dataset_code;
   const resolutionMethod =
     mainMeasure.metadata?.resolution_layer === "semantic_concept"
@@ -637,8 +696,8 @@ export function buildSemanticQueryPlan(question: string, intent: SemanticIntent,
     requires_clarification: intent === "trend" && unresolvedGeographyReference ? "geography" : undefined,
     excluded_geography_names: extractExcludedGeographies(question),
     ...extractValueFilter(question),
-    sort_direction: intent === "rank_geographies" ? rankSortDirection(question) : undefined,
-    limit: intent === "trend" ? 50 : 10,
+    sort_direction: intent === "rank_geographies" || calculation === "change_rank" ? rankSortDirection(question) : undefined,
+    limit: intent === "trend" && calculation !== "change_rank" ? 50 : 10,
     warnings,
     explanation: [
       `Resolved measure "${mainMeasure.title}".`,

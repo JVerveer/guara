@@ -15,6 +15,15 @@ function constructionYear(question: string): number | null {
   return Number.isFinite(year) ? year : null;
 }
 
+function constructionYearTarget(question: string): number | null {
+  const range = question.match(/\b(?:bouwjaar|gebouwd(?:e)?|bouwperiode)[^0-9]{0,24}(19[0-9]\d|20[0-2]\d)\s*(?:en|tot|t\/m|-)\s*(19[0-9]\d|20[0-2]\d)\b/i)
+    ?? question.match(/\b(19[0-9]\d|20[0-2]\d)\s*(?:en|tot|t\/m|-)\s*(19[0-9]\d|20[0-2]\d)\b(?=.*\b(?:bouwjaar|gebouwd(?:e)?|bouwperiode)\b)/i);
+  if (range?.[1] && range[2]) {
+    return Math.round((Number(range[1]) + Number(range[2])) / 2);
+  }
+  return constructionYear(question);
+}
+
 function valueName(value: Record<string, unknown>): string | null {
   const name = value.category_name ?? value.category_code;
   return name == null ? null : String(name);
@@ -66,7 +75,7 @@ export function resolveDimensionFilters(
 ): { filters?: Record<string, string>; explanations: string[] } {
   const filters: Record<string, string> = { ...(existingFilters ?? {}) };
   const explanations: string[] = [];
-  const year = constructionYear(question);
+  const year = constructionYearTarget(question);
   const resolved: ResolvedDimensionFilter[] = [];
 
   for (const contract of datasetContracts(datasetCode, contracts)) {

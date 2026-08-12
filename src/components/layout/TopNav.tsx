@@ -22,6 +22,7 @@ export function TopNav({ screen, setScreen, researchTitle, onRenameResearchTitle
     result: t("research.resultHeading"),
     datasets: t("nav.datasetExplorer"),
     sources: t("nav.sourceBrowser"),
+    "semantic-workbench": "Semantic Workbench",
     "dataset-detail": t("datasets.tabs.metadata"),
   };
 
