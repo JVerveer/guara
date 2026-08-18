@@ -7,7 +7,7 @@ export interface SemanticMetricReview {
   metric_code: string;
   domain_id: string;
   dataset_code: string;
-  measure_key: number;
+  measure_key: string;
   measure_code: string | null;
   label: string;
   review_status: SemanticReviewStatus | string;
@@ -85,7 +85,7 @@ export interface SemanticCatalogueItem {
   domain_id: string;
   dataset_code: string;
   dataset_title: string | null;
-  measure_key: number;
+  measure_key: string;
   measure_code: string | null;
   measure_name: string;
   measure_description: string | null;
@@ -146,7 +146,7 @@ export interface SemanticDimensionValue {
 
 export interface SemanticSampleRow {
   dataset_code: string;
-  measure_key: number;
+  measure_key: string;
   calendar_year: number | null;
   period_code: string | null;
   geography_type: string | null;
@@ -241,7 +241,7 @@ async function fetchMetricDetail(item: Pick<SemanticCatalogueItem, "domain_id" |
     p_domain: item.domain_id,
     p_dataset_code: item.dataset_code,
     p_measure_key: item.measure_key,
-    p_dimension_limit: 40,
+    p_dimension_limit: 5000,
     p_sample_limit: 25,
   });
   if (error) throw new Error(error.message);

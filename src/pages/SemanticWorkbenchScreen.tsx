@@ -45,6 +45,17 @@ function jsonText(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function formatLevel(value: string) {
+  return value.replace(/_/g, " ");
+}
+
+function formatLevels(item: Pick<SemanticCatalogueItem, "grains" | "geography_types">) {
+  const levels = item.grains?.length
+    ? item.grains
+    : item.geography_types?.map((level) => `${level}_year`) ?? [];
+  return levels.length ? levels.map(formatLevel).join(", ") : "Not profiled";
+}
+
 function itemKey(item: Pick<SemanticCatalogueItem, "domain_id" | "dataset_code" | "measure_key">) {
   return `${item.domain_id}:${item.dataset_code}:${item.measure_key}`;
 }
@@ -63,6 +74,8 @@ function valuesByDimension(values: SemanticDimensionValue[]) {
     return groups;
   }, {});
 }
+
+const BUILT_IN_DIMENSIONS = new Set(["calendar_year", "geography_type"]);
 
 export function SemanticWorkbenchScreen() {
   const [catalogue, setCatalogue] = useState<SemanticCatalogueData | null>(null);
@@ -89,8 +102,22 @@ export function SemanticWorkbenchScreen() {
 
   const dimensionGroups = useMemo(() => valuesByDimension(detail?.dimensionValues ?? []), [detail?.dimensionValues]);
   const dimensions = useMemo(() => Object.keys(dimensionGroups).sort(), [dimensionGroups]);
+  const categoryDimensions = useMemo(() => dimensions.filter((dimension) => !BUILT_IN_DIMENSIONS.has(dimension)), [dimensions]);
   const selectedYearOptions = selectedItem?.available_years?.length ? selectedItem.available_years.slice().sort((a, b) => b - a) : [];
   const selectedGeographyOptions = selectedItem?.geography_types?.length ? selectedItem.geography_types.filter((value) => value !== "unknown") : ["municipality", "province", "country"];
+
+  const selectDimensionValue = (dimension: string, value: SemanticDimensionValue) => {
+    const selectedValue = value.category_code ?? value.category_name;
+    if (dimension === "calendar_year") {
+      setYear(selectedValue);
+      return;
+    }
+    if (dimension === "geography_type") {
+      setGeographyType(selectedValue);
+      return;
+    }
+    setCategoryFilters((current) => ({ ...current, [dimension]: selectedValue }));
+  };
 
   const loadCatalogue = async () => {
     setIsLoading(true);
@@ -98,7 +125,7 @@ export function SemanticWorkbenchScreen() {
     try {
       const result = await semanticWorkbenchService.fetchCatalogue({ domain, status, query: search, limit: 5000 });
       setCatalogue(result);
-      setSelectedKey((current) => current && result.items.some((item) => itemKey(item) === current) ? current : itemKey(result.items[0] ?? { domain_id: "", dataset_code: "", measure_key: 0 }));
+      setSelectedKey((current) => current && result.items.some((item) => itemKey(item) === current) ? current : itemKey(result.items[0] ?? { domain_id: "", dataset_code: "", measure_key: "" }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
@@ -263,7 +290,7 @@ export function SemanticWorkbenchScreen() {
                       <TableCell className="text-xs text-muted-foreground">{item.domain_id}</TableCell>
                       <TableCell><StatusBadge value={item.approval_status} /></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{item.min_year ?? "?"}-{item.max_year ?? "?"}</TableCell>
-                      <TableCell className="max-w-[12rem] truncate text-xs text-muted-foreground">{item.geography_types?.join(", ")}</TableCell>
+                      <TableCell className="max-w-[14rem] truncate text-xs text-muted-foreground" title={formatLevels(item)}>{formatLevels(item)}</TableCell>
                       <TableCell className="pr-4 text-right text-muted-foreground">{formatNumber(item.populated_fact_rows)}</TableCell>
                     </TableRow>
                   ))}
@@ -296,6 +323,7 @@ export function SemanticWorkbenchScreen() {
                   <Info label="Unit" value={`${selectedItem.unit_code ?? "unknown"} ${selectedItem.unit_name ? `· ${selectedItem.unit_name}` : ""}`} />
                   <Info label="Aggregation" value={selectedItem.default_aggregation ?? "none"} />
                   <Info label="Years" value={`${selectedItem.min_year ?? "?"}-${selectedItem.max_year ?? "?"}`} />
+                  <Info label="Levels" value={formatLevels(selectedItem)} />
                   <Info label="Gold rows" value={formatNumber(selectedItem.populated_fact_rows)} />
                 </div>
 
@@ -324,10 +352,12 @@ export function SemanticWorkbenchScreen() {
                               <button
                                 key={`${dimension}:${value.category_code ?? value.category_name}`}
                                 type="button"
-                                onClick={() => setCategoryFilters((current) => ({ ...current, [dimension]: value.category_code ?? value.category_name }))}
+                                onClick={() => selectDimensionValue(dimension, value)}
                                 className={cn(
                                   "rounded-md border px-2 py-1 text-xs transition",
-                                  categoryFilters[dimension] === (value.category_code ?? value.category_name)
+                                  (dimension === "calendar_year" && year === (value.category_code ?? value.category_name))
+                                  || (dimension === "geography_type" && geographyType === (value.category_code ?? value.category_name))
+                                  || categoryFilters[dimension] === (value.category_code ?? value.category_name)
                                     ? "border-primary bg-primary text-primary-foreground"
                                     : "border-border bg-card text-muted-foreground hover:text-foreground"
                                 )}
@@ -341,7 +371,7 @@ export function SemanticWorkbenchScreen() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">No category dimensions found for this measure.</p>
+                    <p className="text-sm text-muted-foreground">No dimensional values found for this measure.</p>
                   )}
                 </section>
 
@@ -377,7 +407,7 @@ export function SemanticWorkbenchScreen() {
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">No category grouping</SelectItem>
-                          {dimensions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                          {categoryDimensions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>

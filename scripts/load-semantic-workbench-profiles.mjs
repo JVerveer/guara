@@ -26,6 +26,7 @@ function parseArgs(argv) {
     dataset: "",
     statementTimeoutMs: 900000,
     missingOnly: false,
+    levelsOnly: false,
     limit: 0,
   };
 
@@ -34,6 +35,7 @@ function parseArgs(argv) {
     if (arg === "--ensure-schema") options.ensureSchema = true;
     else if (arg === "--ensure-indexes") options.ensureIndexes = true;
     else if (arg === "--missing-only") options.missingOnly = true;
+    else if (arg === "--levels-only") options.levelsOnly = true;
     else if (arg === "--domain") options.domain = argv[++index] ?? "";
     else if (arg === "--dataset") options.dataset = String(argv[++index] ?? "").toUpperCase();
     else if (arg === "--limit") options.limit = Number(argv[++index] ?? 0);
@@ -50,6 +52,7 @@ Options:
   --domain <domain_id>            Limit to one domain.
   --dataset <CBS code>            Limit to one dataset code.
   --missing-only                  Only profile measures missing from semantic.workbench_measure_profile.
+  --levels-only                   Refresh geography levels/grains for selected measures only.
   --statement-timeout-ms 900000   Postgres statement timeout.
 `);
       process.exit(0);
@@ -228,6 +231,51 @@ async function profileMeasureFromSilverPeriods(client, domainId, datasetCode, me
   return rowCount;
 }
 
+async function profileDatasetLevels(client, domainId, mart, datasetCode) {
+  const { rowCount } = await client.query(
+    `
+      with levels as (
+        select
+          $1::text as domain_id,
+          $2::text as dataset_code,
+          case
+            when not has_country_level
+             and not has_province_level
+             and not has_municipality_level
+             and not has_neighborhood_level
+             and not has_other_region_level
+            then array['country']::text[]
+            else array_remove(array[
+            case when has_country_level then 'country' end,
+            case when has_province_level then 'province' end,
+            case when has_municipality_level then 'municipality' end,
+            case when has_neighborhood_level then 'neighborhood' end,
+            case when has_other_region_level then 'region' end
+            ], null)::text[]
+          end as geography_types
+        from silver.cbs_dataset_grain
+        where dataset_id in ($2, upper($2), lower($2))
+        order by case when dataset_id = $2 then 0 when dataset_id = upper($2) then 1 else 2 end
+        limit 1
+      )
+      update semantic.workbench_measure_profile p
+      set
+        geography_types = levels.geography_types,
+        grains = coalesce((
+          select array_agg(level || '_year' order by level)
+          from unnest(levels.geography_types) level
+        ), '{}'::text[]),
+        profiled_at = now()
+      from levels
+      where p.domain_id = levels.domain_id
+        and p.dataset_code in (levels.dataset_code, upper(levels.dataset_code), lower(levels.dataset_code))
+        and cardinality(levels.geography_types) > 0
+    `,
+    [domainId, datasetCode]
+  );
+  return rowCount;
+}
+
 async function main() {
   loadLocalEnv();
   const options = parseArgs(process.argv);
@@ -247,6 +295,24 @@ async function main() {
     for (const [domainId, mart] of selected) {
       const measures = await measuresForDomain(client, domainId, mart, options.dataset, options.limit, options.missingOnly);
       console.log(`Profiling Workbench measure years for ${domainId}: ${measures.length} measure(s).`);
+      if (options.levelsOnly) {
+        const datasetCodes = [...new Set(measures.map((measure) => measure.datasetCode))];
+        let total = 0;
+        let failed = 0;
+        for (let index = 0; index < datasetCodes.length; index += 1) {
+          const datasetCode = datasetCodes[index];
+          try {
+            const count = await profileDatasetLevels(client, domainId, mart, datasetCode);
+            total += count;
+            console.log(`  ${index + 1}/${datasetCodes.length} ${datasetCode}: refreshed levels for ${count} measure profile row(s).`);
+          } catch (error) {
+            failed += 1;
+            console.warn(`  ${index + 1}/${datasetCodes.length} ${datasetCode}: skipped levels after error: ${error?.message ?? String(error)}`);
+          }
+        }
+        console.log(`Done ${domainId}: refreshed levels for ${total} profile row(s), skipped ${failed} failed dataset(s).`);
+        continue;
+      }
       let total = 0;
       let failed = 0;
       for (let index = 0; index < measures.length; index += 1) {

@@ -374,7 +374,7 @@ as $$
     limit least(greatest(coalesce(p_limit, 300), 1), 5000)
   )
   select jsonb_build_object(
-    'items', coalesce(jsonb_agg(to_jsonb(filtered)), '[]'::jsonb),
+    'items', coalesce(jsonb_agg(to_jsonb(filtered) || jsonb_build_object('measure_key', filtered.measure_key::text)), '[]'::jsonb),
     'summary', coalesce((
       select jsonb_object_agg(approval_status, item_count)
       from (
@@ -389,11 +389,13 @@ $$;
 
 grant execute on function public.guara_semantic_workbench_catalogue(text, text, text, integer) to anon, authenticated;
 
+drop function if exists public.guara_semantic_metric_detail(text, text, bigint, integer, integer);
+
 create or replace function public.guara_semantic_metric_detail(
   p_domain text,
   p_dataset_code text,
-  p_measure_key bigint,
-  p_dimension_limit integer default 30,
+  p_measure_key text,
+  p_dimension_limit integer default 5000,
   p_sample_limit integer default 25
 )
 returns jsonb
@@ -409,28 +411,74 @@ begin
     with facts as materialized (
       select *
       from gold_bouwen_wonen.fact_housing_observation f
-      where f.dataset_code = p_dataset_code
-        and f.measure_key = p_measure_key
+      where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
         and f.observation_value is not null
         and f.is_missing = false
     ),
-    dimension_counts as (
+    category_dimension_counts as (
       select
         b.dimension_code,
         b.category_code,
         b.category_name,
         count(*)::bigint as row_count,
         min(f.calendar_year) as min_year,
-        max(f.calendar_year) as max_year,
-        row_number() over (partition by b.dimension_code order by count(*) desc, b.category_name) as value_rank
+        max(f.calendar_year) as max_year
       from facts f
       join gold_bouwen_wonen.bridge_housing_observation_category b on b.housing_observation_key = f.housing_observation_key
       group by b.dimension_code, b.category_code, b.category_name
     ),
+    date_dimension_counts as (
+      select
+        'calendar_year'::text as dimension_code,
+        f.calendar_year::text as category_code,
+        f.calendar_year::text as category_name,
+        count(*)::bigint as row_count,
+        f.calendar_year as min_year,
+        f.calendar_year as max_year
+      from facts f
+      where f.calendar_year is not null
+      group by f.calendar_year
+    ),
+    geography_type_dimension_counts as (
+      select
+        'geography_type'::text as dimension_code,
+        f.geography_type as category_code,
+        f.geography_type as category_name,
+        count(*)::bigint as row_count,
+        min(f.calendar_year) as min_year,
+        max(f.calendar_year) as max_year
+      from facts f
+      where nullif(f.geography_type, '') is not null
+      group by f.geography_type
+    ),
+    dimension_counts as (
+      select
+        dimension_code,
+        category_code,
+        category_name,
+        row_count,
+        min_year,
+        max_year,
+        row_number() over (
+          partition by dimension_code
+          order by
+            case when dimension_code = 'calendar_year' then category_name end desc,
+            row_count desc,
+            category_name
+        ) as value_rank
+      from (
+        select * from date_dimension_counts
+        union all
+        select * from geography_type_dimension_counts
+        union all
+        select * from category_dimension_counts
+      ) all_dimension_counts
+    ),
     dimension_values as (
       select *
       from dimension_counts
-      where value_rank <= least(greatest(coalesce(p_dimension_limit, 30), 1), 100)
+      where value_rank <= least(greatest(coalesce(p_dimension_limit, 5000), 1), 10000)
     ),
     sample_rows as (
       select
@@ -462,28 +510,74 @@ begin
     with facts as materialized (
       select *
       from gold_inkomen_bestedingen.fact_income_observation f
-      where f.dataset_code = p_dataset_code
-        and f.measure_key = p_measure_key
+      where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
         and f.observation_value is not null
         and f.is_missing = false
     ),
-    dimension_counts as (
+    category_dimension_counts as (
       select
         b.dimension_code,
         b.category_code,
         b.category_name,
         count(*)::bigint as row_count,
         min(f.calendar_year) as min_year,
-        max(f.calendar_year) as max_year,
-        row_number() over (partition by b.dimension_code order by count(*) desc, b.category_name) as value_rank
+        max(f.calendar_year) as max_year
       from facts f
       join gold_inkomen_bestedingen.bridge_income_observation_category b on b.income_observation_key = f.income_observation_key
       group by b.dimension_code, b.category_code, b.category_name
     ),
+    date_dimension_counts as (
+      select
+        'calendar_year'::text as dimension_code,
+        f.calendar_year::text as category_code,
+        f.calendar_year::text as category_name,
+        count(*)::bigint as row_count,
+        f.calendar_year as min_year,
+        f.calendar_year as max_year
+      from facts f
+      where f.calendar_year is not null
+      group by f.calendar_year
+    ),
+    geography_type_dimension_counts as (
+      select
+        'geography_type'::text as dimension_code,
+        f.geography_type as category_code,
+        f.geography_type as category_name,
+        count(*)::bigint as row_count,
+        min(f.calendar_year) as min_year,
+        max(f.calendar_year) as max_year
+      from facts f
+      where nullif(f.geography_type, '') is not null
+      group by f.geography_type
+    ),
+    dimension_counts as (
+      select
+        dimension_code,
+        category_code,
+        category_name,
+        row_count,
+        min_year,
+        max_year,
+        row_number() over (
+          partition by dimension_code
+          order by
+            case when dimension_code = 'calendar_year' then category_name end desc,
+            row_count desc,
+            category_name
+        ) as value_rank
+      from (
+        select * from date_dimension_counts
+        union all
+        select * from geography_type_dimension_counts
+        union all
+        select * from category_dimension_counts
+      ) all_dimension_counts
+    ),
     dimension_values as (
       select *
       from dimension_counts
-      where value_rank <= least(greatest(coalesce(p_dimension_limit, 30), 1), 100)
+      where value_rank <= least(greatest(coalesce(p_dimension_limit, 5000), 1), 10000)
     ),
     sample_rows as (
       select
@@ -519,12 +613,14 @@ begin
 end;
 $$;
 
-grant execute on function public.guara_semantic_metric_detail(text, text, bigint, integer, integer) to anon, authenticated;
+grant execute on function public.guara_semantic_metric_detail(text, text, text, integer, integer) to anon, authenticated;
+
+drop function if exists public.guara_semantic_aggregation_sandbox(text, text, bigint, integer, text, text, jsonb, text, integer);
 
 create or replace function public.guara_semantic_aggregation_sandbox(
   p_domain text,
   p_dataset_code text,
-  p_measure_key bigint,
+  p_measure_key text,
   p_calendar_year integer default null,
   p_geography_type text default null,
   p_aggregation text default 'sum',
@@ -550,8 +646,8 @@ begin
     with facts as materialized (
       select f.*
       from gold_bouwen_wonen.fact_housing_observation f
-      where f.dataset_code = p_dataset_code
-        and f.measure_key = p_measure_key
+      where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
         and f.observation_value is not null
         and f.is_missing = false
         and (p_calendar_year is null or f.calendar_year = p_calendar_year)
@@ -609,8 +705,8 @@ begin
     with facts as materialized (
       select f.*
       from gold_inkomen_bestedingen.fact_income_observation f
-      where f.dataset_code = p_dataset_code
-        and f.measure_key = p_measure_key
+      where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
         and f.observation_value is not null
         and f.is_missing = false
         and (p_calendar_year is null or f.calendar_year = p_calendar_year)
@@ -672,4 +768,4 @@ begin
 end;
 $$;
 
-grant execute on function public.guara_semantic_aggregation_sandbox(text, text, bigint, integer, text, text, jsonb, text, integer) to anon, authenticated;
+grant execute on function public.guara_semantic_aggregation_sandbox(text, text, text, integer, text, text, jsonb, text, integer) to anon, authenticated;
