@@ -281,6 +281,11 @@ as $$
       m.is_non_additive,
       coalesce(c.populated_fact_rows, p.populated_fact_rows, 0)::bigint as populated_fact_rows,
       coalesce(c.loaded_fact_rows, p.loaded_fact_rows, 0)::bigint as loaded_fact_rows,
+      case
+        when c.capability_id is not null then 'counted'
+        when coalesce(p.populated_fact_rows, 0) > 0 then 'available_not_counted'
+        else 'no_facts_found'
+      end as fact_row_count_status,
       coalesce(c.min_year, p.min_year) as min_year,
       coalesce(c.max_year, p.max_year) as max_year,
       coalesce(nullif(c.available_years, '{}'::integer[]), p.available_years, '{}'::integer[]) as available_years,
@@ -637,12 +642,74 @@ as $$
 declare
   result jsonb;
   agg text := lower(coalesce(nullif(p_aggregation, ''), 'sum'));
+  aggregate_expression text;
+  generated_sql text;
 begin
   if agg not in ('sum', 'avg', 'average', 'min', 'max', 'count') then
     raise exception 'Unsupported aggregation: %', p_aggregation;
   end if;
 
+  aggregate_expression := case
+    when agg = 'count' then 'count(*)::numeric'
+    when agg in ('avg', 'average') then 'avg(f.observation_value)'
+    when agg = 'min' then 'min(f.observation_value)'
+    when agg = 'max' then 'max(f.observation_value)'
+    else 'sum(f.observation_value)'
+  end;
+
   if p_domain = 'bouwen-en-wonen' then
+    generated_sql := format($sql$
+with facts as materialized (
+  select f.*
+  from gold_bouwen_wonen.fact_housing_observation f
+  where f.dataset_code in (%1$L, upper(%1$L), lower(%1$L))
+    and f.measure_key = %2$L::bigint
+    and f.observation_value is not null
+    and f.is_missing = false
+    and (%3$s is null or f.calendar_year = %3$s)
+    and (nullif(%4$L, '') is null or %4$L = 'all' or f.geography_type = %4$L)
+    and not exists (
+      select 1
+      from jsonb_each_text(%5$L::jsonb) required_filter(dimension_code, category_name)
+      where not exists (
+        select 1
+        from gold_bouwen_wonen.bridge_housing_observation_category b
+        where b.housing_observation_key = f.housing_observation_key
+          and lower(b.dimension_code) = lower(required_filter.dimension_code)
+          and (b.category_name = required_filter.category_name or coalesce(b.category_code, '') = required_filter.category_name)
+      )
+    )
+),
+grouped as (
+  select
+    f.calendar_year,
+    f.geography_type,
+    f.geography_code,
+    f.geography_name,
+    case when nullif(%6$L, '') is null then null else b.category_name end as group_value,
+    count(*)::bigint as row_count,
+    %7$s as aggregate_value
+  from facts f
+  left join gold_bouwen_wonen.bridge_housing_observation_category b
+    on b.housing_observation_key = f.housing_observation_key
+   and lower(b.dimension_code) = lower(nullif(%6$L, ''))
+  group by f.calendar_year, f.geography_type, f.geography_code, f.geography_name, group_value
+  order by aggregate_value desc nulls last
+  limit %8$s
+)
+select *
+from grouped;
+$sql$,
+      p_dataset_code,
+      p_measure_key,
+      coalesce(p_calendar_year::text, 'null'),
+      coalesce(p_geography_type, ''),
+      coalesce(p_category_filters, '{}'::jsonb)::text,
+      coalesce(p_group_dimension, ''),
+      aggregate_expression,
+      least(greatest(coalesce(p_limit, 25), 1), 100)
+    );
+
     with facts as materialized (
       select f.*
       from gold_bouwen_wonen.fact_housing_observation f
@@ -689,6 +756,7 @@ begin
     )
     select jsonb_build_object(
       'rows', coalesce(jsonb_agg(to_jsonb(grouped)), '[]'::jsonb),
+      'sql', generated_sql,
       'query', jsonb_build_object(
         'domain', p_domain,
         'dataset_code', p_dataset_code,
@@ -702,6 +770,58 @@ begin
     ) into result
     from grouped;
   elsif p_domain = 'inkomen-en-bestedingen' then
+    generated_sql := format($sql$
+with facts as materialized (
+  select f.*
+  from gold_inkomen_bestedingen.fact_income_observation f
+  where f.dataset_code in (%1$L, upper(%1$L), lower(%1$L))
+    and f.measure_key = %2$L::bigint
+    and f.observation_value is not null
+    and f.is_missing = false
+    and (%3$s is null or f.calendar_year = %3$s)
+    and (nullif(%4$L, '') is null or %4$L = 'all' or f.geography_type = %4$L)
+    and not exists (
+      select 1
+      from jsonb_each_text(%5$L::jsonb) required_filter(dimension_code, category_name)
+      where not exists (
+        select 1
+        from gold_inkomen_bestedingen.bridge_income_observation_category b
+        where b.income_observation_key = f.income_observation_key
+          and lower(b.dimension_code) = lower(required_filter.dimension_code)
+          and (b.category_name = required_filter.category_name or coalesce(b.category_code, '') = required_filter.category_name)
+      )
+    )
+),
+grouped as (
+  select
+    f.calendar_year,
+    f.geography_type,
+    f.geography_code,
+    f.geography_name,
+    case when nullif(%6$L, '') is null then null else b.category_name end as group_value,
+    count(*)::bigint as row_count,
+    %7$s as aggregate_value
+  from facts f
+  left join gold_inkomen_bestedingen.bridge_income_observation_category b
+    on b.income_observation_key = f.income_observation_key
+   and lower(b.dimension_code) = lower(nullif(%6$L, ''))
+  group by f.calendar_year, f.geography_type, f.geography_code, f.geography_name, group_value
+  order by aggregate_value desc nulls last
+  limit %8$s
+)
+select *
+from grouped;
+$sql$,
+      p_dataset_code,
+      p_measure_key,
+      coalesce(p_calendar_year::text, 'null'),
+      coalesce(p_geography_type, ''),
+      coalesce(p_category_filters, '{}'::jsonb)::text,
+      coalesce(p_group_dimension, ''),
+      aggregate_expression,
+      least(greatest(coalesce(p_limit, 25), 1), 100)
+    );
+
     with facts as materialized (
       select f.*
       from gold_inkomen_bestedingen.fact_income_observation f
@@ -748,6 +868,7 @@ begin
     )
     select jsonb_build_object(
       'rows', coalesce(jsonb_agg(to_jsonb(grouped)), '[]'::jsonb),
+      'sql', generated_sql,
       'query', jsonb_build_object(
         'domain', p_domain,
         'dataset_code', p_dataset_code,
@@ -764,7 +885,7 @@ begin
     raise exception 'Unsupported domain for semantic aggregation sandbox: %', p_domain;
   end if;
 
-  return coalesce(result, jsonb_build_object('rows', '[]'::jsonb));
+  return coalesce(result, jsonb_build_object('rows', '[]'::jsonb, 'sql', generated_sql));
 end;
 $$;
 

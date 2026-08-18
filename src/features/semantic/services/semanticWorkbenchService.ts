@@ -97,6 +97,7 @@ export interface SemanticCatalogueItem {
   is_non_additive: boolean | null;
   populated_fact_rows: number;
   loaded_fact_rows: number;
+  fact_row_count_status: "counted" | "available_not_counted" | "no_facts_found" | string;
   min_year: number | null;
   max_year: number | null;
   available_years: number[];
@@ -177,6 +178,7 @@ export interface SemanticSandboxRow {
 export interface SemanticSandboxResult {
   rows: SemanticSandboxRow[];
   query: Record<string, unknown>;
+  sql: string | null;
 }
 
 function matchesQuery(row: SemanticMetricReview, query: string) {
@@ -288,6 +290,7 @@ async function runAggregationSandbox({
   return {
     rows: (payload.rows ?? []) as SemanticSandboxRow[],
     query: (payload.query ?? {}) as Record<string, unknown>,
+    sql: typeof payload.sql === "string" ? payload.sql : null,
   };
 }
 

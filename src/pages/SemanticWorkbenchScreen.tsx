@@ -56,6 +56,12 @@ function formatLevels(item: Pick<SemanticCatalogueItem, "grains" | "geography_ty
   return levels.length ? levels.map(formatLevel).join(", ") : "Not profiled";
 }
 
+function formatCoverage(item: Pick<SemanticCatalogueItem, "fact_row_count_status" | "populated_fact_rows">) {
+  if (item.fact_row_count_status === "counted") return `${formatNumber(item.populated_fact_rows)} rows`;
+  if (item.fact_row_count_status === "available_not_counted") return "Available";
+  return "No facts found";
+}
+
 function itemKey(item: Pick<SemanticCatalogueItem, "domain_id" | "dataset_code" | "measure_key">) {
   return `${item.domain_id}:${item.dataset_code}:${item.measure_key}`;
 }
@@ -271,7 +277,7 @@ export function SemanticWorkbenchScreen() {
                     <TableHead>State</TableHead>
                     <TableHead>Years</TableHead>
                     <TableHead>Levels</TableHead>
-                    <TableHead className="text-right pr-4">Rows</TableHead>
+                    <TableHead className="text-right pr-4">Coverage</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -291,7 +297,9 @@ export function SemanticWorkbenchScreen() {
                       <TableCell><StatusBadge value={item.approval_status} /></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{item.min_year ?? "?"}-{item.max_year ?? "?"}</TableCell>
                       <TableCell className="max-w-[14rem] truncate text-xs text-muted-foreground" title={formatLevels(item)}>{formatLevels(item)}</TableCell>
-                      <TableCell className="pr-4 text-right text-muted-foreground">{formatNumber(item.populated_fact_rows)}</TableCell>
+                      <TableCell className="pr-4 text-right text-muted-foreground" title={item.fact_row_count_status === "counted" ? "Real counted non-missing Gold fact rows." : "This measure has Gold coverage, but exact rows were not counted in the lightweight Workbench profile."}>
+                        {formatCoverage(item)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -324,7 +332,7 @@ export function SemanticWorkbenchScreen() {
                   <Info label="Aggregation" value={selectedItem.default_aggregation ?? "none"} />
                   <Info label="Years" value={`${selectedItem.min_year ?? "?"}-${selectedItem.max_year ?? "?"}`} />
                   <Info label="Levels" value={formatLevels(selectedItem)} />
-                  <Info label="Gold rows" value={formatNumber(selectedItem.populated_fact_rows)} />
+                  <Info label="Coverage" value={formatCoverage(selectedItem)} />
                 </div>
 
                 <section>
@@ -474,6 +482,25 @@ export function SemanticWorkbenchScreen() {
                     {!detail?.sampleRows?.length && <p className="text-sm text-muted-foreground">No sample rows available.</p>}
                   </div>
                 </section>
+
+                {sandbox?.sql && (
+                  <section>
+                    <h3 className="mb-2 text-sm font-semibold text-foreground">Generated SQL</h3>
+                    <div className="rounded-md border border-border bg-card">
+                      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                        <span className="text-xs text-muted-foreground">Runnable Supabase SQL for the current sandbox selection</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void navigator.clipboard.writeText(sandbox.sql ?? "")}
+                        >
+                          Copy SQL
+                        </Button>
+                      </div>
+                      <pre className="max-h-72 overflow-auto p-3 text-xs text-muted-foreground">{sandbox.sql}</pre>
+                    </div>
+                  </section>
+                )}
 
                 <section>
                   <h3 className="mb-2 text-sm font-semibold text-foreground">Metadata</h3>
