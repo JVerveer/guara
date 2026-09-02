@@ -212,15 +212,48 @@ async function promote(client, metricCode, toStatus, force, reviewer, reason) {
   return { executionStatus, qualityStatus, warnings: Array.from(new Set(errors)) };
 }
 
+async function selectedMetricCodes(client, { all, metricCode, domain, fromStatus, includeAlreadyPromoted }) {
+  if (!all) return metricCode ? [metricCode] : [];
+  const params = [];
+  const where = ["is_active"];
+  if (domain) {
+    params.push(domain);
+    where.push(`domain_id = $${params.length}`);
+  }
+  if (fromStatus) {
+    params.push(fromStatus);
+    where.push(`contract_status = $${params.length}`);
+  }
+  if (!includeAlreadyPromoted) where.push("contract_status not in ('reviewed', 'curated')");
+  const { rows } = await client.query(
+    `
+      select metric_code
+      from semantic.metric_contract
+      where ${where.join(" and ")}
+      order by domain_id, dataset_codes[1], label, metric_code
+    `,
+    params
+  );
+  return rows.map((row) => row.metric_code);
+}
+
 async function main() {
   loadLocalEnv();
   const metricCode = argValue("metric-code");
   const toStatus = argValue("to");
   const reviewer = argValue("reviewed-by") || argValue("promoted-by") || null;
   const reason = argValue("reason") || null;
+  const domain = argValue("domain");
+  const fromStatus = argValue("from-status");
   const force = hasFlag("force");
-  if (!metricCode || !toStatus || !allowedStatuses.has(toStatus)) {
-    throw new Error("Usage: npm run promote:semantic:contract -- --metric-code <code> --to reviewed|curated|deprecated [--reviewed-by <name>] [--reason <text>] [--force]");
+  const all = hasFlag("all");
+  const includeAlreadyPromoted = hasFlag("include-already-promoted");
+  if ((!metricCode && !all) || !toStatus || !allowedStatuses.has(toStatus)) {
+    throw new Error([
+      "Usage:",
+      "  npm run promote:semantic:contract -- --metric-code <code> --to reviewed|curated|deprecated [--reviewed-by <name>] [--reason <text>] [--force]",
+      "  npm run promote:semantic:contract -- --all --to reviewed|curated|deprecated [--domain <domain>] [--from-status <status>] [--reviewed-by <name>] [--reason <text>] [--force]",
+    ].join("\n"));
   }
 
   const client = createPostgresClient({
@@ -230,10 +263,35 @@ async function main() {
   });
   await client.connect();
   try {
-    const result = await promote(client, metricCode, toStatus, force, reviewer, reason);
+    const metricCodes = await selectedMetricCodes(client, { all, metricCode, domain, fromStatus, includeAlreadyPromoted });
+    if (!metricCodes.length) {
+      console.log("No semantic contracts selected for promotion.");
+      return;
+    }
+    console.log(`Selected ${metricCodes.length} semantic contract(s) for promotion to ${toStatus}.`);
+    let promoted = 0;
+    let failed = 0;
+    const warningCounts = new Map();
+    for (const code of metricCodes) {
+      try {
+        const result = await promote(client, code, toStatus, force, reviewer, reason);
+        promoted += 1;
+        for (const warning of result.warnings) warningCounts.set(warning, (warningCounts.get(warning) ?? 0) + 1);
+        if (promoted % 50 === 0 || promoted === metricCodes.length) {
+          console.log(`  promoted ${promoted}/${metricCodes.length}`);
+        }
+      } catch (error) {
+        failed += 1;
+        console.error(`Failed to promote ${code}: ${error.message ?? String(error)}`);
+        if (!force) throw error;
+      }
+    }
     await client.query("notify pgrst, 'reload schema'");
-    console.log(`Promoted ${metricCode} to ${toStatus} (${result.executionStatus}).`);
-    if (force && result.warnings.length) console.log(`Forced despite checks: ${result.warnings.join(", ")}`);
+    console.log(`Promotion complete: ${promoted} promoted, ${failed} failed.`);
+    if (force && warningCounts.size) {
+      console.log("Forced despite checks:");
+      console.table(Array.from(warningCounts.entries()).map(([warning, count]) => ({ warning, count })));
+    }
   } finally {
     await client.end();
   }

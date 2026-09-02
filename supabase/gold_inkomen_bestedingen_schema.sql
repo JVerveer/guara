@@ -189,10 +189,13 @@ create index if not exists fact_income_observation_dataset_measure_observation_i
   on gold_inkomen_bestedingen.fact_income_observation(dataset_code, measure_key, income_observation_key)
   where observation_value is not null and is_missing = false and calendar_year is not null;
 
+create index if not exists fact_income_observation_dataset_measure_year_observation_idx
+  on gold_inkomen_bestedingen.fact_income_observation(dataset_code, measure_key, calendar_year, income_observation_key)
+  where observation_value is not null and is_missing = false and calendar_year is not null;
+
 create index if not exists fact_income_observation_measure_geo_year_observation_idx
   on gold_inkomen_bestedingen.fact_income_observation(measure_key, geography_type, calendar_year, income_observation_key)
   where observation_value is not null and is_missing = false and calendar_year is not null;
-
 
 alter table gold_inkomen_bestedingen.dim_income_dataset enable row level security;
 alter table gold_inkomen_bestedingen.dim_income_indicator enable row level security;

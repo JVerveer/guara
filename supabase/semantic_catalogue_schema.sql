@@ -817,7 +817,19 @@ begin
         and (
           coalesce(jsonb_typeof(c.category_filters), '') <> 'object'
           or c.category_filters = '{}'::jsonb
+          or exists (
+            select 1
+            from semantic.metric_contract_observation cached_observation
+            where cached_observation.metric_code = c.metric_code
+              and cached_observation.housing_observation_key = f.housing_observation_key
+              and cached_observation.measure_key = f.measure_key
+              and cached_observation.dataset_code = f.dataset_code
+          )
           or not exists (
+            select 1
+            from semantic.metric_contract_observation cached_contract
+            where cached_contract.metric_code = c.metric_code
+          ) and not exists (
             select 1
             from jsonb_each_text(c.category_filters) required_filter(dimension_code, category_value)
             where not exists (

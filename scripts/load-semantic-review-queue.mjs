@@ -450,7 +450,7 @@ function buildContract(capability) {
     label,
     description: capability.measure_description || `Generated semantic contract candidate for ${label}.`,
     domain_id: capability.domain_id,
-    measure_key: Number(capability.measure_key),
+    measure_key: String(capability.measure_key),
     dataset_codes: [String(capability.dataset_code)],
     unit_code: capability.unit_code || "UNKNOWN",
     aggregation,

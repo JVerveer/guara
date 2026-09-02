@@ -55,8 +55,10 @@ describe("CBS Gold loader helpers", () => {
     expect(geographyTypeFromCode("NL01")).toBe("country");
     expect(geographyTypeFromCode("PV22")).toBe("province");
     expect(geographyTypeFromCode("GM0363")).toBe("municipality");
-    expect(geographyTypeFromCode("CR11")).toBe("region");
-    expect(geographyTypeFromCode("BU03630001", "neighborhood")).toBe("region");
+    expect(geographyTypeFromCode("CR11")).toBe("corop");
+    expect(geographyTypeFromCode("LD01")).toBe("landsdeel");
+    expect(geographyTypeFromCode("UNKNOWN")).toBe("country");
+    expect(geographyTypeFromCode("BU03630001", "neighborhood")).toBe("neighborhood");
   });
 
   it("preserves numeric values and classifies missing or suppressed facts", () => {

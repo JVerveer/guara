@@ -11,7 +11,7 @@ const concepts = [
     valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
     supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
     synonyms: {
-      nl: ["nieuwbouwwoningen", "nieuwbouwwoningen gebouwd", "nieuwbouw woningen", "nieuwe woningen gebouwd", "gebouwde woningen", "opgeleverde nieuwbouw", "waar zijn de meeste nieuwbouwwoningen gebouwd"],
+      nl: ["nieuwbouwwoningen", "nieuwbouwwoningen gebouwd", "nieuwbouw woningen", "nieuwe woningen gebouwd", "gebouwde woningen", "opgeleverde nieuwbouw", "woningbouw", "weinig woningbouw", "veel woningbouw", "waar zijn de meeste nieuwbouwwoningen gebouwd"],
       en: ["newly built dwellings", "new construction dwellings", "new homes built", "completed new homes"],
     },
     exclusions: ["bouwkosten", "bedrijfsgebouwen", "vergunningen", "index", "marktsector", "budgetsector", "late respons"],
@@ -381,7 +381,7 @@ const concepts = [
     valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
     supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
     synonyms: {
-      nl: ["gemiddelde verkoopprijs", "koopprijs", "huizenprijs", "woningprijs"],
+      nl: ["gemiddelde verkoopprijs", "verkoopprijs", "verkoopprijzen", "hoge verkoopprijzen", "koopprijs", "huizenprijs", "woningprijs", "verkoopprijsontwikkeling", "bestaande koopwoningen"],
       en: ["average sale price", "house price", "home price"],
     },
     exclusions: ["woz", "woningwaarde"],
@@ -464,11 +464,14 @@ const concepts = [
     valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
     supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
     synonyms: {
-      nl: ["gemiddeld huishoudinkomen", "huishoudinkomen", "inkomen huishoudens"],
+      nl: ["gemiddeld huishoudinkomen", "huishoudinkomen", "inkomen huishoudens", "huishoudinkomens"],
       en: ["average household income", "household income"],
     },
     exclusions: ["persoonlijk inkomen", "mediaan inkomen", "vermogen"],
-    bindings: [{ metric_code: "average_household_income", binding_role: "primary", priority: 10, selection_reason: "Use average household income for household-income questions." }],
+    bindings: [
+      { metric_code: "gen_86161ned_mediaangestandaardiseerdinkomen_4_1al9vf", binding_role: "primary", priority: 5, selection_reason: "Use the regional median standardized household income metric as the geography-capable household-income concept until a regional average household-income contract is curated." },
+      { metric_code: "average_household_income", binding_role: "alternate", priority: 25, selection_reason: "Use average household income for national household-income questions." },
+    ],
   },
   {
     concept_code: "median_household_income",
@@ -480,11 +483,14 @@ const concepts = [
     valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
     supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
     synonyms: {
-      nl: ["mediaan huishoudinkomen", "mediaan inkomen huishoudens"],
+      nl: ["mediaan huishoudinkomen", "mediaan inkomen huishoudens", "mediane huishoudinkomens", "huishoudinkomen", "huishoudinkomens"],
       en: ["median household income"],
     },
     exclusions: ["gemiddeld inkomen", "persoonlijk inkomen", "vermogen"],
-    bindings: [{ metric_code: "median_household_income", binding_role: "primary", priority: 10, selection_reason: "Use median household income when the user asks for median household income." }],
+    bindings: [
+      { metric_code: "gen_86161ned_mediaangestandaardiseerdinkomen_4_1al9vf", binding_role: "primary", priority: 5, selection_reason: "Use the regional CBS median standardized household income metric when geography-level answers are requested." },
+      { metric_code: "median_household_income", binding_role: "alternate", priority: 20, selection_reason: "Use the national-only household-income metric only when the requested grain is national." },
+    ],
   },
   {
     concept_code: "household_wealth",
@@ -520,9 +526,47 @@ const concepts = [
     },
     exclusions: ["aantal huishoudens", "aantal personen"],
     bindings: [
-      { metric_code: "low_income_households_share", binding_role: "primary", priority: 10, selection_reason: "Use low-income household share as the default low-income metric." },
-      { metric_code: "low_income_persons_share", binding_role: "alternate", priority: 20, selection_reason: "Use low-income persons share when people or persons are requested." },
-      { metric_code: "low_income_children_share", binding_role: "alternate", priority: 15, selection_reason: "Use low-income children share when children or child poverty are requested." },
+      { metric_code: "gen_86131ned_personentot105armoedegrensrelatief_32_1oacem", binding_role: "primary", priority: 5, selection_reason: "Use the regional relative poverty metric when a geography-level low-income or poverty answer is requested." },
+      { metric_code: "gen_86161ned_gestandaardiseerdinkomen2e10groep_8_1lv4y6", binding_role: "alternate", priority: 10, selection_reason: "Use the low standardized-income decile group when the question asks for low income groups." },
+      { metric_code: "low_income_households_share", binding_role: "alternate", priority: 30, selection_reason: "Use the national low-income household metric only when no regional grain is requested." },
+      { metric_code: "low_income_persons_share", binding_role: "alternate", priority: 35, selection_reason: "Use the national low-income persons metric only when no regional grain is requested." },
+      { metric_code: "low_income_children_share", binding_role: "alternate", priority: 25, selection_reason: "Use low-income children share when children or child poverty are requested." },
+    ],
+  },
+  {
+    concept_code: "ses_woa_score",
+    label: "SES-WOA score",
+    domain_id: "inkomen-en-bestedingen",
+    description: "CBS/Wijk- en buurtkaart socio-economic status indicator. Higher percentielgroep means a higher relative SES-WOA position.",
+    required_unit_code: "UNKNOWN",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "neighborhood_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["ses woa", "ses-woa", "sociaal economische status", "sociaal-economische status", "lage ses", "lage ses woa score", "ses woa score"],
+      en: ["ses woa", "socio-economic status", "low socio-economic status"],
+    },
+    exclusions: [],
+    bindings: [
+      { metric_code: "gen_86296ned_gemiddeldepercentielgroep_10_1o0mwj", binding_role: "primary", priority: 5, selection_reason: "Use the latest regional SES-WOA average percentile group metric where municipality data is available." },
+    ],
+  },
+  {
+    concept_code: "self_employed",
+    label: "Self-employed people",
+    domain_id: "inkomen-en-bestedingen",
+    description: "Number or share of self-employed people, optionally by income position or industry where the source dataset supports it.",
+    required_unit_code: "THOUSANDS",
+    default_grain: "municipality_year",
+    valid_grains: ["municipality_year", "province_year", "region_year", "national_year"],
+    supported_operations: ["ranking", "comparison", "trend", "percentage_change"],
+    synonyms: {
+      nl: ["zelfstandigen", "zzp", "zelfstandigen in bedrijfstakken", "zelfstandigen met laag inkomen"],
+      en: ["self-employed", "self employed people", "freelancers"],
+    },
+    exclusions: ["werknemers"],
+    bindings: [
+      { metric_code: "gen_86163ned_zelfstandigen_1_1gilxj", binding_role: "primary", priority: 5, selection_reason: "Use the self-employed metric when the question explicitly asks for zelfstandigen; execution still requires a supported geography grain." },
     ],
   },
   {

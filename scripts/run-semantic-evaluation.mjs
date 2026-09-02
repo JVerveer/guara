@@ -17,6 +17,13 @@ const CROSS_DOMAIN_SUITE = {
   domain_id: "cross-domain",
 };
 
+const HARD_CROSS_DOMAIN_SUITE = {
+  suite_code: "hard_cross_domain_investigation",
+  suite_name: "Hard cross-domain investigation questions",
+  description: "Coverage for difficult investigation-style questions that combine housing with income, poverty, SES-WOA, confidence and regional grains.",
+  domain_id: "cross-domain",
+};
+
 const DEFAULT_CASES = [
   {
     case_code: "income_arrears_municipality_rank_2024",
@@ -386,9 +393,200 @@ async function ensureSchema(client) {
 }
 
 async function seedDefaults(client) {
+const HARD_CROSS_DOMAIN_CASES = [
+  {
+    case_code: "hard_woz_low_ses_woa",
+    question: "Waar gaan hoge WOZ-waarden samen met lage SES-WOA scores?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "average_woz_home_value", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86296ned_gemiddeldepercentielgroep_10_1o0mwj", domain_id: "inkomen-en-bestedingen" },
+    ],
+    should_execute: false,
+    expected_no_execute_reason: "no_shared_reported_rows",
+  },
+  {
+    case_code: "hard_new_construction_low_income_households",
+    question: "Welke gemeenten combineren veel nieuwbouw met relatief veel huishoudens met laag inkomen?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "new_construction", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86131ned_personentot105armoedegrensrelatief_32_1oacem", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "hard_rental_homes_low_median_household_income",
+    question: "Zijn gemeenten met veel huurwoningen vaker gemeenten met lage mediane huishoudinkomens?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "total_rental_homes", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86161ned_mediaangestandaardiseerdinkomen_4_1al9vf", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "hard_woz_grows_faster_than_income",
+    question: "Waar stijgt woningwaarde sneller dan huishoudinkomen?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "average_woz_home_value", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86161ned_mediaangestandaardiseerdinkomen_4_1al9vf", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "hard_transformations_low_ses",
+    question: "Welke gemeenten hebben veel woningtransformatie maar blijven laag scoren op sociaal-economische status?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_transformations", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86296ned_gemiddeldepercentielgroep_10_1o0mwj", domain_id: "inkomen-en-bestedingen" },
+    ],
+    should_execute: false,
+    expected_no_execute_reason: "no_shared_reported_rows",
+  },
+  {
+    case_code: "hard_new_construction_person_poverty",
+    question: "Waar is veel nieuwbouw, maar ook veel armoede onder personen?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "new_construction", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86131ned_personentot105armoedegrensrelatief_32_1oacem", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "hard_regions_sale_price_arrears",
+    question: "Welke regio's combineren hoge verkoopprijzen met relatief veel betalingsachterstanden zorgpremie?",
+    expected_geography_type: "region",
+    expected_grain: "region_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "average_sale_price", domain_id: "bouwen-en-wonen" },
+      { metric_code: "health_insurance_payment_arrears_share", domain_id: "inkomen-en-bestedingen" },
+    ],
+    minimum_rows: 4,
+  },
+  {
+    case_code: "hard_private_rental_low_income_groups",
+    question: "Waar gaan veel particuliere huurwoningen samen met lage inkomensgroepen?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "total_rental_homes", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86161ned_gestandaardiseerdinkomen2e10groep_8_1lv4y6", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "hard_province_confidence_low_construction",
+    question: "Welke provincies hebben hoog consumentenvertrouwen maar relatief weinig woningbouw?",
+    expected_geography_type: "province",
+    expected_grain: "province_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+      { metric_code: "new_construction", domain_id: "bouwen-en-wonen" },
+    ],
+  },
+  {
+    case_code: "hard_self_employed_sector_housing_costs",
+    question: "Welke gemeenten hebben veel zelfstandigen in bepaalde bedrijfstakken én hoge woonlasten?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "average_total_housing_costs", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86163ned_zelfstandigen_1_1gilxj", domain_id: "inkomen-en-bestedingen" },
+    ],
+    should_execute: false,
+    expected_no_execute_reason: "unsupported_geographic_grain",
+  },
+  {
+    case_code: "hard_self_employed_low_income_high_woz",
+    question: "Waar wonen relatief veel zelfstandigen met laag inkomen in gebieden met hoge WOZ-waarde?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "average_woz_home_value", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86163ned_zelfstandigen_1_1gilxj", domain_id: "inkomen-en-bestedingen" },
+    ],
+    should_execute: false,
+    expected_no_execute_reason: "unsupported_geographic_grain",
+  },
+  {
+    case_code: "hard_housing_stock_growth_low_ses_development",
+    question: "Welke gemeenten hebben een hoge woningvoorraadgroei maar een lage SES-WOA ontwikkeling?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_stock_start", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86296ned_gemiddeldepercentielgroep_10_1o0mwj", domain_id: "inkomen-en-bestedingen" },
+    ],
+    should_execute: false,
+    expected_no_execute_reason: "no_shared_reported_rows",
+  },
+  {
+    case_code: "hard_older_homes_low_income_classes",
+    question: "Welke gebieden hebben veel oudere woningen en relatief veel huishoudens in lage inkomensklassen?",
+    expected_geography_type: "municipality",
+    expected_grain: "municipality_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "housing_stock_start", domain_id: "bouwen-en-wonen" },
+      { metric_code: "gen_86161ned_gestandaardiseerdinkomen2e10groep_8_1lv4y6", domain_id: "inkomen-en-bestedingen" },
+    ],
+  },
+  {
+    case_code: "hard_building_costs_sale_price_development",
+    question: "Waar hangen bouwkostenindexen samen met verkoopprijsontwikkeling van bestaande koopwoningen?",
+    expected_geography_type: "region",
+    expected_grain: "region_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "bouwkosten_gebouwen_nieuwbouw__83707ned__129089242833295232", domain_id: "bouwen-en-wonen" },
+      { metric_code: "average_sale_price", domain_id: "bouwen-en-wonen" },
+    ],
+    should_execute: false,
+    expected_no_execute_reason: "same_domain_requires_explicit_union_rule",
+  },
+  {
+    case_code: "hard_corop_sale_price_low_confidence",
+    question: "Welke COROP-gebieden combineren hoge verkoopprijzen met laag consumentenvertrouwen?",
+    expected_geography_type: "corop",
+    expected_grain: "corop_year",
+    expected_year: 2024,
+    expected_component_metrics: [
+      { metric_code: "average_sale_price", domain_id: "bouwen-en-wonen" },
+      { metric_code: "consumer_confidence", domain_id: "inkomen-en-bestedingen" },
+    ],
+    should_execute: false,
+    expected_no_execute_reason: "consumer_confidence_not_available_at_corop",
+  },
+].map((testCase) => ({
+  domain_id: "cross-domain",
+  expected_intent: "compare_geographies",
+  expected_source: "cross_domain_gold",
+  should_execute: true,
+  minimum_rows: 5,
+  ...testCase,
+}));
+
   const suites = [
     { suite: DEFAULT_SUITE, cases: DEFAULT_CASES },
     { suite: CROSS_DOMAIN_SUITE, cases: CROSS_DOMAIN_CASES },
+    { suite: HARD_CROSS_DOMAIN_SUITE, cases: HARD_CROSS_DOMAIN_CASES },
   ];
 
   for (const { suite, cases } of suites) {
@@ -631,7 +829,8 @@ async function evaluateCase(client, runId, testCase) {
   let execution = {};
   let errorMessage = null;
   try {
-    if (contract?.measure_key != null || plan.component_measures?.length) {
+    const skipExpensiveAvailability = testCase.should_execute === false && testCase.expected_no_execute_reason;
+    if ((contract?.measure_key != null || plan.component_measures?.length) && !skipExpensiveAvailability) {
       const availabilityResult = await client.query("select public.guara_check_query_availability($1::jsonb) as result", [JSON.stringify(plan)]);
       availability = availabilityResult.rows[0]?.result ?? {};
       checks.availability_checked = true;
@@ -643,6 +842,9 @@ async function evaluateCase(client, runId, testCase) {
         const executionResult = await client.query("select public.guara_execute_query_plan($1::jsonb) as result", [JSON.stringify(plan)]);
         execution = executionResult.rows[0]?.result ?? {};
       }
+    } else if (skipExpensiveAvailability) {
+      checks.availability_checked = false;
+      checks.expected_non_execution_reason = testCase.expected_no_execute_reason;
     }
   } catch (error) {
     errorMessage = error.message;

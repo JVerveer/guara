@@ -136,7 +136,17 @@ function candidateScore(question: string, contract: ExplicitMetricContract, conc
   const originBoost = contract.metadata_origin === "curated" ? 140 : 20;
   const conceptBoost = concept ? 180 : 0;
   const bindingBoost = binding?.binding_role === "primary" ? 80 : 30;
-  return tokenHits(question, contractText) + tokenHits(question, conceptText) + originBoost + conceptBoost + bindingBoost - (contract.selection_priority ?? 100);
+  const priorityPenalty = binding ? (binding.priority ?? 100) : (contract.selection_priority ?? 100);
+  return tokenHits(question, contractText) + tokenHits(question, conceptText) + originBoost + conceptBoost + bindingBoost - priorityPenalty;
+}
+
+function conceptMentionScore(question: string, concept: SemanticConcept): number {
+  return tokenHits(question, [
+    concept.concept_code,
+    concept.label,
+    concept.description ?? "",
+    ...synonymValues(concept.synonyms),
+  ]);
 }
 
 function buildCandidates(question: string, context: SemanticContractContext, operation: string): ContractCandidate[] {
@@ -148,6 +158,7 @@ function buildCandidates(question: string, context: SemanticContractContext, ope
     const contract = contractsByCode.get(binding.metric_code);
     const concept = conceptsByCode.get(binding.concept_code);
     if (!contract || !concept || !executableContract(contract) || !contractSupports(contract, operation)) continue;
+    if (conceptMentionScore(question, concept) <= 0) continue;
     const score = candidateScore(question, contract, concept, binding);
     if (score > 0) candidates.push({ contract, concept, binding, score });
   }
@@ -212,6 +223,8 @@ function geographyTypeFromGrain(grain: string | null | undefined): string | unde
   if (!grain) return undefined;
   if (grain.startsWith("municipality_")) return "municipality";
   if (grain.startsWith("province_")) return "province";
+  if (grain.startsWith("corop_")) return "corop";
+  if (grain.startsWith("landsdeel_")) return "landsdeel";
   if (grain.startsWith("region_")) return "region";
   if (grain.startsWith("national_") || grain.startsWith("country_")) return "country";
   return undefined;
@@ -223,8 +236,15 @@ function periodTypeFromGrain(grain: string | null | undefined): string {
   return parts.length > 1 ? parts.slice(1).join("_") : "year";
 }
 
+function effectiveGrains(contract: ExplicitMetricContract, binding?: SemanticConceptMetricBinding): string[] {
+  const contractGrains = contract.valid_grains ?? [];
+  if (!binding?.allowed_grains?.length) return contractGrains;
+  const allowed = new Set(binding.allowed_grains);
+  return contractGrains.filter((grain) => allowed.has(grain));
+}
+
 function supportedGeographyTypes(contract: ExplicitMetricContract, binding?: SemanticConceptMetricBinding): string[] {
-  const grains = binding?.allowed_grains?.length ? binding.allowed_grains : contract.valid_grains ?? [];
+  const grains = effectiveGrains(contract, binding);
   return Array.from(new Set(grains.map(geographyTypeFromGrain).filter((value): value is string => Boolean(value))));
 }
 
@@ -235,12 +255,22 @@ function supportedCategoryGeographyTypes(contract: SemanticCategoryValueContract
 function requestedGeographyType(question: string, intent: SemanticIntent, contract: ExplicitMetricContract, binding?: SemanticConceptMetricBinding): string | undefined {
   const supported = supportedGeographyTypes(contract, binding);
   const normalized = normalizeSemanticText(question);
+  if (!supported.length) {
+    if (/\b(corop|coropgebieden|corop gebieden)\b/.test(normalized)) return "corop";
+    if (/\b(landsdeel|landsdelen)\b/.test(normalized)) return "landsdeel";
+    if (/\b(province|provincie|provincies)\b/.test(normalized)) return "province";
+    if (/\b(gemeente|gemeenten|municipality|municipalities)\b/.test(normalized)) return "municipality";
+  }
+  if (/\bcorop\b/.test(normalized) && supported.includes("corop")) return "corop";
+  if (/\b(landsdeel|landsdelen)\b/.test(normalized) && supported.includes("landsdeel")) return "landsdeel";
   if (/\b(province|provincie)\b/.test(normalized) && supported.includes("province")) return "province";
+  if (/\b(regio|region|regional|gebied|gebieden)\b/.test(normalized) && supported.includes("corop")) return "corop";
   if (/\b(regio|region|regional)\b/.test(normalized) && supported.includes("region")) return "region";
   if (/\b(nederland|netherlands|landelijk|country)\b/.test(normalized) && intent !== "rank_geographies" && supported.includes("country")) return "country";
   const defaultType = geographyTypeFromGrain(binding?.allowed_grains?.[0] ?? contract.default_grain);
   if (defaultType && supported.includes(defaultType)) return defaultType;
   if (supported.includes("municipality")) return "municipality";
+  if (supported.includes("corop")) return "corop";
   if (supported.includes("province")) return "province";
   return supported[0];
 }
@@ -248,20 +278,24 @@ function requestedGeographyType(question: string, intent: SemanticIntent, contra
 function requestedCategoryGeographyType(question: string, intent: SemanticIntent, contract: SemanticCategoryValueContract): string | undefined {
   const supported = supportedCategoryGeographyTypes(contract);
   const normalized = normalizeSemanticText(question);
+  if (/\bcorop\b/.test(normalized) && supported.includes("corop")) return "corop";
+  if (/\b(landsdeel|landsdelen)\b/.test(normalized) && supported.includes("landsdeel")) return "landsdeel";
   if (/\b(province|provincie)\b/.test(normalized) && supported.includes("province")) return "province";
+  if (/\b(regio|region|regional|gebied|gebieden)\b/.test(normalized) && supported.includes("corop")) return "corop";
   if (/\b(regio|region|regional|gebied|gebieden)\b/.test(normalized) && supported.includes("region")) return "region";
   if (/\b(nederland|netherlands|landelijk|country|totaal)\b/.test(normalized) && intent !== "rank_geographies" && supported.includes("country")) return "country";
   const defaultType = geographyTypeFromGrain(contract.default_grain);
   if (defaultType && supported.includes(defaultType)) return defaultType;
   if (supported.includes("municipality")) return "municipality";
+  if (supported.includes("corop")) return "corop";
   if (supported.includes("region")) return "region";
   if (supported.includes("province")) return "province";
   return supported[0];
 }
 
 function requestedContractGrain(geographyType: string | undefined, contract: ExplicitMetricContract, binding?: SemanticConceptMetricBinding): { periodType: string; displayGrain: string } {
-  const grains = binding?.allowed_grains?.length ? binding.allowed_grains : contract.valid_grains ?? [];
-  const preferred = [binding?.allowed_grains?.[0], contract.default_grain, ...grains]
+  const grains = effectiveGrains(contract, binding);
+  const preferred = [contract.default_grain, ...grains]
     .filter((grain): grain is string => Boolean(grain))
     .find((grain) => !geographyType || geographyTypeFromGrain(grain) === geographyType);
   const periodType = periodTypeFromGrain(preferred);
@@ -444,16 +478,19 @@ function goldSourceForDomain(domainId: string | null | undefined): SemanticQuery
 }
 
 function crossDomainQuestion(question: string): boolean {
-  return /\b(correlation|relatie|verband|samenhang|causaal|causality|causaliteit|oorzaak|oorzaken|verklaart|verklaren|effect|invloed|combineer|combine|cross.?domain|domein|ook|also|versus|vs|compared with|vergeleken met|gevoeliger|sensitive)\b/i.test(question)
+  return /\b(correlation|relatie|verband|samenhang|causaal|causality|causaliteit|oorzaak|oorzaken|verklaart|verklaren|effect|invloed|combineer|combineren|combineert|combine|cross.?domain|domein|ook|also|versus|vs|compared with|vergeleken met|gevoeliger|vaker|sensitive)\b/i.test(question)
     || /\b(vergelijk|vergelijken|compare)\b.+\bmet\b/i.test(question)
     || /\b(veel|hoge|hoog|high|meeste)\b.+\b(en|met|samen\s+met)\b.+\b(veel|hoge|hoog|high|meeste)\b/i.test(question)
+    || /\b(hoog|hoge|veel|lage|laag|low|relatief)\b.+\b(maar|en|met|dan)\b.+\b(hoog|hoge|veel|lage|laag|low|weinig|sneller|relatief)\b/i.test(question)
     || /\b(valt|vallen|komt|komen)\b.+\bsamen\b/i.test(question)
+    || /\b(sneller\s+dan|harder\s+dan|trager\s+dan|lager\s+dan|hoger\s+dan)\b/i.test(question)
     || /\b(hoge|hoog|high|lagere|lager|lower|meer|more|veel)\b.*\b(lage|laag|low|achterstand|arrears|woz|woningwaarde|nieuwbouw|zorgpremie|betalingsachterstand|achterstanden)\b/i.test(question)
     || /\b(woz|woningwaarde|nieuwbouw|woningvoorraad|huurwoningen|woontevredenheid|tevredenheid)\b.*\b(inkomen|armoede|zorgpremie|betalingsachterstand|achterstanden)\b/i.test(question);
 }
 
 function componentForCandidate(candidate: ContractCandidate, geographyType: string | undefined) {
   const requestedGrain = requestedContractGrain(geographyType, candidate.contract, candidate.binding);
+  const displayGrain = requestedGrain.displayGrain === "unknown_year" && geographyType ? `${geographyType}_year` : requestedGrain.displayGrain;
   return {
     metric_code: candidate.contract.metric_code,
     measure_key: String(candidate.binding?.measure_key ?? candidate.contract.measure_key),
@@ -463,7 +500,7 @@ function componentForCandidate(candidate: ContractCandidate, geographyType: stri
     domain_id: candidate.contract.domain_id ?? "",
     unit_code: candidate.contract.unit_code,
     category_filters: Object.keys(candidate.binding?.category_filters ?? {}).length ? candidate.binding?.category_filters : candidate.contract.category_filters ?? {},
-    grain: requestedGrain.displayGrain,
+    grain: displayGrain,
   };
 }
 

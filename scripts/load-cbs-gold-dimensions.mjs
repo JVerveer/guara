@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createPostgresClient, explainPostgresConnectionError, loadLocalEnv, normalizeKey } from "./lib/runtime.mjs";
 import {
+  geographyLevelLabel,
+  geographyLevelOrder,
   geographyTypeFromCode,
   inferAggregation,
   inferValueType,
@@ -229,12 +231,14 @@ async function loadGeographies(client, datasetId) {
     await client.query(
       `
         insert into gold.dim_geography (
-          geography_key, geography_code, geography_name, geography_type, municipality_code,
+          geography_key, geography_code, geography_name, geography_type, geography_level_order, geography_level_label, municipality_code,
           province_code, country_code, valid_from, valid_to, is_current, source_system
         )
-        values ($1,$2,$3,$4,$5,$6,'NL',$7,$8,$9,'CBS')
+        values ($1,$2,$3,$4,$5,$6,$7,$8,'NL',$9,$10,$11,'CBS')
         on conflict (source_system, geography_type, geography_code, valid_from) do update set
           geography_name = excluded.geography_name,
+          geography_level_order = excluded.geography_level_order,
+          geography_level_label = excluded.geography_level_label,
           municipality_code = excluded.municipality_code,
           province_code = excluded.province_code,
           valid_to = excluded.valid_to,
@@ -246,6 +250,8 @@ async function loadGeographies(client, datasetId) {
         row.region_code,
         row.region_name || row.region_code,
         geographyType,
+        geographyLevelOrder(geographyType),
+        geographyLevelLabel(geographyType),
         row.municipality_code,
         row.province_code,
         row.valid_from || "1900-01-01",

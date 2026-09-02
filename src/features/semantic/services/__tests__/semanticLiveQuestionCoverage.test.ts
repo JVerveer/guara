@@ -180,6 +180,107 @@ const LIVE_QUESTION_CASES = [
   },
 ];
 
+const HARD_INVESTIGATION_CASES = [
+  {
+    question: "Waar gaan hoge WOZ-waarden samen met lage SES-WOA scores?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["average_woz_home_value", "gen_86296ned_gemiddeldepercentielgroep_10_1o0mwj"],
+    allowNoRows: true,
+  },
+  {
+    question: "Welke gemeenten combineren veel nieuwbouw met relatief veel huishoudens met laag inkomen?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["new_construction", "gen_86131ned_personentot105armoedegrensrelatief_32_1oacem"],
+  },
+  {
+    question: "Zijn gemeenten met veel huurwoningen vaker gemeenten met lage mediane huishoudinkomens?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["total_rental_homes", "gen_86161ned_mediaangestandaardiseerdinkomen_4_1al9vf"],
+  },
+  {
+    question: "Waar stijgt woningwaarde sneller dan huishoudinkomen?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["average_woz_home_value", "gen_86161ned_mediaangestandaardiseerdinkomen_4_1al9vf"],
+  },
+  {
+    question: "Welke gemeenten hebben veel woningtransformatie maar blijven laag scoren op sociaal-economische status?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["housing_transformations", "gen_86296ned_gemiddeldepercentielgroep_10_1o0mwj"],
+    allowNoRows: true,
+  },
+  {
+    question: "Waar is veel nieuwbouw, maar ook veel armoede onder personen?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["new_construction", "gen_86131ned_personentot105armoedegrensrelatief_32_1oacem"],
+  },
+  {
+    question: "Welke regio's combineren hoge verkoopprijzen met relatief veel betalingsachterstanden zorgpremie?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["average_sale_price", "health_insurance_payment_arrears_share"],
+    geographyType: "region",
+  },
+  {
+    question: "Waar gaan veel particuliere huurwoningen samen met lage inkomensgroepen?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["total_rental_homes", "gen_86161ned_gestandaardiseerdinkomen2e10groep_8_1lv4y6"],
+  },
+  {
+    question: "Welke provincies hebben hoog consumentenvertrouwen maar relatief weinig woningbouw?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["consumer_confidence", "new_construction"],
+    geographyType: "province",
+  },
+  {
+    question: "Welke gemeenten hebben veel zelfstandigen in bepaalde bedrijfstakken én hoge woonlasten?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["average_total_housing_costs", "gen_86163ned_zelfstandigen_1_1gilxj"],
+    allowNoRows: true,
+  },
+  {
+    question: "Waar wonen relatief veel zelfstandigen met laag inkomen in gebieden met hoge WOZ-waarde?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["average_woz_home_value", "gen_86163ned_zelfstandigen_1_1gilxj"],
+    allowNoRows: true,
+  },
+  {
+    question: "Welke gemeenten hebben een hoge woningvoorraadgroei maar een lage SES-WOA ontwikkeling?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["housing_stock_start", "gen_86296ned_gemiddeldepercentielgroep_10_1o0mwj"],
+    allowNoRows: true,
+  },
+  {
+    question: "Welke gebieden hebben veel oudere woningen en relatief veel huishoudens in lage inkomensklassen?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["housing_stock_start", "gen_86161ned_gestandaardiseerdinkomen2e10groep_8_1lv4y6"],
+  },
+  {
+    question: "Waar hangen bouwkostenindexen samen met verkoopprijsontwikkeling van bestaande koopwoningen?",
+    source: "semantic_catalogue",
+    allowNoRows: true,
+  },
+  {
+    question: "Welke COROP-gebieden combineren hoge verkoopprijzen met laag consumentenvertrouwen?",
+    source: "cross_domain_gold",
+    calculation: "cross_domain_comparison",
+    metrics: ["average_sale_price", "consumer_confidence"],
+    geographyType: "corop",
+    allowNoRows: true,
+  },
+];
+
 describe.runIf(Boolean(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY))("live homepage question coverage", () => {
   it.each(LIVE_QUESTION_CASES)("$question", async (testCase) => {
     const answer = await semanticSearchService.answer(testCase.question);
@@ -207,5 +308,26 @@ describe.runIf(Boolean(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABAS
     expect(rows.length).toBeGreaterThan(0);
     expect(answer.title).not.toMatch(/No loaded value found|needs a safer interpretation|Semantic catalogue results/i);
     expect(answer.summary).not.toMatch(/did not execute|no analytical query was executed/i);
+  }, 45_000);
+});
+
+describe.runIf(Boolean(process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY))("hard live investigation question coverage", () => {
+  it.each(HARD_INVESTIGATION_CASES)("$question", async (testCase) => {
+    const answer = await semanticSearchService.answer(testCase.question);
+    const rows = Array.isArray(answer.executionResult.rows) ? answer.executionResult.rows : [];
+    const componentMetrics = answer.queryPlan.component_measures?.map((component) => component.metric_code).sort() ?? [];
+
+    expect(answer.queryPlan.source).toBe(testCase.source);
+    if (testCase.calculation) expect(answer.queryPlan.calculation_code).toBe(testCase.calculation);
+    if (testCase.metrics) expect(componentMetrics).toEqual(testCase.metrics.sort());
+    if (testCase.geographyType) expect(answer.queryPlan.geography_type).toBe(testCase.geographyType);
+
+    if (!testCase.allowNoRows) {
+      expect(rows.length).toBeGreaterThan(0);
+      expect(answer.title).not.toMatch(/No loaded value found|needs a safer interpretation|Semantic catalogue results/i);
+      expect(answer.summary).not.toMatch(/did not execute|no analytical query was executed/i);
+    } else {
+      expect(answer.title).not.toMatch(/Newly built dwellings|Housing stock had the highest/i);
+    }
   }, 45_000);
 });

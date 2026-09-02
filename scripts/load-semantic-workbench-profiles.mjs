@@ -234,7 +234,41 @@ async function profileMeasureFromSilverPeriods(client, domainId, datasetCode, me
 async function profileDatasetLevels(client, domainId, mart, datasetCode) {
   const { rowCount } = await client.query(
     `
-      with levels as (
+      with capability_levels as (
+        select
+          $1::text as domain_id,
+          $2::text as dataset_code,
+          coalesce(array_agg(level order by level_order, level), '{}'::text[]) as geography_types
+        from (
+          select distinct
+            case
+              when raw_level in ('national', 'unknown') then 'country'
+              else raw_level
+            end as level,
+            gold.geography_level_order(case
+              when raw_level in ('national', 'unknown') then 'country'
+              else raw_level
+            end) as level_order
+          from semantic.gold_measure_capability c
+          cross join lateral unnest(coalesce(c.geography_types, '{}'::text[])) raw_level
+          where c.domain_id = $1
+            and c.dataset_code in ($2, upper($2), lower($2))
+            and nullif(raw_level, '') is not null
+        ) fact_levels
+      ),
+      silver_code_levels as (
+        select
+          $1::text as domain_id,
+          $2::text as dataset_code,
+          coalesce(array_agg(level order by gold.geography_level_order(level), level), '{}'::text[]) as geography_types
+        from (
+          select distinct gold.canonical_geography_type(region_code, region_level) as level
+          from silver.cbs_region_values
+          where dataset_id in ($2, upper($2), lower($2))
+            and nullif(region_code, '') is not null
+        ) code_levels
+      ),
+      silver_levels as (
         select
           $1::text as domain_id,
           $2::text as dataset_code,
@@ -257,12 +291,46 @@ async function profileDatasetLevels(client, domainId, mart, datasetCode) {
         where dataset_id in ($2, upper($2), lower($2))
         order by case when dataset_id = $2 then 0 when dataset_id = upper($2) then 1 else 2 end
         limit 1
+      ),
+      levels as (
+        select
+          $1::text as domain_id,
+          $2::text as dataset_code,
+          coalesce(
+            nullif(sc.geography_types, '{}'::text[]),
+            (
+              select array_agg(level order by gold.geography_level_order(level), level)
+              from (
+                select distinct level
+                from unnest(
+                  coalesce(nullif(g.geography_types, '{}'::text[]), '{}'::text[])
+                  || coalesce(nullif(s.geography_types, '{}'::text[]), array['country']::text[])
+                ) level
+                where nullif(level, '') is not null
+              ) fallback_levels
+            ),
+            array['country']::text[]
+          ) as geography_types
+        from capability_levels g
+        full join silver_levels s on s.domain_id = g.domain_id and s.dataset_code = g.dataset_code
+        full join silver_code_levels sc on sc.domain_id = coalesce(g.domain_id, s.domain_id)
+          and sc.dataset_code = coalesce(g.dataset_code, s.dataset_code)
       )
       update semantic.workbench_measure_profile p
       set
         geography_types = levels.geography_types,
         grains = coalesce((
-          select array_agg(level || '_year' order by level)
+          select array_agg(level || '_year' order by case level
+            when 'neighborhood' then 0
+            when 'municipality' then 1
+            when 'corop' then 2
+            when 'region' then 2
+            when 'province' then 3
+            when 'landsdeel' then 4
+            when 'country' then 5
+            when 'unknown' then 5
+            else 99
+          end, level)
           from unnest(levels.geography_types) level
         ), '{}'::text[]),
         profiled_at = now()

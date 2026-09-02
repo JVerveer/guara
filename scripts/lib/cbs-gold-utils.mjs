@@ -59,11 +59,36 @@ export function inferAggregation(rawUnit, measureName = "") {
 
 export function geographyTypeFromCode(code, fallback = "unknown") {
   const normalized = String(code ?? "").trim().toUpperCase();
+  if (!normalized || ["UNKNOWN", "TOTAAL", "TOTAL"].includes(normalized)) return "country";
   if (["NL", "NL00", "NL01"].includes(normalized)) return "country";
   if (normalized.startsWith("PV")) return "province";
   if (normalized.startsWith("GM")) return "municipality";
-  if (normalized.startsWith("CR") || normalized.startsWith("LD") || normalized.startsWith("COROP")) return "region";
-  return fallback === "other" || fallback === "neighborhood" ? "region" : fallback || "unknown";
+  if (normalized.startsWith("WK") || normalized.startsWith("BU")) return "neighborhood";
+  if (normalized.startsWith("CR") || normalized.startsWith("COROP")) return "corop";
+  if (normalized.startsWith("LD")) return "landsdeel";
+  if (fallback === "country" || fallback === "national" || fallback === "unknown") return "country";
+  if (fallback === "other" || fallback === "neighborhood" || fallback === "region") return "region";
+  return fallback || "country";
+}
+
+export function geographyLevelOrder(geographyType) {
+  const type = String(geographyType ?? "").trim().toLowerCase();
+  if (type === "municipality") return 1;
+  if (type === "corop") return 2;
+  if (type === "province") return 3;
+  if (type === "landsdeel") return 4;
+  if (type === "country" || type === "national" || type === "totaal") return 5;
+  return null;
+}
+
+export function geographyLevelLabel(geographyType) {
+  const type = String(geographyType ?? "").trim().toLowerCase();
+  if (type === "municipality") return "Gemeente";
+  if (type === "corop") return "COROP-gebied";
+  if (type === "province") return "Provincie";
+  if (type === "landsdeel") return "Landsdeel";
+  if (type === "country" || type === "national" || type === "totaal" || type === "unknown") return "Totaal (Nederland)";
+  return type || "Totaal (Nederland)";
 }
 
 export function safeIsoDate(value) {

@@ -89,6 +89,37 @@ create table if not exists semantic.workbench_measure_profile (
   primary key (domain_id, dataset_code, measure_key)
 );
 
+create table if not exists semantic.metric_ai_review (
+  ai_review_id uuid primary key default gen_random_uuid(),
+  metric_code text not null,
+  domain_id text not null,
+  dataset_code text not null,
+  measure_key bigint not null,
+  model_provider text not null default 'openai',
+  model_name text not null,
+  prompt_version text not null default 'ai_semantic_reviewer_v1',
+  review_status text not null default 'generated',
+  confidence numeric,
+  business_label text,
+  plain_definition text,
+  metric_type text,
+  aggregation_classification text,
+  recommended_aggregation text,
+  is_additive boolean,
+  synonyms jsonb not null default '{}'::jsonb,
+  exclusions text[] not null default '{}'::text[],
+  caveats text[] not null default '{}'::text[],
+  dimension_notes jsonb not null default '{}'::jsonb,
+  risk_flags text[] not null default '{}'::text[],
+  recommended_action text not null default 'needs_human_review',
+  rationale text,
+  raw_response jsonb not null default '{}'::jsonb,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (metric_code, prompt_version)
+);
+
 create index if not exists metric_contract_review_queue_idx
   on semantic.metric_contract_review(domain_id, review_status, risk_level, priority_score, updated_at desc);
 
@@ -104,11 +135,15 @@ create index if not exists metric_contract_test_case_metric_idx
 create index if not exists workbench_measure_profile_domain_dataset_idx
   on semantic.workbench_measure_profile(domain_id, dataset_code, measure_key);
 
+create index if not exists metric_ai_review_lookup_idx
+  on semantic.metric_ai_review(domain_id, dataset_code, measure_key, updated_at desc);
+
 alter table semantic.metric_contract_review enable row level security;
 alter table semantic.metric_contract_diagnostic enable row level security;
 alter table semantic.metric_contract_promotion_event enable row level security;
 alter table semantic.metric_contract_test_case enable row level security;
 alter table semantic.workbench_measure_profile enable row level security;
+alter table semantic.metric_ai_review enable row level security;
 
 drop policy if exists "semantic_metric_contract_review_read_public" on semantic.metric_contract_review;
 create policy "semantic_metric_contract_review_read_public"
@@ -133,6 +168,11 @@ create policy "semantic_metric_contract_test_case_read_public"
 drop policy if exists "semantic_workbench_measure_profile_read_public" on semantic.workbench_measure_profile;
 create policy "semantic_workbench_measure_profile_read_public"
   on semantic.workbench_measure_profile for select
+  using (true);
+
+drop policy if exists "semantic_metric_ai_review_read_public" on semantic.metric_ai_review;
+create policy "semantic_metric_ai_review_read_public"
+  on semantic.metric_ai_review for select
   using (true);
 
 create or replace function public.guara_semantic_review_queue(
@@ -228,6 +268,8 @@ as $$
       i.measure_code,
       i.indicator_name as measure_name,
       i.indicator_description as measure_description,
+      i.topic,
+      i.subtopic,
       i.unit_code,
       i.unit_name,
       i.default_aggregation,
@@ -250,6 +292,8 @@ as $$
       i.measure_code,
       i.indicator_name as measure_name,
       i.indicator_description as measure_description,
+      i.topic,
+      i.subtopic,
       i.unit_code,
       i.unit_name,
       i.default_aggregation,
@@ -273,6 +317,8 @@ as $$
       m.measure_code,
       m.measure_name,
       m.measure_description,
+      m.topic,
+      m.subtopic,
       m.unit_code,
       m.unit_name,
       m.default_aggregation,
@@ -289,8 +335,25 @@ as $$
       coalesce(c.min_year, p.min_year) as min_year,
       coalesce(c.max_year, p.max_year) as max_year,
       coalesce(nullif(c.available_years, '{}'::integer[]), p.available_years, '{}'::integer[]) as available_years,
-      coalesce(nullif(c.geography_types, '{}'::text[]), p.geography_types, '{}'::text[]) as geography_types,
-      coalesce(nullif(c.grains, '{}'::text[]), p.grains, '{}'::text[]) as grains,
+      coalesce((
+        select array_agg(distinct normalized_level order by normalized_level)
+        from (
+          select case
+            when raw_level in ('national', 'unknown') then 'country'
+            else raw_level
+          end as normalized_level
+          from unnest(coalesce(nullif(p.geography_types, '{}'::text[]), c.geography_types, '{}'::text[])) raw_level
+          where nullif(raw_level, '') is not null
+        ) normalized_levels
+      ), '{}'::text[]) as geography_types,
+      coalesce((
+        select array_agg(distinct normalized_grain order by normalized_grain)
+        from (
+          select regexp_replace(raw_grain, '^national_', 'country_') as normalized_grain
+          from unnest(coalesce(nullif(p.grains, '{}'::text[]), c.grains, '{}'::text[])) raw_grain
+          where nullif(raw_grain, '') is not null
+        ) normalized_grains
+      ), '{}'::text[]) as grains,
       coalesce(c.supports_ranking, false) as supports_ranking,
       coalesce(c.supports_trend, false) as supports_trend,
       coalesce(c.supports_comparison, false) as supports_comparison,
@@ -396,6 +459,8 @@ grant execute on function public.guara_semantic_workbench_catalogue(text, text, 
 
 drop function if exists public.guara_semantic_metric_detail(text, text, bigint, integer, integer);
 
+drop function if exists public.guara_semantic_metric_detail(text, text, text, integer, text, jsonb, integer, integer);
+
 create or replace function public.guara_semantic_metric_detail(
   p_domain text,
   p_dataset_code text,
@@ -449,12 +514,23 @@ begin
       select
         'geography_type'::text as dimension_code,
         f.geography_type as category_code,
-        f.geography_type as category_name,
+        case f.geography_type
+          when 'municipality' then 'Gemeente'
+          when 'neighborhood' then 'Wijk/buurt'
+          when 'corop' then 'COROP-gebied'
+          when 'province' then 'Provincie'
+          when 'landsdeel' then 'Landsdeel'
+          when 'country' then 'Totaal (Nederland)'
+          when 'region' then 'Regionaal'
+          when 'unknown' then 'Totaal (Nederland)'
+          else f.geography_type
+        end as category_name,
         count(*)::bigint as row_count,
         min(f.calendar_year) as min_year,
         max(f.calendar_year) as max_year
       from facts f
       where nullif(f.geography_type, '') is not null
+        and f.geography_type <> 'unknown'
       group by f.geography_type
     ),
     dimension_counts as (
@@ -504,8 +580,8 @@ begin
           where b.housing_observation_key = f.housing_observation_key
         ), '{}'::jsonb) as categories
       from facts f
-      order by f.calendar_year desc nulls last, f.geography_type, f.geography_name
-      limit least(greatest(coalesce(p_sample_limit, 25), 1), 100)
+      order by f.housing_observation_key desc
+      limit 0
     )
     select jsonb_build_object(
       'dimensionValues', coalesce((select jsonb_agg(to_jsonb(d) order by d.dimension_code, d.value_rank) from dimension_values d), '[]'::jsonb),
@@ -548,12 +624,23 @@ begin
       select
         'geography_type'::text as dimension_code,
         f.geography_type as category_code,
-        f.geography_type as category_name,
+        case f.geography_type
+          when 'municipality' then 'Gemeente'
+          when 'neighborhood' then 'Wijk/buurt'
+          when 'corop' then 'COROP-gebied'
+          when 'province' then 'Provincie'
+          when 'landsdeel' then 'Landsdeel'
+          when 'country' then 'Totaal (Nederland)'
+          when 'region' then 'Regionaal'
+          when 'unknown' then 'Totaal (Nederland)'
+          else f.geography_type
+        end as category_name,
         count(*)::bigint as row_count,
         min(f.calendar_year) as min_year,
         max(f.calendar_year) as max_year
       from facts f
       where nullif(f.geography_type, '') is not null
+        and f.geography_type <> 'unknown'
       group by f.geography_type
     ),
     dimension_counts as (
@@ -603,8 +690,8 @@ begin
           where b.income_observation_key = f.income_observation_key
         ), '{}'::jsonb) as categories
       from facts f
-      order by f.calendar_year desc nulls last, f.geography_type, f.geography_name
-      limit least(greatest(coalesce(p_sample_limit, 25), 1), 100)
+      order by f.income_observation_key desc
+      limit 0
     )
     select jsonb_build_object(
       'dimensionValues', coalesce((select jsonb_agg(to_jsonb(d) order by d.dimension_code, d.value_rank) from dimension_values d), '[]'::jsonb),
@@ -614,19 +701,827 @@ begin
     raise exception 'Unsupported domain for semantic metric detail: %', p_domain;
   end if;
 
-  return coalesce(result, jsonb_build_object('dimensionValues', '[]'::jsonb, 'sampleRows', '[]'::jsonb));
+  return coalesce(result, jsonb_build_object('dimensionValues', '[]'::jsonb, 'sampleRows', '[]'::jsonb))
+    || jsonb_build_object(
+      'aiReview',
+      coalesce((
+        select to_jsonb(ai_review)
+        from (
+          select
+            ar.ai_review_id,
+            ar.metric_code,
+            ar.domain_id,
+            ar.dataset_code,
+            ar.measure_key::text as measure_key,
+            ar.model_provider,
+            ar.model_name,
+            ar.prompt_version,
+            ar.review_status,
+            ar.confidence,
+            ar.business_label,
+            ar.plain_definition,
+            ar.metric_type,
+            ar.aggregation_classification,
+            ar.recommended_aggregation,
+            ar.is_additive,
+            ar.synonyms,
+            ar.exclusions,
+            ar.caveats,
+            ar.dimension_notes,
+            ar.risk_flags,
+            ar.recommended_action,
+            ar.rationale,
+            ar.metadata,
+            ar.updated_at
+          from semantic.metric_ai_review ar
+          where ar.domain_id = p_domain
+            and ar.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+            and ar.measure_key = p_measure_key::bigint
+          order by ar.updated_at desc
+          limit 1
+        ) ai_review
+      ), 'null'::jsonb)
+    );
 end;
 $$;
 
 grant execute on function public.guara_semantic_metric_detail(text, text, text, integer, integer) to anon, authenticated;
 
+drop function if exists public.guara_semantic_metric_detail(text, text, text, integer, text, jsonb, integer, integer);
+
+create or replace function public.guara_semantic_metric_detail(
+  p_domain text,
+  p_dataset_code text,
+  p_measure_key text,
+  p_dimension_limit integer default 5000,
+  p_sample_limit integer default 25
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = semantic, gold, public
+as $$
+declare
+  result jsonb;
+begin
+  if p_domain = 'bouwen-en-wonen' then
+    with dataset as (
+      select d.dataset_key, d.dataset_code
+      from gold_bouwen_wonen.dim_housing_dataset d
+      where d.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+      limit 1
+    ),
+    category_dimension_counts as (
+      select
+        c.dimension_code,
+        c.category_code,
+        c.category_name,
+        0::bigint as row_count,
+        null::integer as min_year,
+        null::integer as max_year,
+        row_number() over (
+          partition by c.dimension_code
+          order by c.is_unknown asc, c.is_total desc, c.sort_order nulls last, c.category_name, c.category_code
+        ) as value_rank
+      from gold.dim_category c
+      join dataset d on d.dataset_key = c.dataset_key
+    ),
+    date_dimension_counts as (
+      select
+        'calendar_year'::text as dimension_code,
+        pv.period_key::text as category_code,
+        coalesce(pv.label, pv.period_key)::text as category_name,
+        0::bigint as row_count,
+        pv.year::integer as min_year,
+        pv.year::integer as max_year,
+        row_number() over (order by pv.year desc nulls last, pv.period_key desc) as value_rank
+      from silver.cbs_period_values pv
+      where pv.dataset_id in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and pv.year is not null
+    ),
+    geography_type_dimension_counts as (
+      select
+        'geography_type'::text as dimension_code,
+        geography_type::text as category_code,
+        case geography_type
+          when 'municipality' then 'Gemeente'
+          when 'neighborhood' then 'Wijk/buurt'
+          when 'corop' then 'COROP-gebied'
+          when 'province' then 'Provincie'
+          when 'landsdeel' then 'Landsdeel'
+          when 'country' then 'Totaal (Nederland)'
+          when 'region' then 'Regionaal'
+          when 'unknown' then 'Totaal (Nederland)'
+          else geography_type
+        end as category_name,
+        0::bigint as row_count,
+        null::integer as min_year,
+        null::integer as max_year,
+        row_number() over (
+          order by case geography_type
+            when 'neighborhood' then 0
+            when 'municipality' then 1
+            when 'corop' then 2
+            when 'region' then 2
+            when 'province' then 3
+            when 'landsdeel' then 4
+            when 'country' then 5
+            when 'unknown' then 5
+            else 99
+          end, geography_type
+        ) as value_rank
+      from (
+        select distinct unnest(coalesce(p.geography_types, '{}'::text[])) as geography_type
+        from semantic.workbench_measure_profile p
+        where p.domain_id = p_domain
+          and p.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+          and p.measure_key = p_measure_key::bigint
+      ) g
+      where nullif(geography_type, '') is not null
+    ),
+    dimension_values as (
+      select *
+      from (
+        select * from date_dimension_counts
+        union all
+        select * from geography_type_dimension_counts
+        union all
+        select * from category_dimension_counts
+      ) all_dimension_counts
+      where value_rank <= least(greatest(coalesce(p_dimension_limit, 5000), 1), 10000)
+    ),
+    sample_rows as (
+      select
+        f.dataset_code,
+        f.measure_key,
+        f.calendar_year,
+        f.period_code,
+        f.geography_type,
+        f.geography_code,
+        f.geography_name,
+        f.observation_value,
+        f.observation_text,
+        f.status_code,
+        f.category_combination_hash,
+        coalesce((
+          select jsonb_object_agg(b.dimension_code, b.category_name)
+          from gold_bouwen_wonen.bridge_housing_observation_category b
+          where b.housing_observation_key = f.housing_observation_key
+        ), '{}'::jsonb) as categories
+      from gold_bouwen_wonen.fact_housing_observation f
+      where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
+        and f.observation_value is not null
+        and f.is_missing = false
+      order by f.housing_observation_key desc
+      limit 0
+    )
+    select jsonb_build_object(
+      'dimensionValues', coalesce((select jsonb_agg(to_jsonb(d) order by d.dimension_code, d.value_rank) from dimension_values d), '[]'::jsonb),
+      'sampleRows', coalesce((select jsonb_agg(to_jsonb(s)) from sample_rows s), '[]'::jsonb)
+    ) into result;
+  elsif p_domain = 'inkomen-en-bestedingen' then
+    with dataset as (
+      select d.dataset_key, d.dataset_code
+      from gold_inkomen_bestedingen.dim_income_dataset d
+      where d.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+      limit 1
+    ),
+    category_dimension_counts as (
+      select
+        c.dimension_code,
+        c.category_code,
+        c.category_name,
+        0::bigint as row_count,
+        null::integer as min_year,
+        null::integer as max_year,
+        row_number() over (
+          partition by c.dimension_code
+          order by c.is_unknown asc, c.is_total desc, c.sort_order nulls last, c.category_name, c.category_code
+        ) as value_rank
+      from gold.dim_category c
+      join dataset d on d.dataset_key = c.dataset_key
+    ),
+    date_dimension_counts as (
+      select
+        'calendar_year'::text as dimension_code,
+        pv.period_key::text as category_code,
+        coalesce(pv.label, pv.period_key)::text as category_name,
+        0::bigint as row_count,
+        pv.year::integer as min_year,
+        pv.year::integer as max_year,
+        row_number() over (order by pv.year desc nulls last, pv.period_key desc) as value_rank
+      from silver.cbs_period_values pv
+      where pv.dataset_id in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and pv.year is not null
+    ),
+    geography_type_dimension_counts as (
+      select
+        'geography_type'::text as dimension_code,
+        geography_type::text as category_code,
+        case geography_type
+          when 'municipality' then 'Gemeente'
+          when 'neighborhood' then 'Wijk/buurt'
+          when 'corop' then 'COROP-gebied'
+          when 'province' then 'Provincie'
+          when 'landsdeel' then 'Landsdeel'
+          when 'country' then 'Totaal (Nederland)'
+          when 'region' then 'Regionaal'
+          when 'unknown' then 'Totaal (Nederland)'
+          else geography_type
+        end as category_name,
+        0::bigint as row_count,
+        null::integer as min_year,
+        null::integer as max_year,
+        row_number() over (
+          order by case geography_type
+            when 'neighborhood' then 0
+            when 'municipality' then 1
+            when 'corop' then 2
+            when 'region' then 2
+            when 'province' then 3
+            when 'landsdeel' then 4
+            when 'country' then 5
+            when 'unknown' then 5
+            else 99
+          end, geography_type
+        ) as value_rank
+      from (
+        select distinct unnest(coalesce(p.geography_types, '{}'::text[])) as geography_type
+        from semantic.workbench_measure_profile p
+        where p.domain_id = p_domain
+          and p.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+          and p.measure_key = p_measure_key::bigint
+      ) g
+      where nullif(geography_type, '') is not null
+    ),
+    dimension_values as (
+      select *
+      from (
+        select * from date_dimension_counts
+        union all
+        select * from geography_type_dimension_counts
+        union all
+        select * from category_dimension_counts
+      ) all_dimension_counts
+      where value_rank <= least(greatest(coalesce(p_dimension_limit, 5000), 1), 10000)
+    ),
+    sample_rows as (
+      select
+        f.dataset_code,
+        f.measure_key,
+        f.calendar_year,
+        f.period_code,
+        f.geography_type,
+        f.geography_code,
+        f.geography_name,
+        f.observation_value,
+        f.observation_text,
+        f.status_code,
+        f.category_combination_hash,
+        coalesce((
+          select jsonb_object_agg(b.dimension_code, b.category_name)
+          from gold_inkomen_bestedingen.bridge_income_observation_category b
+          where b.income_observation_key = f.income_observation_key
+        ), '{}'::jsonb) as categories
+      from gold_inkomen_bestedingen.fact_income_observation f
+      where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
+        and f.observation_value is not null
+        and f.is_missing = false
+      order by f.income_observation_key desc
+      limit 0
+    )
+    select jsonb_build_object(
+      'dimensionValues', coalesce((select jsonb_agg(to_jsonb(d) order by d.dimension_code, d.value_rank) from dimension_values d), '[]'::jsonb),
+      'sampleRows', coalesce((select jsonb_agg(to_jsonb(s)) from sample_rows s), '[]'::jsonb)
+    ) into result;
+  else
+    raise exception 'Unsupported domain for semantic metric detail: %', p_domain;
+  end if;
+
+  return coalesce(result, jsonb_build_object('dimensionValues', '[]'::jsonb, 'sampleRows', '[]'::jsonb))
+    || jsonb_build_object(
+      'aiReview',
+      coalesce((
+        select to_jsonb(ai_review)
+        from (
+          select
+            ar.ai_review_id,
+            ar.metric_code,
+            ar.domain_id,
+            ar.dataset_code,
+            ar.measure_key::text as measure_key,
+            ar.model_provider,
+            ar.model_name,
+            ar.prompt_version,
+            ar.review_status,
+            ar.confidence,
+            ar.business_label,
+            ar.plain_definition,
+            ar.metric_type,
+            ar.aggregation_classification,
+            ar.recommended_aggregation,
+            ar.is_additive,
+            ar.synonyms,
+            ar.exclusions,
+            ar.caveats,
+            ar.dimension_notes,
+            ar.risk_flags,
+            ar.recommended_action,
+            ar.rationale,
+            ar.metadata,
+            ar.updated_at
+          from semantic.metric_ai_review ar
+          where ar.domain_id = p_domain
+            and ar.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+            and ar.measure_key = p_measure_key::bigint
+          order by ar.updated_at desc
+          limit 1
+        ) ai_review
+      ), 'null'::jsonb)
+    );
+end;
+$$;
+
+grant execute on function public.guara_semantic_metric_detail(text, text, text, integer, integer) to anon, authenticated;
+
+create or replace function public.guara_semantic_metric_detail(
+  p_domain text,
+  p_dataset_code text,
+  p_measure_key text,
+  p_calendar_year integer,
+  p_period_code text,
+  p_geography_type text,
+  p_category_filters jsonb,
+  p_dimension_limit integer default 5000,
+  p_sample_limit integer default 25
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = semantic, gold, public
+as $$
+declare
+  result jsonb;
+begin
+  if p_domain = 'bouwen-en-wonen' then
+    with required_filters as materialized (
+      select
+        lower(key) as dimension_code,
+        case
+          when jsonb_typeof(value) = 'array' then array(select jsonb_array_elements_text(value))
+          else array[value #>> '{}']
+        end as category_values
+      from jsonb_each(coalesce(p_category_filters, '{}'::jsonb))
+      where key not in ('calendar_year', 'period_code', 'geography_type')
+    ),
+    base_facts as materialized (
+      select f.*
+      from gold_bouwen_wonen.fact_housing_observation f
+      where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (nullif(p_geography_type, '') is null or p_geography_type = 'all' or gold.canonical_geography_type(f.geography_code, f.geography_type) = p_geography_type)
+    ),
+    filtered_facts as materialized (
+      select f.*
+      from base_facts f
+      where (p_calendar_year is null or f.calendar_year = p_calendar_year)
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and not exists (
+          select 1
+          from required_filters rf
+          where not exists (
+            select 1
+            from gold_bouwen_wonen.bridge_housing_observation_category b
+            where b.housing_observation_key = f.housing_observation_key
+              and lower(b.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+          )
+        )
+    ),
+    date_dimension_counts as (
+      select
+        'calendar_year'::text as dimension_code,
+        f.calendar_year::text as category_code,
+        f.calendar_year::text as category_name,
+        count(*)::bigint as row_count,
+        f.calendar_year::integer as min_year,
+        f.calendar_year::integer as max_year,
+        row_number() over (order by f.calendar_year desc nulls last) as value_rank
+      from base_facts f
+      where f.calendar_year is not null
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and not exists (
+          select 1
+          from required_filters rf
+          where not exists (
+            select 1
+            from gold_bouwen_wonen.bridge_housing_observation_category b
+            where b.housing_observation_key = f.housing_observation_key
+              and lower(b.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+          )
+        )
+      group by f.calendar_year
+    ),
+    period_code_dimension_counts as (
+      select
+        'period_code'::text as dimension_code,
+        f.period_code::text as category_code,
+        f.period_code::text as category_name,
+        count(*)::bigint as row_count,
+        min(f.calendar_year)::integer as min_year,
+        max(f.calendar_year)::integer as max_year,
+        row_number() over (
+          order by
+            min(f.calendar_year) desc nulls last,
+            min(case coalesce(nullif(f.period_type, ''), 'year')
+              when 'year' then 0
+              when 'quarter' then 1
+              when 'month' then 2
+              else 3
+            end),
+            f.period_code desc nulls last
+        ) as value_rank
+      from base_facts f
+      where nullif(f.period_code, '') is not null
+        and (p_calendar_year is null or f.calendar_year = p_calendar_year)
+        and not exists (
+          select 1
+          from required_filters rf
+          where not exists (
+            select 1
+            from gold_bouwen_wonen.bridge_housing_observation_category b
+            where b.housing_observation_key = f.housing_observation_key
+              and lower(b.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+          )
+        )
+      group by f.period_code, coalesce(nullif(f.period_type, ''), 'year')
+    ),
+    geography_type_dimension_counts as (
+      select
+        'geography_type'::text as dimension_code,
+        gold.canonical_geography_type(f.geography_code, f.geography_type)::text as category_code,
+        gold.geography_level_label(gold.canonical_geography_type(f.geography_code, f.geography_type)) as category_name,
+        count(*)::bigint as row_count,
+        null::integer as min_year,
+        null::integer as max_year,
+        row_number() over (
+          order by gold.geography_level_order(gold.canonical_geography_type(f.geography_code, f.geography_type)), gold.canonical_geography_type(f.geography_code, f.geography_type)
+        ) as value_rank
+      from gold_bouwen_wonen.fact_housing_observation f
+      where nullif(f.geography_type, '') is not null
+        and f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (p_calendar_year is null or f.calendar_year = p_calendar_year)
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and not exists (
+          select 1
+          from required_filters rf
+          where not exists (
+            select 1
+            from gold_bouwen_wonen.bridge_housing_observation_category b
+            where b.housing_observation_key = f.housing_observation_key
+              and lower(b.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+          )
+        )
+      group by gold.canonical_geography_type(f.geography_code, f.geography_type)
+    ),
+    category_dimension_counts as (
+      select
+        b.dimension_code,
+        nullif(trim(coalesce(b.category_code, '')), '') as category_code,
+        b.category_name,
+        count(*)::bigint as row_count,
+        min(f.calendar_year)::integer as min_year,
+        max(f.calendar_year)::integer as max_year,
+        row_number() over (
+          partition by b.dimension_code
+          order by count(*) desc, b.category_name, nullif(trim(coalesce(b.category_code, '')), '')
+        ) as value_rank
+      from base_facts f
+      join gold_bouwen_wonen.bridge_housing_observation_category b on b.housing_observation_key = f.housing_observation_key
+      where (p_calendar_year is null or f.calendar_year = p_calendar_year)
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and not exists (
+        select 1
+        from required_filters rf
+        where rf.dimension_code <> lower(b.dimension_code)
+          and not exists (
+            select 1
+            from gold_bouwen_wonen.bridge_housing_observation_category b2
+            where b2.housing_observation_key = f.housing_observation_key
+              and lower(b2.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b2.category_code, '')) = any(rf.category_values) or b2.category_name = any(rf.category_values))
+          )
+      )
+      group by b.dimension_code, nullif(trim(coalesce(b.category_code, '')), ''), b.category_name
+    ),
+    dimension_values as (
+      select *
+      from (
+        select * from date_dimension_counts
+        union all
+        select * from period_code_dimension_counts
+        union all
+        select * from geography_type_dimension_counts
+        union all
+        select * from category_dimension_counts
+      ) all_dimension_counts
+      where value_rank <= least(greatest(coalesce(p_dimension_limit, 5000), 1), 10000)
+    ),
+    sample_rows as (
+      select
+        f.dataset_code,
+        f.measure_key,
+        f.calendar_year,
+        f.period_code,
+        f.geography_type,
+        f.geography_code,
+        f.geography_name,
+        f.observation_value,
+        f.observation_text,
+        f.status_code,
+        f.category_combination_hash,
+        coalesce((
+          select jsonb_object_agg(b.dimension_code, b.category_name)
+          from gold_bouwen_wonen.bridge_housing_observation_category b
+          where b.housing_observation_key = f.housing_observation_key
+        ), '{}'::jsonb) as categories
+      from filtered_facts f
+      order by f.housing_observation_key desc
+      limit greatest(coalesce(p_sample_limit, 0), 0)
+    )
+    select jsonb_build_object(
+      'dimensionValues', coalesce((select jsonb_agg(to_jsonb(d) order by d.dimension_code, d.value_rank) from dimension_values d), '[]'::jsonb),
+      'sampleRows', coalesce((select jsonb_agg(to_jsonb(s)) from sample_rows s), '[]'::jsonb)
+    ) into result;
+  elsif p_domain = 'inkomen-en-bestedingen' then
+    with required_filters as materialized (
+      select
+        lower(key) as dimension_code,
+        case
+          when jsonb_typeof(value) = 'array' then array(select jsonb_array_elements_text(value))
+          else array[value #>> '{}']
+        end as category_values
+      from jsonb_each(coalesce(p_category_filters, '{}'::jsonb))
+      where key not in ('calendar_year', 'period_code', 'geography_type')
+    ),
+    base_facts as materialized (
+      select f.*
+      from gold_inkomen_bestedingen.fact_income_observation f
+      where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (nullif(p_geography_type, '') is null or p_geography_type = 'all' or gold.canonical_geography_type(f.geography_code, f.geography_type) = p_geography_type)
+    ),
+    filtered_facts as materialized (
+      select f.*
+      from base_facts f
+      where (p_calendar_year is null or f.calendar_year = p_calendar_year)
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and not exists (
+          select 1
+          from required_filters rf
+          where not exists (
+            select 1
+            from gold_inkomen_bestedingen.bridge_income_observation_category b
+            where b.income_observation_key = f.income_observation_key
+              and lower(b.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+          )
+        )
+    ),
+    date_dimension_counts as (
+      select
+        'calendar_year'::text as dimension_code,
+        f.calendar_year::text as category_code,
+        f.calendar_year::text as category_name,
+        count(*)::bigint as row_count,
+        f.calendar_year::integer as min_year,
+        f.calendar_year::integer as max_year,
+        row_number() over (order by f.calendar_year desc nulls last) as value_rank
+      from base_facts f
+      where f.calendar_year is not null
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and not exists (
+          select 1
+          from required_filters rf
+          where not exists (
+            select 1
+            from gold_inkomen_bestedingen.bridge_income_observation_category b
+            where b.income_observation_key = f.income_observation_key
+              and lower(b.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+          )
+        )
+      group by f.calendar_year
+    ),
+    period_code_dimension_counts as (
+      select
+        'period_code'::text as dimension_code,
+        f.period_code::text as category_code,
+        f.period_code::text as category_name,
+        count(*)::bigint as row_count,
+        min(f.calendar_year)::integer as min_year,
+        max(f.calendar_year)::integer as max_year,
+        row_number() over (
+          order by
+            min(f.calendar_year) desc nulls last,
+            min(case coalesce(nullif(f.period_type, ''), 'year')
+              when 'year' then 0
+              when 'quarter' then 1
+              when 'month' then 2
+              else 3
+            end),
+            f.period_code desc nulls last
+        ) as value_rank
+      from base_facts f
+      where nullif(f.period_code, '') is not null
+        and (p_calendar_year is null or f.calendar_year = p_calendar_year)
+        and not exists (
+          select 1
+          from required_filters rf
+          where not exists (
+            select 1
+            from gold_inkomen_bestedingen.bridge_income_observation_category b
+            where b.income_observation_key = f.income_observation_key
+              and lower(b.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+          )
+        )
+      group by f.period_code, coalesce(nullif(f.period_type, ''), 'year')
+    ),
+    geography_type_dimension_counts as (
+      select
+        'geography_type'::text as dimension_code,
+        gold.canonical_geography_type(f.geography_code, f.geography_type)::text as category_code,
+        gold.geography_level_label(gold.canonical_geography_type(f.geography_code, f.geography_type)) as category_name,
+        count(*)::bigint as row_count,
+        null::integer as min_year,
+        null::integer as max_year,
+        row_number() over (
+          order by gold.geography_level_order(gold.canonical_geography_type(f.geography_code, f.geography_type)), gold.canonical_geography_type(f.geography_code, f.geography_type)
+        ) as value_rank
+      from gold_inkomen_bestedingen.fact_income_observation f
+      where nullif(f.geography_type, '') is not null
+        and f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+        and f.measure_key = p_measure_key::bigint
+        and f.observation_value is not null
+        and f.is_missing = false
+        and (p_calendar_year is null or f.calendar_year = p_calendar_year)
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and not exists (
+          select 1
+          from required_filters rf
+          where not exists (
+            select 1
+            from gold_inkomen_bestedingen.bridge_income_observation_category b
+            where b.income_observation_key = f.income_observation_key
+              and lower(b.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+          )
+        )
+      group by gold.canonical_geography_type(f.geography_code, f.geography_type)
+    ),
+    category_dimension_counts as (
+      select
+        b.dimension_code,
+        nullif(trim(coalesce(b.category_code, '')), '') as category_code,
+        b.category_name,
+        count(*)::bigint as row_count,
+        min(f.calendar_year)::integer as min_year,
+        max(f.calendar_year)::integer as max_year,
+        row_number() over (
+          partition by b.dimension_code
+          order by count(*) desc, b.category_name, nullif(trim(coalesce(b.category_code, '')), '')
+        ) as value_rank
+      from base_facts f
+      join gold_inkomen_bestedingen.bridge_income_observation_category b on b.income_observation_key = f.income_observation_key
+      where (p_calendar_year is null or f.calendar_year = p_calendar_year)
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and not exists (
+        select 1
+        from required_filters rf
+        where rf.dimension_code <> lower(b.dimension_code)
+          and not exists (
+            select 1
+            from gold_inkomen_bestedingen.bridge_income_observation_category b2
+            where b2.income_observation_key = f.income_observation_key
+              and lower(b2.dimension_code) = rf.dimension_code
+              and (trim(coalesce(b2.category_code, '')) = any(rf.category_values) or b2.category_name = any(rf.category_values))
+          )
+      )
+      group by b.dimension_code, nullif(trim(coalesce(b.category_code, '')), ''), b.category_name
+    ),
+    dimension_values as (
+      select *
+      from (
+        select * from date_dimension_counts
+        union all
+        select * from period_code_dimension_counts
+        union all
+        select * from geography_type_dimension_counts
+        union all
+        select * from category_dimension_counts
+      ) all_dimension_counts
+      where value_rank <= least(greatest(coalesce(p_dimension_limit, 5000), 1), 10000)
+    ),
+    sample_rows as (
+      select
+        f.dataset_code,
+        f.measure_key,
+        f.calendar_year,
+        f.period_code,
+        f.geography_type,
+        f.geography_code,
+        f.geography_name,
+        f.observation_value,
+        f.observation_text,
+        f.status_code,
+        f.category_combination_hash,
+        coalesce((
+          select jsonb_object_agg(b.dimension_code, b.category_name)
+          from gold_inkomen_bestedingen.bridge_income_observation_category b
+          where b.income_observation_key = f.income_observation_key
+        ), '{}'::jsonb) as categories
+      from filtered_facts f
+      order by f.income_observation_key desc
+      limit greatest(coalesce(p_sample_limit, 0), 0)
+    )
+    select jsonb_build_object(
+      'dimensionValues', coalesce((select jsonb_agg(to_jsonb(d) order by d.dimension_code, d.value_rank) from dimension_values d), '[]'::jsonb),
+      'sampleRows', coalesce((select jsonb_agg(to_jsonb(s)) from sample_rows s), '[]'::jsonb)
+    ) into result;
+  else
+    raise exception 'Unsupported domain for semantic metric detail: %', p_domain;
+  end if;
+
+  return coalesce(result, jsonb_build_object('dimensionValues', '[]'::jsonb, 'sampleRows', '[]'::jsonb))
+    || jsonb_build_object(
+      'aiReview',
+      coalesce((
+        select to_jsonb(ai_review)
+        from (
+          select
+            ar.ai_review_id,
+            ar.metric_code,
+            ar.domain_id,
+            ar.dataset_code,
+            ar.measure_key::text as measure_key,
+            ar.model_provider,
+            ar.model_name,
+            ar.prompt_version,
+            ar.review_status,
+            ar.confidence,
+            ar.business_label,
+            ar.plain_definition,
+            ar.metric_type,
+            ar.aggregation_classification,
+            ar.recommended_aggregation,
+            ar.is_additive,
+            ar.synonyms,
+            ar.exclusions,
+            ar.caveats,
+            ar.dimension_notes,
+            ar.risk_flags,
+            ar.recommended_action,
+            ar.rationale,
+            ar.metadata,
+            ar.updated_at
+          from semantic.metric_ai_review ar
+          where ar.domain_id = p_domain
+            and ar.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+            and ar.measure_key = p_measure_key::bigint
+          order by ar.updated_at desc
+          limit 1
+        ) ai_review
+      ), 'null'::jsonb)
+    );
+end;
+$$;
+
+grant execute on function public.guara_semantic_metric_detail(text, text, text, integer, text, text, jsonb, integer, integer) to anon, authenticated;
+
 drop function if exists public.guara_semantic_aggregation_sandbox(text, text, bigint, integer, text, text, jsonb, text, integer);
+drop function if exists public.guara_semantic_aggregation_sandbox(text, text, text, integer, text, text, jsonb, text, integer);
 
 create or replace function public.guara_semantic_aggregation_sandbox(
   p_domain text,
   p_dataset_code text,
   p_measure_key text,
   p_calendar_year integer default null,
+  p_period_code text default null,
   p_geography_type text default null,
   p_aggregation text default 'sum',
   p_category_filters jsonb default '{}'::jsonb,
@@ -659,7 +1554,53 @@ begin
 
   if p_domain = 'bouwen-en-wonen' then
     generated_sql := format($sql$
-with facts as materialized (
+with required_filters as materialized (
+  select
+    lower(key) as dimension_code,
+    case
+      when jsonb_typeof(value) = 'array' then array(select jsonb_array_elements_text(value))
+      else array[value #>> '{}']
+    end as category_values
+  from jsonb_each(%5$L::jsonb)
+),
+filter_count as materialized (
+  select count(*)::integer as value
+  from required_filters
+),
+dataset_for_totals as materialized (
+  select dataset_key
+  from gold_bouwen_wonen.dim_housing_dataset
+  where dataset_code in (%1$L, upper(%1$L), lower(%1$L))
+  limit 1
+),
+collapsed_total_filters as materialized (
+  select dimension_code, category_code, category_name
+  from (
+    select
+      lower(c.dimension_code) as dimension_code,
+      nullif(trim(coalesce(c.category_code, '')), '') as category_code,
+      c.category_name,
+      row_number() over (
+        partition by lower(c.dimension_code)
+        order by
+          case when nullif(trim(coalesce(c.category_code, '')), '') ilike 'T%%' then 0 else 1 end,
+          case
+            when lower(c.category_name) in ('totaal', 'total') then 0
+            when lower(c.category_name) like '%% totaal' or lower(c.category_name) like '%% total' then 1
+            else 2
+          end,
+          length(c.category_name),
+          c.category_name
+      ) as total_rank
+    from gold.dim_category c
+    join dataset_for_totals d on d.dataset_key = c.dataset_key
+    where c.is_total = true
+      and not exists (select 1 from required_filters rf where rf.dimension_code = lower(c.dimension_code))
+      and (nullif(%6$L, '') is null or lower(c.dimension_code) <> lower(nullif(%6$L, '')))
+  ) ranked_totals
+  where total_rank = 1
+),
+base_facts as materialized (
   select f.*
   from gold_bouwen_wonen.fact_housing_observation f
   where f.dataset_code in (%1$L, upper(%1$L), lower(%1$L))
@@ -667,23 +1608,56 @@ with facts as materialized (
     and f.observation_value is not null
     and f.is_missing = false
     and (%3$s is null or f.calendar_year = %3$s)
-    and (nullif(%4$L, '') is null or %4$L = 'all' or f.geography_type = %4$L)
+    and (nullif(%9$L, '') is null or f.period_code = %9$L)
+    and (
+      %3$s is null
+      or nullif(%9$L, '') is not null
+      or not exists (
+        select 1
+        from gold_bouwen_wonen.fact_housing_observation annual_check
+        where annual_check.dataset_code in (%1$L, upper(%1$L), lower(%1$L))
+          and annual_check.measure_key = %2$L::bigint
+          and annual_check.calendar_year = %3$s
+          and annual_check.observation_value is not null
+          and annual_check.is_missing = false
+          and coalesce(nullif(annual_check.period_type, ''), 'year') = 'year'
+          and (nullif(%4$L, '') is null or %4$L = 'all' or gold.canonical_geography_type(annual_check.geography_code, annual_check.geography_type) = %4$L)
+      )
+      or coalesce(nullif(f.period_type, ''), 'year') = 'year'
+    )
+    and (nullif(%4$L, '') is null or %4$L = 'all' or gold.canonical_geography_type(f.geography_code, f.geography_type) = %4$L)
+),
+facts as materialized (
+  select f.*
+  from base_facts f
+  where ((select value from filter_count) = 0
+     or not exists (
+       select 1
+       from required_filters rf
+       where not exists (
+         select 1
+         from gold_bouwen_wonen.bridge_housing_observation_category b
+         where b.housing_observation_key = f.housing_observation_key
+           and lower(b.dimension_code) = rf.dimension_code
+           and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+       )
+     ))
     and not exists (
       select 1
-      from jsonb_each_text(%5$L::jsonb) required_filter(dimension_code, category_name)
+      from collapsed_total_filters tf
       where not exists (
         select 1
         from gold_bouwen_wonen.bridge_housing_observation_category b
         where b.housing_observation_key = f.housing_observation_key
-          and lower(b.dimension_code) = lower(required_filter.dimension_code)
-          and (b.category_name = required_filter.category_name or coalesce(b.category_code, '') = required_filter.category_name)
+          and lower(b.dimension_code) = tf.dimension_code
+          and (trim(coalesce(b.category_code, '')) = tf.category_code or b.category_name = tf.category_name)
       )
     )
 ),
 grouped as (
   select
     f.calendar_year,
-    f.geography_type,
+    gold.canonical_geography_type(f.geography_code, f.geography_type) as geography_type,
     f.geography_code,
     f.geography_name,
     case when nullif(%6$L, '') is null then null else b.category_name end as group_value,
@@ -693,7 +1667,7 @@ grouped as (
   left join gold_bouwen_wonen.bridge_housing_observation_category b
     on b.housing_observation_key = f.housing_observation_key
    and lower(b.dimension_code) = lower(nullif(%6$L, ''))
-  group by f.calendar_year, f.geography_type, f.geography_code, f.geography_name, group_value
+  group by f.calendar_year, gold.canonical_geography_type(f.geography_code, f.geography_type), f.geography_code, f.geography_name, group_value
   order by aggregate_value desc nulls last
   limit %8$s
 )
@@ -707,10 +1681,57 @@ $sql$,
       coalesce(p_category_filters, '{}'::jsonb)::text,
       coalesce(p_group_dimension, ''),
       aggregate_expression,
-      least(greatest(coalesce(p_limit, 25), 1), 100)
+      least(greatest(coalesce(p_limit, 25), 1), 100),
+      coalesce(p_period_code, '')
     );
 
-    with facts as materialized (
+    with required_filters as materialized (
+      select
+        lower(key) as dimension_code,
+        case
+          when jsonb_typeof(value) = 'array' then array(select jsonb_array_elements_text(value))
+          else array[value #>> '{}']
+        end as category_values
+      from jsonb_each(coalesce(p_category_filters, '{}'::jsonb))
+    ),
+    filter_count as materialized (
+      select count(*)::integer as value
+      from required_filters
+    ),
+    dataset_for_totals as materialized (
+      select dataset_key
+      from gold_bouwen_wonen.dim_housing_dataset
+      where dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+      limit 1
+    ),
+    collapsed_total_filters as materialized (
+      select dimension_code, category_code, category_name
+      from (
+        select
+          lower(c.dimension_code) as dimension_code,
+          nullif(trim(coalesce(c.category_code, '')), '') as category_code,
+          c.category_name,
+          row_number() over (
+            partition by lower(c.dimension_code)
+            order by
+              case when nullif(trim(coalesce(c.category_code, '')), '') ilike 'T%' then 0 else 1 end,
+              case
+                when lower(c.category_name) in ('totaal', 'total') then 0
+                when lower(c.category_name) like '% totaal' or lower(c.category_name) like '% total' then 1
+                else 2
+              end,
+              length(c.category_name),
+              c.category_name
+          ) as total_rank
+        from gold.dim_category c
+        join dataset_for_totals d on d.dataset_key = c.dataset_key
+        where c.is_total = true
+          and not exists (select 1 from required_filters rf where rf.dimension_code = lower(c.dimension_code))
+          and (nullif(p_group_dimension, '') is null or lower(c.dimension_code) <> lower(nullif(p_group_dimension, '')))
+      ) ranked_totals
+      where total_rank = 1
+    ),
+    base_facts as materialized (
       select f.*
       from gold_bouwen_wonen.fact_housing_observation f
       where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
@@ -718,23 +1739,56 @@ $sql$,
         and f.observation_value is not null
         and f.is_missing = false
         and (p_calendar_year is null or f.calendar_year = p_calendar_year)
-        and (nullif(p_geography_type, '') is null or p_geography_type = 'all' or f.geography_type = p_geography_type)
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and (
+          p_calendar_year is null
+          or nullif(p_period_code, '') is not null
+          or not exists (
+            select 1
+            from gold_bouwen_wonen.fact_housing_observation annual_check
+            where annual_check.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+              and annual_check.measure_key = p_measure_key::bigint
+              and annual_check.calendar_year = p_calendar_year
+              and annual_check.observation_value is not null
+              and annual_check.is_missing = false
+              and coalesce(nullif(annual_check.period_type, ''), 'year') = 'year'
+              and (nullif(p_geography_type, '') is null or p_geography_type = 'all' or gold.canonical_geography_type(annual_check.geography_code, annual_check.geography_type) = p_geography_type)
+          )
+          or coalesce(nullif(f.period_type, ''), 'year') = 'year'
+        )
+        and (nullif(p_geography_type, '') is null or p_geography_type = 'all' or gold.canonical_geography_type(f.geography_code, f.geography_type) = p_geography_type)
+    ),
+    facts as materialized (
+      select f.*
+      from base_facts f
+      where ((select value from filter_count) = 0
+         or not exists (
+           select 1
+           from required_filters rf
+           where not exists (
+             select 1
+             from gold_bouwen_wonen.bridge_housing_observation_category b
+             where b.housing_observation_key = f.housing_observation_key
+               and lower(b.dimension_code) = rf.dimension_code
+               and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+           )
+         ))
         and not exists (
           select 1
-          from jsonb_each_text(coalesce(p_category_filters, '{}'::jsonb)) required_filter(dimension_code, category_name)
+          from collapsed_total_filters tf
           where not exists (
             select 1
             from gold_bouwen_wonen.bridge_housing_observation_category b
             where b.housing_observation_key = f.housing_observation_key
-              and lower(b.dimension_code) = lower(required_filter.dimension_code)
-              and (b.category_name = required_filter.category_name or coalesce(b.category_code, '') = required_filter.category_name)
+              and lower(b.dimension_code) = tf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = tf.category_code or b.category_name = tf.category_name)
           )
         )
     ),
     grouped as (
       select
         f.calendar_year,
-        f.geography_type,
+        gold.canonical_geography_type(f.geography_code, f.geography_type) as geography_type,
         f.geography_code,
         f.geography_name,
         case when nullif(p_group_dimension, '') is null then null else b.category_name end as group_value,
@@ -750,7 +1804,7 @@ $sql$,
       left join gold_bouwen_wonen.bridge_housing_observation_category b
         on b.housing_observation_key = f.housing_observation_key
        and lower(b.dimension_code) = lower(nullif(p_group_dimension, ''))
-      group by f.calendar_year, f.geography_type, f.geography_code, f.geography_name, group_value
+      group by f.calendar_year, gold.canonical_geography_type(f.geography_code, f.geography_type), f.geography_code, f.geography_name, group_value
       order by aggregate_value desc nulls last
       limit least(greatest(coalesce(p_limit, 25), 1), 100)
     )
@@ -762,6 +1816,7 @@ $sql$,
         'dataset_code', p_dataset_code,
         'measure_key', p_measure_key,
         'calendar_year', p_calendar_year,
+        'period_code', p_period_code,
         'geography_type', p_geography_type,
         'aggregation', agg,
         'category_filters', coalesce(p_category_filters, '{}'::jsonb),
@@ -771,7 +1826,53 @@ $sql$,
     from grouped;
   elsif p_domain = 'inkomen-en-bestedingen' then
     generated_sql := format($sql$
-with facts as materialized (
+with required_filters as materialized (
+  select
+    lower(key) as dimension_code,
+    case
+      when jsonb_typeof(value) = 'array' then array(select jsonb_array_elements_text(value))
+      else array[value #>> '{}']
+    end as category_values
+  from jsonb_each(%5$L::jsonb)
+),
+filter_count as materialized (
+  select count(*)::integer as value
+  from required_filters
+),
+dataset_for_totals as materialized (
+  select dataset_key
+  from gold_inkomen_bestedingen.dim_income_dataset
+  where dataset_code in (%1$L, upper(%1$L), lower(%1$L))
+  limit 1
+),
+collapsed_total_filters as materialized (
+  select dimension_code, category_code, category_name
+  from (
+    select
+      lower(c.dimension_code) as dimension_code,
+      nullif(trim(coalesce(c.category_code, '')), '') as category_code,
+      c.category_name,
+      row_number() over (
+        partition by lower(c.dimension_code)
+        order by
+          case when nullif(trim(coalesce(c.category_code, '')), '') ilike 'T%%' then 0 else 1 end,
+          case
+            when lower(c.category_name) in ('totaal', 'total') then 0
+            when lower(c.category_name) like '%% totaal' or lower(c.category_name) like '%% total' then 1
+            else 2
+          end,
+          length(c.category_name),
+          c.category_name
+      ) as total_rank
+    from gold.dim_category c
+    join dataset_for_totals d on d.dataset_key = c.dataset_key
+    where c.is_total = true
+      and not exists (select 1 from required_filters rf where rf.dimension_code = lower(c.dimension_code))
+      and (nullif(%6$L, '') is null or lower(c.dimension_code) <> lower(nullif(%6$L, '')))
+  ) ranked_totals
+  where total_rank = 1
+),
+base_facts as materialized (
   select f.*
   from gold_inkomen_bestedingen.fact_income_observation f
   where f.dataset_code in (%1$L, upper(%1$L), lower(%1$L))
@@ -779,23 +1880,56 @@ with facts as materialized (
     and f.observation_value is not null
     and f.is_missing = false
     and (%3$s is null or f.calendar_year = %3$s)
-    and (nullif(%4$L, '') is null or %4$L = 'all' or f.geography_type = %4$L)
+    and (nullif(%9$L, '') is null or f.period_code = %9$L)
+    and (
+      %3$s is null
+      or nullif(%9$L, '') is not null
+      or not exists (
+        select 1
+        from gold_inkomen_bestedingen.fact_income_observation annual_check
+        where annual_check.dataset_code in (%1$L, upper(%1$L), lower(%1$L))
+          and annual_check.measure_key = %2$L::bigint
+          and annual_check.calendar_year = %3$s
+          and annual_check.observation_value is not null
+          and annual_check.is_missing = false
+          and coalesce(nullif(annual_check.period_type, ''), 'year') = 'year'
+          and (nullif(%4$L, '') is null or %4$L = 'all' or gold.canonical_geography_type(annual_check.geography_code, annual_check.geography_type) = %4$L)
+      )
+      or coalesce(nullif(f.period_type, ''), 'year') = 'year'
+    )
+    and (nullif(%4$L, '') is null or %4$L = 'all' or gold.canonical_geography_type(f.geography_code, f.geography_type) = %4$L)
+),
+facts as materialized (
+  select f.*
+  from base_facts f
+  where ((select value from filter_count) = 0
+     or not exists (
+       select 1
+       from required_filters rf
+       where not exists (
+         select 1
+         from gold_inkomen_bestedingen.bridge_income_observation_category b
+         where b.income_observation_key = f.income_observation_key
+           and lower(b.dimension_code) = rf.dimension_code
+           and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+       )
+     ))
     and not exists (
       select 1
-      from jsonb_each_text(%5$L::jsonb) required_filter(dimension_code, category_name)
+      from collapsed_total_filters tf
       where not exists (
         select 1
         from gold_inkomen_bestedingen.bridge_income_observation_category b
         where b.income_observation_key = f.income_observation_key
-          and lower(b.dimension_code) = lower(required_filter.dimension_code)
-          and (b.category_name = required_filter.category_name or coalesce(b.category_code, '') = required_filter.category_name)
+          and lower(b.dimension_code) = tf.dimension_code
+          and (trim(coalesce(b.category_code, '')) = tf.category_code or b.category_name = tf.category_name)
       )
     )
 ),
 grouped as (
   select
     f.calendar_year,
-    f.geography_type,
+    gold.canonical_geography_type(f.geography_code, f.geography_type) as geography_type,
     f.geography_code,
     f.geography_name,
     case when nullif(%6$L, '') is null then null else b.category_name end as group_value,
@@ -805,7 +1939,7 @@ grouped as (
   left join gold_inkomen_bestedingen.bridge_income_observation_category b
     on b.income_observation_key = f.income_observation_key
    and lower(b.dimension_code) = lower(nullif(%6$L, ''))
-  group by f.calendar_year, f.geography_type, f.geography_code, f.geography_name, group_value
+  group by f.calendar_year, gold.canonical_geography_type(f.geography_code, f.geography_type), f.geography_code, f.geography_name, group_value
   order by aggregate_value desc nulls last
   limit %8$s
 )
@@ -819,10 +1953,57 @@ $sql$,
       coalesce(p_category_filters, '{}'::jsonb)::text,
       coalesce(p_group_dimension, ''),
       aggregate_expression,
-      least(greatest(coalesce(p_limit, 25), 1), 100)
+      least(greatest(coalesce(p_limit, 25), 1), 100),
+      coalesce(p_period_code, '')
     );
 
-    with facts as materialized (
+    with required_filters as materialized (
+      select
+        lower(key) as dimension_code,
+        case
+          when jsonb_typeof(value) = 'array' then array(select jsonb_array_elements_text(value))
+          else array[value #>> '{}']
+        end as category_values
+      from jsonb_each(coalesce(p_category_filters, '{}'::jsonb))
+    ),
+    filter_count as materialized (
+      select count(*)::integer as value
+      from required_filters
+    ),
+    dataset_for_totals as materialized (
+      select dataset_key
+      from gold_inkomen_bestedingen.dim_income_dataset
+      where dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+      limit 1
+    ),
+    collapsed_total_filters as materialized (
+      select dimension_code, category_code, category_name
+      from (
+        select
+          lower(c.dimension_code) as dimension_code,
+          nullif(trim(coalesce(c.category_code, '')), '') as category_code,
+          c.category_name,
+          row_number() over (
+            partition by lower(c.dimension_code)
+            order by
+              case when nullif(trim(coalesce(c.category_code, '')), '') ilike 'T%' then 0 else 1 end,
+              case
+                when lower(c.category_name) in ('totaal', 'total') then 0
+                when lower(c.category_name) like '% totaal' or lower(c.category_name) like '% total' then 1
+                else 2
+              end,
+              length(c.category_name),
+              c.category_name
+          ) as total_rank
+        from gold.dim_category c
+        join dataset_for_totals d on d.dataset_key = c.dataset_key
+        where c.is_total = true
+          and not exists (select 1 from required_filters rf where rf.dimension_code = lower(c.dimension_code))
+          and (nullif(p_group_dimension, '') is null or lower(c.dimension_code) <> lower(nullif(p_group_dimension, '')))
+      ) ranked_totals
+      where total_rank = 1
+    ),
+    base_facts as materialized (
       select f.*
       from gold_inkomen_bestedingen.fact_income_observation f
       where f.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
@@ -830,23 +2011,56 @@ $sql$,
         and f.observation_value is not null
         and f.is_missing = false
         and (p_calendar_year is null or f.calendar_year = p_calendar_year)
-        and (nullif(p_geography_type, '') is null or p_geography_type = 'all' or f.geography_type = p_geography_type)
+        and (nullif(p_period_code, '') is null or f.period_code = p_period_code)
+        and (
+          p_calendar_year is null
+          or nullif(p_period_code, '') is not null
+          or not exists (
+            select 1
+            from gold_inkomen_bestedingen.fact_income_observation annual_check
+            where annual_check.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+              and annual_check.measure_key = p_measure_key::bigint
+              and annual_check.calendar_year = p_calendar_year
+              and annual_check.observation_value is not null
+              and annual_check.is_missing = false
+              and coalesce(nullif(annual_check.period_type, ''), 'year') = 'year'
+              and (nullif(p_geography_type, '') is null or p_geography_type = 'all' or gold.canonical_geography_type(annual_check.geography_code, annual_check.geography_type) = p_geography_type)
+          )
+          or coalesce(nullif(f.period_type, ''), 'year') = 'year'
+        )
+        and (nullif(p_geography_type, '') is null or p_geography_type = 'all' or gold.canonical_geography_type(f.geography_code, f.geography_type) = p_geography_type)
+    ),
+    facts as materialized (
+      select f.*
+      from base_facts f
+      where ((select value from filter_count) = 0
+         or not exists (
+           select 1
+           from required_filters rf
+           where not exists (
+             select 1
+             from gold_inkomen_bestedingen.bridge_income_observation_category b
+             where b.income_observation_key = f.income_observation_key
+               and lower(b.dimension_code) = rf.dimension_code
+               and (trim(coalesce(b.category_code, '')) = any(rf.category_values) or b.category_name = any(rf.category_values))
+           )
+         ))
         and not exists (
           select 1
-          from jsonb_each_text(coalesce(p_category_filters, '{}'::jsonb)) required_filter(dimension_code, category_name)
+          from collapsed_total_filters tf
           where not exists (
             select 1
             from gold_inkomen_bestedingen.bridge_income_observation_category b
             where b.income_observation_key = f.income_observation_key
-              and lower(b.dimension_code) = lower(required_filter.dimension_code)
-              and (b.category_name = required_filter.category_name or coalesce(b.category_code, '') = required_filter.category_name)
+              and lower(b.dimension_code) = tf.dimension_code
+              and (trim(coalesce(b.category_code, '')) = tf.category_code or b.category_name = tf.category_name)
           )
         )
     ),
     grouped as (
       select
         f.calendar_year,
-        f.geography_type,
+        gold.canonical_geography_type(f.geography_code, f.geography_type) as geography_type,
         f.geography_code,
         f.geography_name,
         case when nullif(p_group_dimension, '') is null then null else b.category_name end as group_value,
@@ -862,7 +2076,7 @@ $sql$,
       left join gold_inkomen_bestedingen.bridge_income_observation_category b
         on b.income_observation_key = f.income_observation_key
        and lower(b.dimension_code) = lower(nullif(p_group_dimension, ''))
-      group by f.calendar_year, f.geography_type, f.geography_code, f.geography_name, group_value
+      group by f.calendar_year, gold.canonical_geography_type(f.geography_code, f.geography_type), f.geography_code, f.geography_name, group_value
       order by aggregate_value desc nulls last
       limit least(greatest(coalesce(p_limit, 25), 1), 100)
     )
@@ -874,6 +2088,7 @@ $sql$,
         'dataset_code', p_dataset_code,
         'measure_key', p_measure_key,
         'calendar_year', p_calendar_year,
+        'period_code', p_period_code,
         'geography_type', p_geography_type,
         'aggregation', agg,
         'category_filters', coalesce(p_category_filters, '{}'::jsonb),
@@ -889,4 +2104,183 @@ $sql$,
 end;
 $$;
 
-grant execute on function public.guara_semantic_aggregation_sandbox(text, text, text, integer, text, text, jsonb, text, integer) to anon, authenticated;
+grant execute on function public.guara_semantic_aggregation_sandbox(text, text, text, integer, text, text, text, jsonb, text, integer) to anon, authenticated;
+create or replace function public.guara_semantic_metric_detail(
+  p_domain text,
+  p_dataset_code text,
+  p_measure_key text,
+  p_calendar_year integer,
+  p_period_code text,
+  p_geography_type text,
+  p_category_filters jsonb,
+  p_dimension_limit integer default 5000,
+  p_sample_limit integer default 25
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = semantic, gold, public
+as $$
+declare
+  result jsonb;
+begin
+  with dataset as (
+    select dataset_key, dataset_code
+    from gold_bouwen_wonen.dim_housing_dataset
+    where p_domain = 'bouwen-en-wonen'
+      and dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+    union all
+    select dataset_key, dataset_code
+    from gold_inkomen_bestedingen.dim_income_dataset
+    where p_domain = 'inkomen-en-bestedingen'
+      and dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+    limit 1
+  ),
+  profile as (
+    select p.*
+    from semantic.workbench_measure_profile p
+    where p.domain_id = p_domain
+      and p.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+      and p.measure_key = p_measure_key::bigint
+    order by case when p.dataset_code = p_dataset_code then 0 when p.dataset_code = upper(p_dataset_code) then 1 else 2 end
+    limit 1
+  ),
+  profile_years as (
+    select unnest(coalesce(nullif(p.available_years, '{}'::integer[]), case
+      when p.min_year is not null and p.max_year is not null then array(select generate_series(p.min_year, p.max_year))
+      else '{}'::integer[]
+    end))::integer as calendar_year
+    from profile p
+  ),
+  date_dimension_counts as (
+    select
+      'calendar_year'::text as dimension_code,
+      y.calendar_year::text as category_code,
+      y.calendar_year::text as category_name,
+      0::bigint as row_count,
+      y.calendar_year::integer as min_year,
+      y.calendar_year::integer as max_year,
+      false::boolean as is_total,
+      false::boolean as is_unknown,
+      row_number() over (order by y.calendar_year desc nulls last) as value_rank
+    from profile_years y
+  ),
+  period_code_dimension_counts as (
+    select
+      'period_code'::text as dimension_code,
+      pv.period_key::text as category_code,
+      coalesce(pv.label, pv.period_key)::text as category_name,
+      0::bigint as row_count,
+      pv.year::integer as min_year,
+      pv.year::integer as max_year,
+      false::boolean as is_total,
+      false::boolean as is_unknown,
+      row_number() over (order by pv.year desc nulls last, pv.period_key desc) as value_rank
+    from silver.cbs_period_values pv
+    where pv.dataset_id in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+      and pv.period_key is not null
+      and (p_calendar_year is null or pv.year = p_calendar_year)
+  ),
+  geography_type_dimension_counts as (
+    select
+      'geography_type'::text as dimension_code,
+      level::text as category_code,
+      gold.geography_level_label(level)::text as category_name,
+      0::bigint as row_count,
+      null::integer as min_year,
+      null::integer as max_year,
+      false::boolean as is_total,
+      false::boolean as is_unknown,
+      row_number() over (order by gold.geography_level_order(level), level) as value_rank
+    from (
+      select distinct case
+        when raw_level in ('region') then 'corop'
+        when raw_level in ('unknown') then 'country'
+        else raw_level
+      end as level
+      from profile p
+      cross join lateral unnest(coalesce(p.geography_types, '{}'::text[])) raw_level
+    ) levels
+    where nullif(level, '') is not null
+  ),
+  category_dimension_counts as (
+    select
+      c.dimension_code,
+      c.category_code,
+      c.category_name,
+      0::bigint as row_count,
+      null::integer as min_year,
+      null::integer as max_year,
+      c.is_total,
+      c.is_unknown,
+      row_number() over (
+        partition by c.dimension_code
+        order by c.is_unknown asc, c.is_total desc, c.sort_order nulls last, c.category_name, c.category_code
+      ) as value_rank
+    from gold.dim_category c
+    join dataset d on d.dataset_key = c.dataset_key
+  ),
+  dimension_values as (
+    select *
+    from (
+      select * from date_dimension_counts
+      union all
+      select * from period_code_dimension_counts
+      union all
+      select * from geography_type_dimension_counts
+      union all
+      select * from category_dimension_counts
+    ) all_dimension_counts
+    where value_rank <= least(greatest(coalesce(p_dimension_limit, 5000), 1), 10000)
+  )
+  select jsonb_build_object(
+    'dimensionValues', coalesce((select jsonb_agg(to_jsonb(d) order by d.dimension_code, d.value_rank) from dimension_values d), '[]'::jsonb),
+    'sampleRows', '[]'::jsonb
+  ) into result;
+
+  return coalesce(result, jsonb_build_object('dimensionValues', '[]'::jsonb, 'sampleRows', '[]'::jsonb))
+    || jsonb_build_object(
+      'aiReview',
+      coalesce((
+        select to_jsonb(ai_review)
+        from (
+          select
+            ar.ai_review_id,
+            ar.metric_code,
+            ar.domain_id,
+            ar.dataset_code,
+            ar.measure_key::text as measure_key,
+            ar.model_provider,
+            ar.model_name,
+            ar.prompt_version,
+            ar.review_status,
+            ar.confidence,
+            ar.business_label,
+            ar.plain_definition,
+            ar.metric_type,
+            ar.aggregation_classification,
+            ar.recommended_aggregation,
+            ar.is_additive,
+            ar.synonyms,
+            ar.exclusions,
+            ar.caveats,
+            ar.dimension_notes,
+            ar.risk_flags,
+            ar.recommended_action,
+            ar.rationale,
+            ar.metadata,
+            ar.updated_at
+          from semantic.metric_ai_review ar
+          where ar.domain_id = p_domain
+            and ar.dataset_code in (p_dataset_code, upper(p_dataset_code), lower(p_dataset_code))
+            and ar.measure_key = p_measure_key::bigint
+          order by ar.updated_at desc
+          limit 1
+        ) ai_review
+      ), 'null'::jsonb)
+    );
+end;
+$$;
+
+grant execute on function public.guara_semantic_metric_detail(text, text, text, integer, text, text, jsonb, integer, integer) to anon, authenticated;

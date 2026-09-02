@@ -130,6 +130,7 @@ async function main() {
 
   try {
     await client.connect();
+    await client.query(`set statement_timeout = '${Math.max(1, options.statementTimeoutMs)}ms'`);
   } catch (error) {
     throw new Error(explainPostgresConnectionError(error));
   }

@@ -50,6 +50,8 @@ create table if not exists gold.dim_geography (
   geography_code text not null,
   geography_name text not null,
   geography_type text not null,
+  geography_level_order integer,
+  geography_level_label text,
   parent_geography_key bigint references gold.dim_geography(geography_key),
   municipality_code text,
   province_code text,
@@ -294,13 +296,121 @@ on conflict (period_code, period_type) do update set
   period_label = excluded.period_label,
   updated_at = now();
 
+alter table gold.dim_geography add column if not exists geography_level_order integer;
+alter table gold.dim_geography add column if not exists geography_level_label text;
+
 insert into gold.dim_geography (
-  geography_key, geography_code, geography_name, geography_type, country_code, source_system
+  geography_key, geography_code, geography_name, geography_type, geography_level_order, geography_level_label, country_code, source_system
 ) values
-  (-1, 'UNKNOWN', 'Unknown geography', 'unknown', null, 'UNKNOWN')
-on conflict (source_system, geography_type, geography_code, valid_from) do update set
+  (-1, 'UNKNOWN', 'Nederland', 'country', 5, 'Totaal (Nederland)', 'NL', 'UNKNOWN')
+on conflict (geography_key) do update set
+  geography_code = excluded.geography_code,
   geography_name = excluded.geography_name,
+  geography_type = excluded.geography_type,
+  geography_level_order = excluded.geography_level_order,
+  geography_level_label = excluded.geography_level_label,
+  country_code = excluded.country_code,
+  source_system = excluded.source_system,
   updated_at = now();
+
+update gold.dim_geography
+set geography_type = case
+    when geography_code in ('UNKNOWN', 'NL', 'NL00', 'NL01') then 'country'
+    when upper(geography_code) like 'CR%' or upper(geography_code) like 'COROP%' then 'corop'
+    when upper(geography_code) like 'LD%' then 'landsdeel'
+    else geography_type
+  end,
+  geography_name = case
+    when geography_code = 'UNKNOWN' then 'Nederland'
+    else geography_name
+  end,
+  country_code = coalesce(country_code, 'NL'),
+  geography_level_order = case
+    when upper(geography_code) like 'GM%' then 1
+    when upper(geography_code) like 'CR%' or upper(geography_code) like 'COROP%' then 2
+    when upper(geography_code) like 'PV%' then 3
+    when upper(geography_code) like 'LD%' then 4
+    when geography_code in ('UNKNOWN', 'NL', 'NL00', 'NL01') then 5
+    else geography_level_order
+  end,
+  geography_level_label = case
+    when upper(geography_code) like 'GM%' then 'Gemeente'
+    when upper(geography_code) like 'CR%' or upper(geography_code) like 'COROP%' then 'COROP-gebied'
+    when upper(geography_code) like 'PV%' then 'Provincie'
+    when upper(geography_code) like 'LD%' then 'Landsdeel'
+    when geography_code in ('UNKNOWN', 'NL', 'NL00', 'NL01') then 'Totaal (Nederland)'
+    else geography_level_label
+  end,
+  updated_at = now()
+where geography_type in ('region', 'unknown')
+   or upper(geography_code) like 'GM%'
+   or upper(geography_code) like 'CR%'
+   or upper(geography_code) like 'COROP%'
+   or upper(geography_code) like 'PV%'
+   or upper(geography_code) like 'LD%'
+   or geography_code in ('UNKNOWN', 'NL', 'NL00', 'NL01');
+
+create or replace function gold.canonical_geography_type(
+  p_geography_code text,
+  p_geography_type text default null
+)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when upper(coalesce(nullif(p_geography_code, ''), 'UNKNOWN')) in ('UNKNOWN', 'NL', 'NL00', 'NL01') then 'country'
+    when upper(coalesce(p_geography_code, '')) like 'GM%' then 'municipality'
+    when upper(coalesce(p_geography_code, '')) like 'WK%' or upper(coalesce(p_geography_code, '')) like 'BU%' then 'neighborhood'
+    when upper(coalesce(p_geography_code, '')) like 'CR%' or upper(coalesce(p_geography_code, '')) like 'COROP%' then 'corop'
+    when upper(coalesce(p_geography_code, '')) like 'PV%' then 'province'
+    when upper(coalesce(p_geography_code, '')) like 'LD%' then 'landsdeel'
+    when lower(coalesce(nullif(p_geography_type, ''), 'unknown')) in ('country', 'national', 'totaal') then 'country'
+    when lower(coalesce(nullif(p_geography_type, ''), 'unknown')) = 'region' then 'region'
+    when lower(coalesce(nullif(p_geography_type, ''), 'unknown')) = 'unknown' then 'country'
+    else lower(p_geography_type)
+  end
+$$;
+
+create or replace function gold.geography_level_order(p_geography_type text)
+returns integer
+language sql
+immutable
+as $$
+  select case lower(coalesce(nullif(p_geography_type, ''), 'country'))
+    when 'municipality' then 1
+    when 'neighborhood' then 0
+    when 'corop' then 2
+    when 'region' then 2
+    when 'province' then 3
+    when 'landsdeel' then 4
+    when 'country' then 5
+    when 'national' then 5
+    when 'totaal' then 5
+    when 'unknown' then 5
+    else 99
+  end
+$$;
+
+create or replace function gold.geography_level_label(p_geography_type text)
+returns text
+language sql
+immutable
+as $$
+  select case lower(coalesce(nullif(p_geography_type, ''), 'country'))
+    when 'municipality' then 'Gemeente'
+    when 'neighborhood' then 'Wijk/buurt'
+    when 'corop' then 'COROP-gebied'
+    when 'region' then 'Regionaal'
+    when 'province' then 'Provincie'
+    when 'landsdeel' then 'Landsdeel'
+    when 'country' then 'Totaal (Nederland)'
+    when 'national' then 'Totaal (Nederland)'
+    when 'totaal' then 'Totaal (Nederland)'
+    when 'unknown' then 'Totaal (Nederland)'
+    else p_geography_type
+  end
+$$;
 
 create index if not exists fact_observation_dataset_idx on gold.fact_observation(dataset_key);
 create index if not exists fact_observation_measure_idx on gold.fact_observation(measure_key);

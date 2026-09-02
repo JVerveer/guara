@@ -45,8 +45,38 @@ function jsonText(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function listText(values: unknown) {
+  if (!Array.isArray(values) || values.length === 0) return "None";
+  return values.map((value) => String(value)).join(", ");
+}
+
+function percentText(value: unknown) {
+  const number = typeof value === "string" ? Number(value) : value;
+  if (typeof number !== "number" || Number.isNaN(number)) return "unknown";
+  return `${Math.round(number * 100)}%`;
+}
+
 function formatLevel(value: string) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized === "neighborhood") return "Wijk/buurt";
+  if (normalized === "municipality") return "Gemeente";
+  if (normalized === "corop") return "COROP-gebied";
+  if (normalized === "province") return "Provincie";
+  if (normalized === "landsdeel") return "Landsdeel";
+  if (normalized === "country" || normalized === "national" || normalized === "totaal" || normalized === "unknown") return "Totaal (Nederland)";
+  if (normalized === "region") return "Regionaal";
   return value.replace(/_/g, " ");
+}
+
+function geographyLevelOrder(value: string) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized === "neighborhood") return 0;
+  if (normalized === "municipality") return 1;
+  if (normalized === "corop" || normalized === "region") return 2;
+  if (normalized === "province") return 3;
+  if (normalized === "landsdeel") return 4;
+  if (normalized === "country" || normalized === "national" || normalized === "totaal" || normalized === "unknown") return 5;
+  return 99;
 }
 
 function formatLevels(item: Pick<SemanticCatalogueItem, "grains" | "geography_types">) {
@@ -60,6 +90,23 @@ function formatCoverage(item: Pick<SemanticCatalogueItem, "fact_row_count_status
   if (item.fact_row_count_status === "counted") return `${formatNumber(item.populated_fact_rows)} rows`;
   if (item.fact_row_count_status === "available_not_counted") return "Available";
   return "No facts found";
+}
+
+function formatTopicPath(item: Pick<SemanticCatalogueItem, "topic" | "subtopic">) {
+  return [item.topic, item.subtopic].filter(Boolean).join(" / ") || "No CBS topic path";
+}
+
+function dimensionValueTitle(value: SemanticDimensionValue) {
+  if (value.row_count > 0) return `${value.category_name} · ${formatNumber(value.row_count)} reported rows`;
+  return `${value.category_name} · metadata value`;
+}
+
+function filterDimensionValues(values: SemanticDimensionValue[], query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return values;
+  return values.filter((value) =>
+    [value.category_name, value.category_code ?? ""].some((candidate) => candidate.toLowerCase().includes(normalized))
+  );
 }
 
 function itemKey(item: Pick<SemanticCatalogueItem, "domain_id" | "dataset_code" | "measure_key">) {
@@ -81,7 +128,60 @@ function valuesByDimension(values: SemanticDimensionValue[]) {
   }, {});
 }
 
-const BUILT_IN_DIMENSIONS = new Set(["calendar_year", "geography_type"]);
+const BUILT_IN_DIMENSIONS = new Set(["calendar_year", "period_code", "geography_type"]);
+
+function normalizedDimensionSelection(dimension: string, value: SemanticDimensionValue) {
+  if (dimension === "calendar_year") {
+    const parsedYear = value.min_year ?? Number(String(value.category_code ?? value.category_name).slice(0, 4));
+    return Number.isFinite(parsedYear) ? String(parsedYear) : String(value.category_name);
+  }
+  if (dimension === "period_code") return value.category_code ?? value.category_name;
+  return value.category_code ?? value.category_name;
+}
+
+function appliedFilterLabel(dimension: string, value: string) {
+  if (dimension === "calendar_year") return "Year";
+  if (dimension === "period_code") return "Period";
+  if (dimension === "geography_type") return "Level";
+  return dimension;
+}
+
+function contractAggregation(item: SemanticCatalogueItem | null) {
+  if (!item) return "sum";
+  if (item.default_aggregation && item.default_aggregation !== "none") return item.default_aggregation;
+  if (item.is_non_additive) return "average";
+  return "sum";
+}
+
+function inferPeriodGrain(periodCode: string, year: string) {
+  if (periodCode !== "all") {
+    const normalized = periodCode.toUpperCase();
+    if (normalized.includes("KW")) return "quarter";
+    if (normalized.includes("MM")) return "month";
+    if (normalized.includes("JJ")) return "year";
+    return "period";
+  }
+  return year === "latest" ? "latest annual year" : "year";
+}
+
+function isTotalDimensionValue(value: SemanticDimensionValue) {
+  const code = String(value.category_code ?? "").trim().toUpperCase();
+  const name = String(value.category_name ?? "").trim().toLowerCase();
+  return value.is_total === true || code.startsWith("T") || name === "totaal" || name === "total" || name.endsWith(" totaal") || name.endsWith(" total");
+}
+
+function preferredTotalValue(values: SemanticDimensionValue[]) {
+  return values
+    .filter(isTotalDimensionValue)
+    .sort((a, b) => {
+      const aCode = String(a.category_code ?? "").trim().toUpperCase();
+      const bCode = String(b.category_code ?? "").trim().toUpperCase();
+      const aOfficial = aCode.startsWith("T") ? 0 : 1;
+      const bOfficial = bCode.startsWith("T") ? 0 : 1;
+      if (aOfficial !== bOfficial) return aOfficial - bOfficial;
+      return a.category_name.length - b.category_name.length || a.category_name.localeCompare(b.category_name);
+    })[0] ?? null;
+}
 
 export function SemanticWorkbenchScreen() {
   const [catalogue, setCatalogue] = useState<SemanticCatalogueData | null>(null);
@@ -92,10 +192,10 @@ export function SemanticWorkbenchScreen() {
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
   const [year, setYear] = useState("latest");
+  const [periodCode, setPeriodCode] = useState("all");
   const [geographyType, setGeographyType] = useState("municipality");
-  const [aggregation, setAggregation] = useState("sum");
-  const [groupDimension, setGroupDimension] = useState("none");
-  const [categoryFilters, setCategoryFilters] = useState<Record<string, string>>({});
+  const [categoryFilters, setCategoryFilters] = useState<Record<string, string[]>>({});
+  const [dimensionSearch, setDimensionSearch] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isSandboxLoading, setIsSandboxLoading] = useState(false);
@@ -105,24 +205,136 @@ export function SemanticWorkbenchScreen() {
     () => catalogue?.items.find((item) => itemKey(item) === selectedKey) ?? catalogue?.items[0] ?? null,
     [catalogue?.items, selectedKey]
   );
+  const aggregation = useMemo(() => contractAggregation(selectedItem), [selectedItem]);
 
   const dimensionGroups = useMemo(() => valuesByDimension(detail?.dimensionValues ?? []), [detail?.dimensionValues]);
   const dimensions = useMemo(() => Object.keys(dimensionGroups).sort(), [dimensionGroups]);
   const categoryDimensions = useMemo(() => dimensions.filter((dimension) => !BUILT_IN_DIMENSIONS.has(dimension)), [dimensions]);
-  const selectedYearOptions = selectedItem?.available_years?.length ? selectedItem.available_years.slice().sort((a, b) => b - a) : [];
-  const selectedGeographyOptions = selectedItem?.geography_types?.length ? selectedItem.geography_types.filter((value) => value !== "unknown") : ["municipality", "province", "country"];
+  const selectedGeographyOptions = selectedItem?.geography_types?.length
+    ? selectedItem.geography_types.filter((value) => value && value !== "unknown")
+      .sort((a, b) => geographyLevelOrder(a) - geographyLevelOrder(b))
+    : [];
+  const hasGeographyGrain = selectedGeographyOptions.length > 0;
+  const selectedSliceMaxYear = useMemo(() => {
+    const years = (dimensionGroups.calendar_year ?? [])
+      .map((value) => value.min_year ?? Number(value.category_code ?? value.category_name))
+      .filter((value) => Number.isFinite(value));
+    return years.length ? Math.max(...years) : selectedItem?.max_year ?? null;
+  }, [dimensionGroups.calendar_year, selectedItem?.max_year]);
+  const activePeriodGrain = useMemo(() => inferPeriodGrain(periodCode, year), [periodCode, year]);
+  const activeGeographyLevel = hasGeographyGrain ? (geographyType === "all" ? "all available levels" : formatLevel(geographyType)) : "not applicable";
+  const activeDisplayGrain = hasGeographyGrain
+    ? `${geographyType === "all" ? "selected geography" : formatLevel(geographyType)} / ${activePeriodGrain}`
+    : activePeriodGrain;
+
+  const clearDimensionFilter = (dimension: string) => {
+    if (dimension === "calendar_year") {
+      setYear("latest");
+      return;
+    }
+    if (dimension === "period_code") {
+      setPeriodCode("all");
+      return;
+    }
+    if (dimension === "geography_type") {
+      setGeographyType(hasGeographyGrain ? selectedGeographyOptions[0] ?? "all" : "all");
+      return;
+    }
+    setCategoryFilters((current) => {
+      const next = { ...current };
+      delete next[dimension];
+      return next;
+    });
+  };
+
+  const isDimensionFiltered = (dimension: string) => {
+    if (dimension === "calendar_year") return year !== "latest";
+    if (dimension === "period_code") return periodCode !== "all";
+    if (dimension === "geography_type") return hasGeographyGrain && geographyType !== "all";
+    return Boolean(categoryFilters[dimension]?.length);
+  };
+
+  const dimensionDisplayValue = (dimension: string, rawValue: string) => {
+    const match = dimensionGroups[dimension]?.find((value) =>
+      normalizedDimensionSelection(dimension, value) === rawValue || (value.category_code ?? value.category_name) === rawValue
+    );
+    return match?.category_name ?? rawValue;
+  };
+
+  const totalRowBehaviors = useMemo(() => categoryDimensions.map((dimension) => {
+    const selectedValues = categoryFilters[dimension] ?? [];
+    const selectedLabels = selectedValues.map((value) => dimensionDisplayValue(dimension, value));
+    const totalValue = preferredTotalValue(dimensionGroups[dimension] ?? []);
+    return {
+      dimension,
+      behavior: selectedValues.length
+        ? `Explicit filter: ${selectedLabels.join(", ")}`
+        : totalValue
+          ? `Unfiltered: uses official total row "${totalValue.category_name}"`
+          : "Unfiltered: no official total row found, so aggregation may include all values",
+      isSafe: selectedValues.length > 0 || Boolean(totalValue),
+    };
+  }), [categoryDimensions, categoryFilters, dimensionGroups]);
+
+  const appliedFilters = useMemo(() => {
+    const filters = [
+      {
+        dimension: "calendar_year",
+        value: year === "latest" ? `latest available${selectedSliceMaxYear ? ` (${selectedSliceMaxYear})` : ""}` : year,
+        removable: year !== "latest",
+      },
+    ];
+
+    if (hasGeographyGrain) {
+      filters.push({
+        dimension: "geography_type",
+        value: geographyType === "all" ? "all levels" : formatLevel(geographyType),
+        removable: geographyType !== "all",
+      });
+    }
+
+    if (periodCode !== "all") {
+      filters.push({
+        dimension: "period_code",
+        value: dimensionDisplayValue("period_code", periodCode),
+        removable: true,
+      });
+    }
+
+    Object.entries(categoryFilters).forEach(([dimension, values]) => {
+      if (!values.length) return;
+      filters.push({ dimension, value: values.map((value) => dimensionDisplayValue(dimension, value)).join(", "), removable: true });
+    });
+
+    return filters;
+  }, [categoryFilters, dimensionGroups, geographyType, hasGeographyGrain, periodCode, selectedSliceMaxYear, year]);
 
   const selectDimensionValue = (dimension: string, value: SemanticDimensionValue) => {
-    const selectedValue = value.category_code ?? value.category_name;
+    const selectedValue = normalizedDimensionSelection(dimension, value);
     if (dimension === "calendar_year") {
       setYear(selectedValue);
+      return;
+    }
+    if (dimension === "period_code") {
+      setPeriodCode(selectedValue);
+      const parsedYear = Number(String(selectedValue).slice(0, 4));
+      if (Number.isFinite(parsedYear)) setYear(String(parsedYear));
       return;
     }
     if (dimension === "geography_type") {
       setGeographyType(selectedValue);
       return;
     }
-    setCategoryFilters((current) => ({ ...current, [dimension]: selectedValue }));
+    setCategoryFilters((current) => {
+      const existing = current[dimension] ?? [];
+      const nextValues = existing.includes(selectedValue)
+        ? existing.filter((value) => value !== selectedValue)
+        : [...existing, selectedValue];
+      const next = { ...current };
+      if (nextValues.length) next[dimension] = nextValues;
+      else delete next[dimension];
+      return next;
+    });
   };
 
   const loadCatalogue = async () => {
@@ -154,15 +366,20 @@ export function SemanticWorkbenchScreen() {
     setDetail(null);
     setSandbox(null);
     setCategoryFilters({});
-    setGroupDimension("none");
-    setYear(selectedItem.max_year ? String(selectedItem.max_year) : "latest");
-    setGeographyType(selectedItem.geography_types?.includes("municipality") ? "municipality" : selectedItem.geography_types?.[0] ?? "all");
-    setAggregation(selectedItem.default_aggregation && selectedItem.default_aggregation !== "none" ? selectedItem.default_aggregation : selectedItem.is_non_additive ? "average" : "sum");
+    setDimensionSearch({});
+    setYear("latest");
+    setPeriodCode("all");
+    const geographyOptions = selectedItem.geography_types?.filter((value) => value && value !== "unknown") ?? [];
+    const defaultGeographyType = geographyOptions.includes("municipality") ? "municipality" : geographyOptions[0] ?? "all";
+    setGeographyType(defaultGeographyType);
 
     const loadDetail = async () => {
       setIsDetailLoading(true);
       try {
-        setDetail(await semanticWorkbenchService.fetchMetricDetail(selectedItem));
+        setDetail(await semanticWorkbenchService.fetchMetricDetail(selectedItem, {
+          geographyType: defaultGeographyType !== "all" ? defaultGeographyType : null,
+          categoryFilters: {},
+        }));
       } catch (detailError) {
         setError(detailError instanceof Error ? detailError.message : String(detailError));
       } finally {
@@ -172,6 +389,45 @@ export function SemanticWorkbenchScreen() {
     void loadDetail();
   }, [selectedItem?.domain_id, selectedItem?.dataset_code, selectedItem?.measure_key]);
 
+  useEffect(() => {
+    if (!selectedItem || isDetailLoading) return;
+    const timeout = window.setTimeout(() => {
+      const refreshDetail = async () => {
+        try {
+          setDetail(await semanticWorkbenchService.fetchMetricDetail(selectedItem, {
+            year: year === "latest" ? null : Number(year),
+            periodCode: periodCode === "all" ? null : periodCode,
+            geographyType: hasGeographyGrain ? geographyType : null,
+            categoryFilters,
+          }));
+        } catch (detailError) {
+          setError(detailError instanceof Error ? detailError.message : String(detailError));
+        }
+      };
+      void refreshDetail();
+    }, 150);
+    return () => window.clearTimeout(timeout);
+  }, [categoryFilters, geographyType, hasGeographyGrain, periodCode, selectedItem?.domain_id, selectedItem?.dataset_code, selectedItem?.measure_key, year]);
+
+  useEffect(() => {
+    if (!detail?.dimensionValues.length) return;
+    setCategoryFilters((current) => {
+      let changed = false;
+      const next: Record<string, string[]> = {};
+
+      for (const [dimension, selectedValues] of Object.entries(current)) {
+        const availableValues = new Set(
+          (dimensionGroups[dimension] ?? []).map((value) => normalizedDimensionSelection(dimension, value))
+        );
+        const retainedValues = selectedValues.filter((value) => availableValues.has(value));
+        if (retainedValues.length !== selectedValues.length) changed = true;
+        if (retainedValues.length) next[dimension] = retainedValues;
+      }
+
+      return changed ? next : current;
+    });
+  }, [detail?.dimensionValues, dimensionGroups]);
+
   const runSandbox = async () => {
     if (!selectedItem) return;
     setIsSandboxLoading(true);
@@ -179,11 +435,11 @@ export function SemanticWorkbenchScreen() {
     try {
       setSandbox(await semanticWorkbenchService.runAggregationSandbox({
         item: selectedItem,
-        year: year === "latest" ? selectedItem.max_year : Number(year),
-        geographyType,
+        year: year === "latest" ? selectedSliceMaxYear : Number(year),
+        periodCode: periodCode === "all" ? null : periodCode,
+        geographyType: hasGeographyGrain ? geographyType : null,
         aggregation,
         categoryFilters,
-        groupDimension: groupDimension === "none" ? null : groupDimension,
       }));
     } catch (sandboxError) {
       setError(sandboxError instanceof Error ? sandboxError.message : String(sandboxError));
@@ -291,6 +547,7 @@ export function SemanticWorkbenchScreen() {
                       <TableCell className="pl-4">
                         <div className="max-w-[24rem] truncate font-medium text-foreground">{item.measure_name}</div>
                         <div className="max-w-[24rem] truncate text-xs text-muted-foreground">{item.metric_code ?? item.measure_code ?? item.measure_key}</div>
+                        <div className="max-w-[24rem] truncate text-[11px] text-muted-foreground" title={formatTopicPath(item)}>{formatTopicPath(item)}</div>
                       </TableCell>
                       <TableCell><Badge variant="outline">{item.dataset_code}</Badge></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{item.domain_id}</TableCell>
@@ -336,6 +593,19 @@ export function SemanticWorkbenchScreen() {
                 </div>
 
                 <section>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">Source Semantic Context</h3>
+                  <div className="rounded-md border border-border bg-card p-3 text-sm">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Info label="CBS topic" value={selectedItem.topic ?? "unknown"} />
+                      <Info label="CBS subtopic" value={selectedItem.subtopic ?? "unknown"} />
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      This context disambiguates duplicate CBS labels. For example, the same label can appear under different topic groups such as primary income versus all incomes.
+                    </p>
+                  </div>
+                </section>
+
+                <section>
                   <h3 className="mb-2 text-sm font-semibold text-foreground">Approval Explanation</h3>
                   <div className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
                     {selectedItem.approval_status === "approved" && "Approved means this metric has a reviewed or curated semantic contract and is enabled for the investigation engine."}
@@ -347,36 +617,158 @@ export function SemanticWorkbenchScreen() {
                 </section>
 
                 <section>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">Active Query Contract</h3>
+                  <div className="space-y-3 rounded-md border border-border bg-card p-3">
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <Info label="Active grain" value={activeDisplayGrain} />
+                      <Info label="Period grain" value={activePeriodGrain} />
+                      <Info label="Geography level" value={activeGeographyLevel} />
+                      <Info label="Aggregation" value={aggregation} />
+                    </div>
+
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-foreground">Category filters</div>
+                      {Object.keys(categoryFilters).length ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(categoryFilters).map(([dimension, values]) => (
+                            <span key={dimension} className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary">
+                              {dimension}: {values.map((value) => dimensionDisplayValue(dimension, value)).join(", ")}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+                          No category filters selected. Guara will collapse category dimensions to official total rows where CBS provides them.
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-foreground">Total-row behavior</div>
+                      {totalRowBehaviors.length ? (
+                        <div className="space-y-1.5">
+                          {totalRowBehaviors.map((item) => (
+                            <div
+                              key={item.dimension}
+                              className={cn(
+                                "rounded-md border px-2 py-1.5 text-xs",
+                                item.isSafe
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                  : "border-amber-200 bg-amber-50 text-amber-800"
+                              )}
+                            >
+                              <span className="font-medium">{item.dimension}</span>: {item.behavior}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+                          This measure has no category dimensions in the current selection.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="mb-2 text-sm font-semibold text-foreground">AI Semantic Review</h3>
+                  {detail?.aiReview ? (
+                    <div className="space-y-3 rounded-md border border-border bg-card p-3">
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge value={detail.aiReview.review_status} />
+                        <Badge variant="outline">{percentText(detail.aiReview.confidence)} confidence</Badge>
+                        <Badge variant="outline">{detail.aiReview.recommended_action.replace(/_/g, " ")}</Badge>
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-foreground">{detail.aiReview.business_label ?? selectedItem.measure_name}</div>
+                        <p className="mt-1 text-sm text-muted-foreground">{detail.aiReview.plain_definition ?? "No plain-language definition generated yet."}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <Info label="Metric type" value={detail.aiReview.metric_type ?? "unknown"} />
+                        <Info label="Recommended aggregation" value={detail.aiReview.recommended_aggregation ?? "unknown"} />
+                        <Info label="Aggregation class" value={detail.aiReview.aggregation_classification ?? "unknown"} />
+                        <Info label="Additive" value={detail.aiReview.is_additive === null ? "unknown" : detail.aiReview.is_additive ? "yes" : "no"} />
+                      </div>
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <div><span className="font-medium text-foreground">NL synonyms:</span> {listText((detail.aiReview.synonyms as { nl?: string[] })?.nl)}</div>
+                        <div><span className="font-medium text-foreground">EN synonyms:</span> {listText((detail.aiReview.synonyms as { en?: string[] })?.en)}</div>
+                        <div><span className="font-medium text-foreground">Exclusions:</span> {listText(detail.aiReview.exclusions)}</div>
+                        <div><span className="font-medium text-foreground">Caveats:</span> {listText(detail.aiReview.caveats)}</div>
+                        <div><span className="font-medium text-foreground">Risk flags:</span> {listText(detail.aiReview.risk_flags)}</div>
+                      </div>
+                      {detail.aiReview.rationale && (
+                        <p className="rounded-md border border-border bg-muted p-2 text-xs text-muted-foreground">{detail.aiReview.rationale}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+                      No AI semantic review generated yet. Run <span className="font-mono text-xs">npm run review:semantic:ai</span> after setting an OpenAI API key, or use the local fallback mode for an initial pass.
+                    </div>
+                  )}
+                </section>
+
+                <section>
                   <h3 className="mb-2 text-sm font-semibold text-foreground">Connected Dimensional Values</h3>
                   {isDetailLoading ? (
                     <p className="text-sm text-muted-foreground">Loading dimensions...</p>
                   ) : dimensions.length ? (
                     <div className="space-y-3">
-                      {dimensions.map((dimension) => (
-                        <div key={dimension} className="rounded-md border border-border">
-                          <div className="border-b border-border px-3 py-2 text-sm font-medium text-foreground">{dimension}</div>
-                          <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto p-2">
-                            {dimensionGroups[dimension].map((value) => (
-                              <button
-                                key={`${dimension}:${value.category_code ?? value.category_name}`}
-                                type="button"
-                                onClick={() => selectDimensionValue(dimension, value)}
-                                className={cn(
-                                  "rounded-md border px-2 py-1 text-xs transition",
-                                  (dimension === "calendar_year" && year === (value.category_code ?? value.category_name))
-                                  || (dimension === "geography_type" && geographyType === (value.category_code ?? value.category_name))
-                                  || categoryFilters[dimension] === (value.category_code ?? value.category_name)
-                                    ? "border-primary bg-primary text-primary-foreground"
-                                    : "border-border bg-card text-muted-foreground hover:text-foreground"
-                                )}
-                                title={`${value.category_name} · ${formatNumber(value.row_count)} rows`}
-                              >
-                                {value.category_name}
-                              </button>
-                            ))}
+                      {dimensions.map((dimension) => {
+                        const visibleValues = filterDimensionValues(dimensionGroups[dimension], dimensionSearch[dimension] ?? "");
+                        return (
+                          <div key={dimension} className="rounded-md border border-border">
+                            <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+                              <div>
+                                <div className="text-sm font-medium text-foreground">{dimension}</div>
+                                <div className="text-[11px] text-muted-foreground">{formatNumber(dimensionGroups[dimension].length)} values</div>
+                              </div>
+                              {isDimensionFiltered(dimension) && (
+                                <button
+                                  type="button"
+                                  onClick={() => clearDimensionFilter(dimension)}
+                                  className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                            {dimensionGroups[dimension].length > 12 && (
+                              <div className="border-b border-border p-2">
+                                <Input
+                                  value={dimensionSearch[dimension] ?? ""}
+                                  onChange={(event) => setDimensionSearch((current) => ({ ...current, [dimension]: event.target.value }))}
+                                  placeholder={`Search ${dimension} values...`}
+                                  className="h-8 text-xs"
+                                />
+                              </div>
+                            )}
+                            <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto p-2">
+                              {visibleValues.map((value) => (
+                                <button
+                                  key={`${dimension}:${value.category_code ?? value.category_name}`}
+                                  type="button"
+                                  onClick={() => selectDimensionValue(dimension, value)}
+                                  className={cn(
+                                    "rounded-md border px-2 py-1 text-xs transition",
+                                    (dimension === "calendar_year" && year === normalizedDimensionSelection(dimension, value))
+                                    || (dimension === "period_code" && periodCode === normalizedDimensionSelection(dimension, value))
+                                    || (dimension === "geography_type" && geographyType === normalizedDimensionSelection(dimension, value))
+                                    || (categoryFilters[dimension] ?? []).includes(normalizedDimensionSelection(dimension, value))
+                                      ? "border-primary bg-primary text-primary-foreground"
+                                      : "border-border bg-card text-muted-foreground hover:text-foreground"
+                                  )}
+                                  title={dimensionValueTitle(value)}
+                                >
+                                  {value.category_name}
+                                </button>
+                              ))}
+                              {visibleValues.length === 0 && (
+                                <p className="px-1 py-2 text-xs text-muted-foreground">No values match this filter.</p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">No dimensional values found for this measure.</p>
@@ -386,54 +778,36 @@ export function SemanticWorkbenchScreen() {
                 <section>
                   <h3 className="mb-2 text-sm font-semibold text-foreground">Aggregation Sandbox</h3>
                   <div className="space-y-2 rounded-md border border-border bg-card p-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <Select value={year} onValueChange={setYear}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="latest">Latest year</SelectItem>
-                          {selectedYearOptions.map((option) => <SelectItem key={option} value={String(option)}>{option}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Select value={geographyType} onValueChange={setGeographyType}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All levels</SelectItem>
-                          {selectedGeographyOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Select value={aggregation} onValueChange={setAggregation}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="sum">Sum</SelectItem>
-                          <SelectItem value="average">Average</SelectItem>
-                          <SelectItem value="min">Min</SelectItem>
-                          <SelectItem value="max">Max</SelectItem>
-                          <SelectItem value="count">Count rows</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Select value={groupDimension} onValueChange={setGroupDimension}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No category grouping</SelectItem>
-                          {categoryDimensions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-foreground">Applied filters</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {appliedFilters.map((filter) => (
+                          <button
+                            key={`${filter.dimension}:${filter.value}`}
+                            type="button"
+                            onClick={() => filter.removable && clearDimensionFilter(filter.dimension)}
+                            className={cn(
+                              "rounded-md border px-2 py-1 text-xs",
+                              filter.removable
+                                ? "border-primary/30 bg-primary/10 text-primary"
+                                : "border-border bg-muted text-muted-foreground"
+                            )}
+                          >
+                            {appliedFilterLabel(filter.dimension, filter.value)}: {filter.value}{filter.removable ? " x" : ""}
+                          </button>
+                        ))}
+                        {!hasGeographyGrain && (
+                          <span className="rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground">
+                            Level: not applicable
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {Object.entries(categoryFilters).map(([dimension, value]) => (
-                        <button
-                          key={dimension}
-                          type="button"
-                          onClick={() => setCategoryFilters((current) => {
-                            const next = { ...current };
-                            delete next[dimension];
-                            return next;
-                          })}
-                          className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary"
-                        >
-                          {dimension}: {value} ×
-                        </button>
-                      ))}
+                    <div className="grid grid-cols-1 gap-2">
+                      <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm">
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Contract aggregation</div>
+                        <div className="mt-0.5 font-medium text-foreground">{aggregation}</div>
+                      </div>
                     </div>
                     <Button size="sm" onClick={runSandbox} disabled={isSandboxLoading}>
                       <Play size={13} />
@@ -445,28 +819,34 @@ export function SemanticWorkbenchScreen() {
                 {sandbox && (
                   <section>
                     <h3 className="mb-2 text-sm font-semibold text-foreground">Sandbox Result</h3>
-                    <div className="max-h-72 overflow-auto rounded-md border border-border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="pl-3">Geography</TableHead>
-                            <TableHead>Year</TableHead>
-                            <TableHead>Group</TableHead>
-                            <TableHead className="text-right pr-3">Value</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {sandbox.rows.map((row, index) => (
-                            <TableRow key={`${row.geography_code}:${row.group_value}:${index}`}>
-                              <TableCell className="pl-3">{row.geography_name ?? row.geography_code ?? "Unknown"}</TableCell>
-                              <TableCell>{row.calendar_year}</TableCell>
-                              <TableCell>{row.group_value ?? "-"}</TableCell>
-                              <TableCell className="pr-3 text-right">{formatValue(row.aggregate_value)}</TableCell>
+                    {sandbox.rows.length ? (
+                      <div className="max-h-72 overflow-auto rounded-md border border-border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="pl-3">Geography</TableHead>
+                              <TableHead>Year</TableHead>
+                              <TableHead>Group</TableHead>
+                              <TableHead className="text-right pr-3">Value</TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
+                          </TableHeader>
+                          <TableBody>
+                            {sandbox.rows.map((row, index) => (
+                              <TableRow key={`${row.geography_code}:${row.group_value}:${index}`}>
+                                <TableCell className="pl-3">{row.geography_name ?? row.geography_code ?? "Unknown"}</TableCell>
+                                <TableCell>{row.calendar_year}</TableCell>
+                                <TableCell>{row.group_value ?? "-"}</TableCell>
+                                <TableCell className="pr-3 text-right">{formatValue(row.aggregate_value)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        No reported numeric rows match the current sandbox filters. The combination may exist in CBS, but missing or suppressed observations are excluded from aggregations.
+                      </div>
+                    )}
                   </section>
                 )}
 
@@ -531,6 +911,8 @@ export function SemanticWorkbenchScreen() {
                       metadata_origin: selectedItem.metadata_origin,
                       review_status: selectedItem.review_status,
                       risk_level: selectedItem.risk_level,
+                      topic: selectedItem.topic,
+                      subtopic: selectedItem.subtopic,
                     },
                     raw_metadata: selectedItem.metadata,
                   })}</pre>

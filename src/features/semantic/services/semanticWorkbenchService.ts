@@ -89,6 +89,8 @@ export interface SemanticCatalogueItem {
   measure_code: string | null;
   measure_name: string;
   measure_description: string | null;
+  topic: string | null;
+  subtopic: string | null;
   unit_code: string | null;
   unit_name: string | null;
   default_aggregation: string | null;
@@ -143,6 +145,8 @@ export interface SemanticDimensionValue {
   min_year: number | null;
   max_year: number | null;
   value_rank: number;
+  is_total?: boolean | null;
+  is_unknown?: boolean | null;
 }
 
 export interface SemanticSampleRow {
@@ -160,9 +164,38 @@ export interface SemanticSampleRow {
   categories: Record<string, string>;
 }
 
+export interface SemanticAiReview {
+  ai_review_id: string;
+  metric_code: string;
+  domain_id: string;
+  dataset_code: string;
+  measure_key: string;
+  model_provider: string;
+  model_name: string;
+  prompt_version: string;
+  review_status: string;
+  confidence: number | string | null;
+  business_label: string | null;
+  plain_definition: string | null;
+  metric_type: string | null;
+  aggregation_classification: string | null;
+  recommended_aggregation: string | null;
+  is_additive: boolean | null;
+  synonyms: { nl?: string[]; en?: string[] } | Record<string, unknown>;
+  exclusions: string[];
+  caveats: string[];
+  dimension_notes: Record<string, unknown>;
+  risk_flags: string[];
+  recommended_action: string;
+  rationale: string | null;
+  metadata: Record<string, unknown>;
+  updated_at: string;
+}
+
 export interface SemanticMetricDetail {
   dimensionValues: SemanticDimensionValue[];
   sampleRows: SemanticSampleRow[];
+  aiReview: SemanticAiReview | null;
 }
 
 export interface SemanticSandboxRow {
@@ -233,7 +266,15 @@ async function fetchCatalogue(filters: Pick<SemanticWorkbenchFilters, "domain" |
   };
 }
 
-async function fetchMetricDetail(item: Pick<SemanticCatalogueItem, "domain_id" | "dataset_code" | "measure_key">): Promise<SemanticMetricDetail> {
+async function fetchMetricDetail(
+  item: Pick<SemanticCatalogueItem, "domain_id" | "dataset_code" | "measure_key">,
+  filters: {
+    year?: number | null;
+    periodCode?: string | null;
+    geographyType?: string | null;
+    categoryFilters?: Record<string, string[]>;
+  } = {}
+): Promise<SemanticMetricDetail> {
   if (!isSupabaseConfigured()) {
     throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
   }
@@ -243,31 +284,36 @@ async function fetchMetricDetail(item: Pick<SemanticCatalogueItem, "domain_id" |
     p_domain: item.domain_id,
     p_dataset_code: item.dataset_code,
     p_measure_key: item.measure_key,
+    p_calendar_year: filters.year ?? null,
+    p_period_code: filters.periodCode && filters.periodCode !== "all" ? filters.periodCode : null,
+    p_geography_type: filters.geographyType && filters.geographyType !== "all" ? filters.geographyType : null,
+    p_category_filters: filters.categoryFilters ?? {},
     p_dimension_limit: 5000,
-    p_sample_limit: 25,
+    p_sample_limit: 0,
   });
   if (error) throw new Error(error.message);
   const payload = (data ?? {}) as Partial<SemanticMetricDetail>;
   return {
     dimensionValues: (payload.dimensionValues ?? []) as SemanticDimensionValue[],
     sampleRows: (payload.sampleRows ?? []) as SemanticSampleRow[],
+    aiReview: (payload.aiReview ?? null) as SemanticAiReview | null,
   };
 }
 
 async function runAggregationSandbox({
   item,
   year,
+  periodCode,
   geographyType,
   aggregation,
   categoryFilters,
-  groupDimension,
 }: {
   item: Pick<SemanticCatalogueItem, "domain_id" | "dataset_code" | "measure_key">;
   year?: number | null;
+  periodCode?: string | null;
   geographyType?: string | null;
   aggregation: string;
-  categoryFilters: Record<string, string>;
-  groupDimension?: string | null;
+  categoryFilters: Record<string, string[]>;
 }): Promise<SemanticSandboxResult> {
   if (!isSupabaseConfigured()) {
     throw new Error("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
@@ -279,10 +325,11 @@ async function runAggregationSandbox({
     p_dataset_code: item.dataset_code,
     p_measure_key: item.measure_key,
     p_calendar_year: year ?? null,
+    p_period_code: periodCode && periodCode !== "all" ? periodCode : null,
     p_geography_type: geographyType && geographyType !== "all" ? geographyType : null,
     p_aggregation: aggregation,
     p_category_filters: categoryFilters,
-    p_group_dimension: groupDimension || null,
+    p_group_dimension: null,
     p_limit: 25,
   });
   if (error) throw new Error(error.message);
